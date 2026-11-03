@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyElapsed, createPet, feed, play, tickPet, toIcons, MAX_HUNGER } from './state';
 import { loadPet, parseSave, serialize, storePet, SAVE_KEY, BACKUP_KEY } from './save';
 import { pickLine } from './dialogue';
-import { parsePack } from './assets';
+import { packFile, parseLegacyPack, parseZipPack } from './assets';
 import { allayRate, loadSoundMode, SOUND_MODES } from '../audio';
 
 function memStorage() {
@@ -99,18 +99,66 @@ describe('save', () => {
   });
 });
 
+/** 測試用的 stored zip（CRC 不檢查，填 0） */
+function makeZip(files: Record<string, string>): ArrayBuffer {
+  const enc = new TextEncoder();
+  const parts: Uint8Array[] = [];
+  const central: Uint8Array[] = [];
+  let offset = 0;
+  const entries = Object.entries(files);
+  for (const [name, text] of entries) {
+    const n = enc.encode(name);
+    const d = enc.encode(text);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true);
+    h.setUint32(18, d.length, true);
+    h.setUint32(22, d.length, true);
+    h.setUint16(26, n.length, true);
+    parts.push(new Uint8Array(h.buffer), n, d);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true);
+    c.setUint32(20, d.length, true);
+    c.setUint32(24, d.length, true);
+    c.setUint16(28, n.length, true);
+    c.setUint32(42, offset, true);
+    central.push(new Uint8Array(c.buffer), n);
+    offset += 30 + n.length + d.length;
+  }
+  const cdLen = central.reduce((a, b) => a + b.length, 0);
+  const e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true);
+  e.setUint16(8, entries.length, true);
+  e.setUint16(10, entries.length, true);
+  e.setUint32(12, cdLen, true);
+  e.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, new Uint8Array(e.buffer)] as BlobPart[]).arrayBuffer() as unknown as ArrayBuffer;
+}
+
 describe('asset pack', () => {
   const png = 'data:image/png;base64,AAAA';
-  it('accepts a pack with the allay texture and drops unknown or non-png entries', () => {
-    const p = parsePack(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', format: 1, source: '26.3', files: { allay: png, apple: 'http://evil', junk: png } }));
+  it('reads a zip pack by original paths', async () => {
+    const buf = await makeZip({
+      'pack.json': JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', format: 2, source: '26.3', id: 'x1' }),
+      'textures/entity/allay/allay.png': 'img',
+      'sounds/mob/allay/idle_with_item1.ogg': 'ogg',
+    });
+    const p = await parseZipPack(buf);
     expect(p.source).toBe('26.3');
-    expect(p.files.allay).toBe(png);
-    expect(p.files.apple).toBeUndefined();
-    expect('junk' in p.files).toBe(false);
+    expect(p.id).toBe('x1');
+    expect(await packFile(p, 'sounds/mob/allay/idle_with_item1')?.text()).toBe('ogg');
+    await expect(parseZipPack(await makeZip({ 'textures/entity/allay/allay.png': 'img' }))).rejects.toThrow('素材包');
+  });
+  it('converts a legacy json pack and drops unknown or non-png entries', () => {
+    const p = parseLegacyPack(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', format: 1, source: '26.3', files: { allay: png, apple: 'http://evil', junk: png, amethyst_chime: 'data:audio/wav;base64,AA' } }));
+    expect(p.source).toBe('26.3');
+    expect(p.files.has('textures/entity/allay/allay.png')).toBe(true);
+    expect(p.files.has('textures/item/apple.png')).toBe(false);
+    expect(p.files.size).toBe(2);
+    expect(packFile(p, 'sounds/block/amethyst/shimmer')).toBeDefined();
   });
   it('rejects packs without the allay or of the wrong kind', () => {
-    expect(() => parsePack(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', files: { apple: png } }))).toThrow('悅靈');
-    expect(() => parsePack(serialize(createPet()))).toThrow('素材包');
+    expect(() => parseLegacyPack(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', files: { apple: png } }))).toThrow('悅靈');
+    expect(() => parseLegacyPack(serialize(createPet()))).toThrow('素材包');
   });
 });
 
@@ -124,11 +172,6 @@ describe('sound spec', () => {
     expect(SOUND_MODES.soft).toMatchObject({ allay: 0.52, chime: 0.21, chimePitch: 1.35 });
     expect(SOUND_MODES.off).toMatchObject({ allay: 0, chime: 0 });
     expect(loadSoundMode({ getItem: () => null })).toBe('bright');
-  });
-  it('keeps wav sounds from the pack', () => {
-    const p = parsePack(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', files: { allay: 'data:image/png;base64,AA', amethyst_chime: 'data:audio/wav;base64,AA', allay_with_item1: 'data:audio/ogg;base64,AA' } }));
-    expect(p.files.amethyst_chime).toBeDefined();
-    expect(p.files.allay_with_item1).toBeUndefined();
   });
 });
 

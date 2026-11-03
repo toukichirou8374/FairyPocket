@@ -8,7 +8,7 @@ import { Hud } from './ui/hud';
 import { pickLine, type LineKind } from './game/dialogue';
 import { applyElapsed, createPet, feed, isNight, pet as petPet, play, tickPet, type Food } from './game/state';
 import { BACKUP_KEY, exportFileName, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
-import { clearPack, loadImages, loadStoredPack, parsePack, storePack, type AssetPack } from './game/assets';
+import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
@@ -87,9 +87,10 @@ const hud = new Hud(overlay, {
     setTimeout(() => say('greet'), 600);
   },
   importAssets: async (file) => {
+    hud.toast('正在匯入素材包…');
     try {
-      const p = parsePack(await file.text());
-      storePack(localStorage, p);
+      const p = await readPackFile(file);
+      await savePack(p);
       localStorage.removeItem(OPT_OUT_KEY);
       await applyPack(p);
       hud.toast(`已套用 Minecraft ${p.source} 原版素材`);
@@ -97,8 +98,8 @@ const hud = new Hud(overlay, {
       hud.toast((e as Error).message);
     }
   },
-  clearAssets: () => {
-    clearPack(localStorage);
+  clearAssets: async () => {
+    await deletePack().catch(() => {});
     localStorage.setItem(OPT_OUT_KEY, '1');
     save();
     location.reload();
@@ -108,7 +109,7 @@ const hud = new Hud(overlay, {
 
 // ---------- 原版素材 ----------
 
-let pack: AssetPack | null = loadStoredPack(localStorage);
+let pack: AssetPack | null = null;
 
 async function applyPack(p: AssetPack): Promise<void> {
   const img = await loadImages(p);
@@ -121,25 +122,30 @@ async function applyPack(p: AssetPack): Promise<void> {
 
 const OPT_OUT_KEY = 'fairypocket.assets.optout';
 
-if (pack) applyPack(pack);
-if (localStorage.getItem(OPT_OUT_KEY) !== '1') {
-  // 本機開發或預覽伺服器會提供 private/ 裡最新的素材包（建置與公開網站不含此檔）
-  fetch('local-pack.json', { cache: 'no-store' })
-    .then((r) => (r.ok ? r.text() : null))
-    .then(async (text) => {
-      if (!text) return;
-      const p = parsePack(text);
-      storePack(localStorage, p);
-      await applyPack(p);
-    })
-    .catch(() => {});
+/** 本機開發或預覽伺服器會提供 private/ 裡最新的素材包（建置與公開網站不含此檔） */
+async function localPack(): Promise<void> {
+  if (localStorage.getItem(OPT_OUT_KEY) === '1') return;
+  const head = await fetch('local-pack.zip', { method: 'HEAD', cache: 'no-store' });
+  const id = head.ok && head.headers.get('x-pack-id');
+  if (!id || id === pack?.id) return;
+  const p = await readPackFile(await (await fetch('local-pack.zip', { cache: 'no-store' })).blob());
+  p.id = id;
+  await savePack(p);
+  await applyPack(p);
 }
+
 hud.getPet = () => pet;
 hud.setName(pet.name);
 hud.updateStats(pet);
 
-if (!pet.onboarded) hud.openOnboarding(pet.name);
-else setTimeout(() => say(awayMs > 3600_000 ? 'welcomeBack' : 'greet'), 1200);
+(async () => {
+  const p = await loadPack();
+  if (p) await applyPack(p);
+  // 先讀完素材包，開場畫面才知道要不要提示匯入
+  if (!pet.onboarded) hud.openOnboarding(pet.name);
+  await localPack().catch(() => {});
+})();
+if (pet.onboarded) setTimeout(() => say(awayMs > 3600_000 ? 'welcomeBack' : 'greet'), 1200);
 
 // ---------- 存檔 ----------
 

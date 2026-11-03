@@ -1,16 +1,19 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { Connect, Plugin } from 'vite';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 
 // 只在本機開發／預覽伺服器提供個人原版素材包；不會進入建置結果
-const PACK = new URL('./private/FairyPocket-原版素材包.json', import.meta.url);
+const PACK = new URL('./private/FairyPocket-原版素材包.zip', import.meta.url);
 const servePack: Connect.NextHandleFunction = (req, res, next) => {
-  if (!req.url?.split('?')[0].endsWith('/local-pack.json') || !existsSync(PACK)) return next();
-  res.setHeader('Content-Type', 'application/json');
+  if (!req.url?.split('?')[0].endsWith('/local-pack.zip') || !existsSync(PACK)) return next();
+  res.setHeader('Content-Type', 'application/zip');
   res.setHeader('Cache-Control', 'no-store');
+  // 素材包更新時間當作版本，App 只在有變動時才重新下載
+  res.setHeader('X-Pack-Id', `local-${statSync(PACK).mtimeMs}`);
+  if (req.method === 'HEAD') return void res.end();
   res.end(readFileSync(PACK));
 };
 const localPack = (): Plugin => ({

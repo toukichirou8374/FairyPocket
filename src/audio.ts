@@ -3,7 +3,7 @@
 // 與紫水晶鈴聲（block.amethyst_block.chime）。音檔來自玩家自己的原版素材包。
 
 import type { Personality } from './game/state';
-import { SOUND_KEYS, type AssetPack, type SoundKey } from './game/assets';
+import { packFile, type AssetPack } from './game/assets';
 
 export type SoundMode = 'bright' | 'soft' | 'off';
 
@@ -27,18 +27,34 @@ export function allayRate(p: Personality): number {
 }
 
 const MODE_KEY = 'fairypocket.sound.v1';
-const VOICES: SoundKey[] = ['allay_with_item1', 'allay_with_item2', 'allay_with_item3', 'allay_with_item4'];
+const VOICES = [1, 2, 3, 4].map((i) => `sounds/mob/allay/idle_with_item${i}`);
+const CHIME = 'sounds/block/amethyst/shimmer';
 
 export function loadSoundMode(storage: Pick<Storage, 'getItem'>): SoundMode {
   const m = storage.getItem(MODE_KEY);
   return m === 'soft' || m === 'off' ? m : 'bright';
 }
 
+/** 瀏覽器不支援 OGG 時（部分舊版 iPhone），改用內建解碼器 */
+async function decodeOgg(ctx: AudioContext, data: ArrayBuffer): Promise<AudioBuffer> {
+  const { OggVorbisDecoder } = await import('@wasm-audio-decoders/ogg-vorbis');
+  const dec = new OggVorbisDecoder();
+  await dec.ready;
+  try {
+    const { channelData, sampleRate, samplesDecoded } = await dec.decodeFile(new Uint8Array(data));
+    const buf = ctx.createBuffer(channelData.length, samplesDecoded, sampleRate);
+    channelData.forEach((c, i) => buf.copyToChannel(new Float32Array(c.subarray(0, samplesDecoded)), i));
+    return buf;
+  } finally {
+    dec.free();
+  }
+}
+
 export class Sound {
   mode: SoundMode;
   private ctx: AudioContext | null = null;
-  private buffers: Partial<Record<SoundKey, AudioBuffer>> = {};
-  private sources: Partial<Record<SoundKey, string>> = {};
+  private pack: AssetPack | null = null;
+  private cache = new Map<string, Promise<AudioBuffer | null>>();
 
   constructor(private storage: Pick<Storage, 'getItem' | 'setItem'>) {
     this.mode = loadSoundMode(storage);
@@ -48,7 +64,7 @@ export class Sound {
   }
 
   get available(): boolean {
-    return VOICES.some((k) => this.sources[k]);
+    return !!this.pack && VOICES.some((v) => packFile(this.pack!, v));
   }
 
   setMode(m: SoundMode): void {
@@ -56,40 +72,57 @@ export class Sound {
     this.storage.setItem(MODE_KEY, m);
   }
 
-  usePack(p: AssetPack): void {
-    this.buffers = {};
-    this.sources = {};
-    for (const k of SOUND_KEYS) if (p.files[k]) this.sources[k] = p.files[k];
-    if (this.ctx) void this.decodeAll();
+  usePack(p: AssetPack | null): void {
+    this.pack = p;
+    this.cache.clear();
+    this.preload();
   }
 
   /** iOS 只允許在使用者觸控時啟用音訊 */
   unlock(): void {
     if (!this.ctx) {
       this.ctx = new AudioContext();
-      void this.decodeAll();
+      this.preload();
     }
     if (this.ctx.state !== 'running') void this.ctx.resume();
   }
 
-  private async decodeAll(): Promise<void> {
-    const ctx = this.ctx!;
-    await Promise.all(
-      (Object.entries(this.sources) as [SoundKey, string][]).map(async ([k, src]) => {
-        try {
-          const data = await (await fetch(src)).arrayBuffer();
-          this.buffers[k] = await ctx.decodeAudioData(data);
-        } catch {
-          // 無法解碼就略過這個音效
-        }
-      }),
-    );
+  private preload(): void {
+    if (this.ctx) for (const path of [...VOICES, CHIME]) void this.buffer(path);
   }
 
-  private play(key: SoundKey, volume: number, rate: number): void {
+  /** 依原版路徑取得解碼後的音效（會快取） */
+  private buffer(path: string): Promise<AudioBuffer | null> {
+    let b = this.cache.get(path);
+    if (!b) {
+      b = this.decode(path);
+      this.cache.set(path, b);
+    }
+    return b;
+  }
+
+  private async decode(path: string): Promise<AudioBuffer | null> {
     const ctx = this.ctx;
-    const buf = this.buffers[key];
-    if (!ctx || !buf || volume <= 0 || ctx.state !== 'running') return;
+    const blob = this.pack && packFile(this.pack, path);
+    if (!ctx || !blob) return null;
+    const data = await blob.arrayBuffer();
+    try {
+      return await ctx.decodeAudioData(data.slice(0));
+    } catch {
+      try {
+        return await decodeOgg(ctx, data);
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  /** 播放任一原版音效，例如 play('sounds/random/pop', 0.5, 1.2) */
+  async play(path: string, volume: number, rate = 1): Promise<void> {
+    const ctx = this.ctx;
+    if (!ctx || volume <= 0) return;
+    const buf = await this.buffer(path);
+    if (!buf || ctx.state !== 'running') return;
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.playbackRate.value = rate;
@@ -102,8 +135,7 @@ export class Sound {
   /** 悅靈發言：悅靈叫聲 + 紫水晶鈴聲 */
   speak(p: Personality): void {
     const m = SOUND_MODES[this.mode];
-    const voices = VOICES.filter((k) => this.buffers[k]);
-    if (voices.length) this.play(voices[Math.floor(Math.random() * voices.length)], m.allay, allayRate(p));
-    this.play('amethyst_chime', m.chime, m.chimePitch);
+    void this.play(VOICES[Math.floor(Math.random() * VOICES.length)], m.allay, allayRate(p));
+    void this.play(CHIME, m.chime, m.chimePitch);
   }
 }

@@ -1,53 +1,28 @@
-// 從「你自己安裝的」Minecraft Java 版遊戲檔取出 FairyPocket 需要的原版素材，
-// 打包成 private/FairyPocket-原版素材包.json。
+// 從「你自己安裝的」Minecraft Java 版遊戲檔取出原版素材，
+// 打包成 private/FairyPocket-原版素材包.zip（全部材質 + 背景音樂與唱片以外的全部音效）。
 // 這個素材包只供個人使用：private/ 已排除在 Git 與網站建置之外，請勿公開散布。
 //
-// 用法：node scripts/make-pack.mjs [jar 路徑]
-// 未指定時自動選用 %APPDATA%\.minecraft\versions 中最新的正式版本。
+// 用法：node scripts/make-pack.mjs [版本名稱，例如 26.3]
+// 未指定時自動選用 %APPDATA%\.minecraft\versions 中最新的正式版本。遊戲檔只讀取、不修改。
 
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { inflateRawSync } from 'node:zlib';
-import { OggVorbisDecoder } from '@wasm-audio-decoders/ogg-vorbis';
+import { inflateRawSync, crc32 } from 'node:zlib';
 
-// 音效在遊戲的資源索引（assets/objects）裡；轉成 WAV 讓所有 iPhone 都能播放
-const SOUNDS = {
-  allay_with_item1: 'mob/allay/idle_with_item1',
-  allay_with_item2: 'mob/allay/idle_with_item2',
-  allay_with_item3: 'mob/allay/idle_with_item3',
-  allay_with_item4: 'mob/allay/idle_with_item4',
-  amethyst_chime: 'block/amethyst/shimmer',
-};
+/** 不放進素材包的音效資料夾（檔案太大、手機用不到） */
+const SKIP_SOUNDS = /^minecraft\/sounds\/(music|records)\//;
 
-const FILES = {
-  allay: 'textures/entity/allay/allay.png',
-  apple: 'textures/item/apple.png',
-  bread: 'textures/item/bread.png',
-  feather: 'textures/item/feather.png',
-  slime_ball: 'textures/item/slime_ball.png',
-  note_block: 'textures/block/note_block.png',
-  heart_full: 'textures/gui/sprites/hud/heart/full.png',
-  heart_half: 'textures/gui/sprites/hud/heart/half.png',
-  heart_container: 'textures/gui/sprites/hud/heart/container.png',
-  food_full: 'textures/gui/sprites/hud/food_full.png',
-  food_half: 'textures/gui/sprites/hud/food_half.png',
-  food_empty: 'textures/gui/sprites/hud/food_empty.png',
-  hotbar: 'textures/gui/sprites/hud/hotbar.png',
-  hotbar_selection: 'textures/gui/sprites/hud/hotbar_selection.png',
-  particle_heart: 'textures/particle/heart.png',
-  particle_note: 'textures/particle/note.png',
-};
+const mc = join(process.env.APPDATA ?? '', '.minecraft');
 
-function findJar() {
-  const dir = join(process.env.APPDATA ?? '', '.minecraft', 'versions');
+function findVersion() {
+  const dir = join(mc, 'versions');
   if (!existsSync(dir)) throw new Error(`找不到 Minecraft Java 版資料夾：${dir}`);
-  const jars = readdirSync(dir)
+  const list = readdirSync(dir)
     .filter((v) => !/fabric|forge|quilt|snapshot|-pre|-rc|^\d\dw\d\d/i.test(v))
-    .map((v) => ({ v, jar: join(dir, v, `${v}.jar`) }))
-    .filter((x) => existsSync(x.jar))
-    .sort((a, b) => statSync(b.jar).mtimeMs - statSync(a.jar).mtimeMs);
-  if (!jars.length) throw new Error('找不到已下載的正式版遊戲檔，請先用官方啟動器開一次遊戲');
-  return jars[0];
+    .filter((v) => existsSync(join(dir, v, `${v}.jar`)))
+    .sort((a, b) => statSync(join(dir, b, `${b}.jar`)).mtimeMs - statSync(join(dir, a, `${a}.jar`)).mtimeMs);
+  if (!list.length) throw new Error('找不到已下載的正式版遊戲檔，請先用官方啟動器開一次遊戲');
+  return list[0];
 }
 
 /** 極簡 zip 讀取器（jar 就是 zip） */
@@ -72,78 +47,93 @@ function readZip(buf) {
     entries.set(name, { method, size, local });
     p += 46 + nameLen + extraLen + commentLen;
   }
-  return (name) => {
+  const get = (name) => {
     const e = entries.get(name);
     if (!e) return null;
     const start = e.local + 30 + buf.readUInt16LE(e.local + 26) + buf.readUInt16LE(e.local + 28);
     const raw = buf.subarray(start, start + e.size);
     return e.method === 8 ? inflateRawSync(raw) : Buffer.from(raw);
   };
+  return { names: [...entries.keys()], get };
 }
 
-const arg = process.argv[2];
-const { v, jar } = arg ? { v: arg.replace(/^.*[\\/]/, '').replace(/\.jar$/, ''), jar: arg } : findJar();
-console.log(`讀取（唯讀）：${jar}`);
-const get = readZip(readFileSync(jar));
+/** 不壓縮（stored）的 zip；PNG 與 OGG 本身已壓縮 */
+function writeZip(files) {
+  const locals = [];
+  const centrals = [];
+  let offset = 0;
+  for (const [name, data] of files) {
+    const n = Buffer.from(name, 'utf8');
+    const crc = crc32(data);
+    const h = Buffer.alloc(30);
+    h.writeUInt32LE(0x04034b50, 0);
+    h.writeUInt16LE(20, 4);
+    h.writeUInt16LE(0x0800, 6); // UTF-8 檔名
+    h.writeUInt32LE(crc, 14);
+    h.writeUInt32LE(data.length, 18);
+    h.writeUInt32LE(data.length, 22);
+    h.writeUInt16LE(n.length, 26);
+    locals.push(h, n, data);
+    const c = Buffer.alloc(46);
+    c.writeUInt32LE(0x02014b50, 0);
+    c.writeUInt16LE(20, 4);
+    c.writeUInt16LE(20, 6);
+    c.writeUInt16LE(0x0800, 8);
+    c.writeUInt32LE(crc, 16);
+    c.writeUInt32LE(data.length, 20);
+    c.writeUInt32LE(data.length, 24);
+    c.writeUInt16LE(n.length, 28);
+    c.writeUInt32LE(offset, 42);
+    centrals.push(c, n);
+    offset += 30 + n.length + data.length;
+  }
+  const cd = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(cd.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, cd, end]);
+}
 
-const files = {};
+const v = process.argv[2] ?? findVersion();
+const jarPath = join(mc, 'versions', v, `${v}.jar`);
+console.log(`讀取（唯讀）：${jarPath}`);
+const jar = readZip(readFileSync(jarPath));
+
+const files = [];
+let textures = 0;
+for (const name of jar.names) {
+  if (!name.startsWith('assets/minecraft/textures/') || !name.endsWith('.png')) continue;
+  files.push([name.slice('assets/minecraft/'.length), jar.get(name)]);
+  textures++;
+}
+if (!files.some(([n]) => n === 'textures/entity/allay/allay.png')) throw new Error('遊戲檔裡找不到悅靈貼圖');
+
+const meta = JSON.parse(readFileSync(join(mc, 'versions', v, `${v}.json`), 'utf8'));
+const index = JSON.parse(readFileSync(join(mc, 'assets', 'indexes', `${meta.assetIndex.id}.json`), 'utf8')).objects;
+let sounds = 0;
 const missing = [];
-for (const [key, path] of Object.entries(FILES)) {
-  const data = get(`assets/minecraft/${path}`);
-  if (data) files[key] = `data:image/png;base64,${data.toString('base64')}`;
-  else missing.push(path);
-}
-if (!files.allay) throw new Error('遊戲檔裡找不到悅靈貼圖');
-
-/** 單聲道 16-bit WAV */
-function toWav(channels, rate) {
-  const n = channels[0].length;
-  const buf = Buffer.alloc(44 + n * 2);
-  buf.write('RIFF', 0);
-  buf.writeUInt32LE(36 + n * 2, 4);
-  buf.write('WAVEfmt ', 8);
-  buf.writeUInt32LE(16, 16);
-  buf.writeUInt16LE(1, 20);
-  buf.writeUInt16LE(1, 22);
-  buf.writeUInt32LE(rate, 24);
-  buf.writeUInt32LE(rate * 2, 28);
-  buf.writeUInt16LE(2, 32);
-  buf.writeUInt16LE(16, 34);
-  buf.write('data', 36);
-  buf.writeUInt32LE(n * 2, 40);
-  for (let i = 0; i < n; i++) {
-    let s = 0;
-    for (const c of channels) s += c[i];
-    s = Math.max(-1, Math.min(1, s / channels.length));
-    buf.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
+for (const [name, obj] of Object.entries(index)) {
+  if (!name.startsWith('minecraft/sounds/') || SKIP_SOUNDS.test(name)) continue;
+  const path = join(mc, 'assets', 'objects', obj.hash.slice(0, 2), obj.hash);
+  if (!existsSync(path)) {
+    missing.push(name);
+    continue;
   }
-  return buf;
+  files.push([name.slice('minecraft/'.length), readFileSync(path)]);
+  sounds++;
 }
+const sj = index['minecraft/sounds.json'];
+if (sj) files.push(['sounds.json', readFileSync(join(mc, 'assets', 'objects', sj.hash.slice(0, 2), sj.hash))]);
 
-try {
-  const mc = join(process.env.APPDATA ?? '', '.minecraft');
-  const meta = JSON.parse(readFileSync(join(mc, 'versions', v, `${v}.json`), 'utf8'));
-  const index = JSON.parse(readFileSync(join(mc, 'assets', 'indexes', `${meta.assetIndex.id}.json`), 'utf8')).objects;
-  const decoder = new OggVorbisDecoder();
-  await decoder.ready;
-  for (const [key, name] of Object.entries(SOUNDS)) {
-    const obj = index[`minecraft/sounds/${name}.ogg`];
-    const path = obj && join(mc, 'assets', 'objects', obj.hash.slice(0, 2), obj.hash);
-    if (!path || !existsSync(path)) {
-      missing.push(`${name}.ogg`);
-      continue;
-    }
-    const { channelData, sampleRate } = await decoder.decodeFile(new Uint8Array(readFileSync(path)));
-    await decoder.reset();
-    files[key] = `data:audio/wav;base64,${toWav(channelData, sampleRate).toString('base64')}`;
-  }
-  decoder.free();
-} catch (e) {
-  console.log(`讀不到音效（將沒有聲音）：${e.message}`);
-}
+const id = `${v}-${Date.now()}`;
+files.unshift(['pack.json', Buffer.from(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', format: 2, source: v, id }))]);
 
 mkdirSync('private', { recursive: true });
-const out = join('private', 'FairyPocket-原版素材包.json');
-writeFileSync(out, JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', format: 1, source: v, files }));
-console.log(`完成：${out}（${Object.keys(files).length} 個素材，Minecraft ${v}）`);
-if (missing.length) console.log(`此版本缺少（將使用暫用素材）：${missing.join(', ')}`);
+const out = join('private', 'FairyPocket-原版素材包.zip');
+const zip = writeZip(files);
+writeFileSync(out, zip);
+console.log(`完成：${out}（材質 ${textures} 個、音效 ${sounds} 個，${(zip.length / 1e6).toFixed(1)} MB，Minecraft ${v}）`);
+if (missing.length) console.log(`尚未下載的音效 ${missing.length} 個（請用官方啟動器開一次遊戲）`);

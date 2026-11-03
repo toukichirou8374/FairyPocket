@@ -19,11 +19,13 @@
 
 ### 原版素材包（個人使用，禁止公開）
 
-1. `npm run pack`：從自己安裝的 Minecraft Java 版遊戲檔（唯讀）取出需要的貼圖與音效
-   （悅靈 ambient_with_item 1–4、紫水晶 chime，轉成 WAV），
-   產生 `private/FairyPocket-原版素材包.json`。`private/` 已排除在 Git 與建置之外。
-2. 在遊戲「設定 → 匯入原版素材」選這個檔案，素材只會存在該裝置上。
-   用本機 `npm run dev`／`npm run preview` 開啟時會自動套用（建置結果不含這個檔案）。
+1. `npm run pack`：從自己安裝的 Minecraft Java 版遊戲檔（唯讀）取出**全部材質**與
+   **背景音樂、唱片以外的全部音效**（保留原版路徑），產生 `private/FairyPocket-原版素材包.zip`
+   （約 90 MB）。`private/` 已排除在 Git 與建置之外。
+2. 在遊戲「設定 → 匯入原版素材」選這個檔案，素材存在該裝置的 IndexedDB。
+   用本機 `npm run dev`／`npm run preview` 開啟時會自動套用最新的素材包（建置結果不含這個檔案）。
+3. 程式用原版路徑取素材，例如 `sound.play('sounds/random/pop', 0.5)`；
+   之後新增功能只要用素材包裡已有的檔案，就不必重新匯入。
 
 ## 結構
 

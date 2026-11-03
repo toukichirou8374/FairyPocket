@@ -5,7 +5,10 @@ import { affectionLevel, NAME_MAX, PERSONALITIES, toIcons, type Personality, typ
 import type { AssetImages } from '../game/assets';
 import { SOUND_MODES, type SoundMode } from '../audio';
 
-export type Slot = 'apple' | 'bread' | 'feather' | 'slime' | 'call';
+/** 素材包：新版 zip、舊版 json 都可以 */
+const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
+
+export type Slot ='apple' | 'bread' | 'feather' | 'slime' | 'call';
 export const SLOTS: { id: Slot; label: string; hint: string }[] = [
   { id: 'apple', label: '蘋果', hint: '點悅靈餵食' },
   { id: 'bread', label: '麵包', hint: '點悅靈餵食' },
@@ -31,7 +34,7 @@ export interface HudActions {
   reset(): void;
   onboard(name: string, p: Personality): void;
   importAssets(file: File): void;
-  clearAssets(): void;
+  clearAssets(): void | Promise<void>;
   /** 已套用的原版素材版本，未套用時為 null */
   assetSource(): string | null;
   soundMode(): SoundMode;
@@ -257,7 +260,7 @@ export class Hud {
       ai.textContent = '匯入原版素材';
       const afile = el('input', '', box);
       afile.type = 'file';
-      afile.accept = 'application/json,.json';
+      afile.accept = PACK_ACCEPT;
       afile.style.display = 'none';
       afile.dataset.kind = 'assets';
       ai.addEventListener('click', () => afile.click());
@@ -328,7 +331,7 @@ export class Hud {
     ai.textContent = src ? '重新匯入' : '匯入原版素材';
     const afile = el('input', '', box);
     afile.type = 'file';
-    afile.accept = 'application/json,.json';
+    afile.accept = PACK_ACCEPT;
     afile.style.display = 'none';
     afile.dataset.kind = 'assets';
     ai.addEventListener('click', () => afile.click());
