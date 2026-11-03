@@ -9,6 +9,7 @@ import { pickLine, type LineKind } from './game/dialogue';
 import { applyElapsed, createPet, feed, isNight, pet as petPet, play, tickPet, type Food } from './game/state';
 import { BACKUP_KEY, exportFileName, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
 import { clearPack, loadImages, loadStoredPack, parsePack, storePack, type AssetPack } from './game/assets';
+import { Sound } from './audio';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const overlay = document.getElementById('overlay') as HTMLDivElement;
@@ -23,7 +24,13 @@ let night = isNight();
 const model = new AllayModel();
 stage.scene.add(model.root);
 
-const say = (kind: LineKind) => hud.say(pickLine(kind, pet.personality, pet.name));
+const sound = new Sound(localStorage);
+let lastSpoke = 0;
+const say = (kind: LineKind) => {
+  hud.say(pickLine(kind, pet.personality, pet.name));
+  sound.speak(pet.personality);
+  lastSpoke = performance.now();
+};
 
 const ctrl = new AllayController(
   model,
@@ -35,7 +42,7 @@ const ctrl = new AllayController(
     caught: () => {
       stage.removeBall();
       play(pet);
-      if (Math.random() < 0.7) say('play');
+      say('play');
     },
   },
 );
@@ -47,11 +54,19 @@ const hud = new Hud(overlay, {
     pet.name = name;
     hud.setName(name);
     save();
+    say('greet');
   },
   setPersonality: (p) => {
     pet.personality = p;
     save();
+    say('greet');
   },
+  soundMode: () => sound.mode,
+  setSoundMode: (m) => {
+    sound.setMode(m);
+    if (m !== 'off') sound.speak(pet.personality);
+  },
+  soundAvailable: () => sound.available,
   exportSave,
   importSave,
   reset: () => {
@@ -98,6 +113,7 @@ let pack: AssetPack | null = loadStoredPack(localStorage);
 async function applyPack(p: AssetPack): Promise<void> {
   const img = await loadImages(p);
   pack = p;
+  sound.usePack(p);
   if (img.allay) model.setSkin(img.allay);
   stage.useImages(img);
   hud.useImages(img);
@@ -106,9 +122,9 @@ async function applyPack(p: AssetPack): Promise<void> {
 const OPT_OUT_KEY = 'fairypocket.assets.optout';
 
 if (pack) applyPack(pack);
-else if (localStorage.getItem(OPT_OUT_KEY) !== '1') {
-  // 本機開發或預覽伺服器會提供 private/ 裡的素材包（建置與公開網站不含此檔）
-  fetch('local-pack.json')
+if (localStorage.getItem(OPT_OUT_KEY) !== '1') {
+  // 本機開發或預覽伺服器會提供 private/ 裡最新的素材包（建置與公開網站不含此檔）
+  fetch('local-pack.json', { cache: 'no-store' })
     .then((r) => (r.ok ? r.text() : null))
     .then(async (text) => {
       if (!text) return;
@@ -233,13 +249,16 @@ function tap(x: number, y: number): void {
   }
   if (hit) {
     petPet(pet);
-    if (ctrl.petted() && Math.random() < 0.4) say('pet');
+    if (ctrl.petted()) say('pet');
     return;
   }
   // 點空白處：悅靈好奇地飛過去
   const t = (ctrl.pos.z - ray.origin.z) / ray.direction.z;
   if (t > 0) ctrl.lookAt(ray.at(t, new THREE.Vector3()));
 }
+
+// iOS 需在使用者第一次觸控時啟用音訊
+document.addEventListener('pointerdown', () => sound.unlock(), { capture: true });
 
 let down: { x: number; y: number; t: number; moved: number; rub: number } | null = null;
 let lastRubPet = 0;
@@ -301,13 +320,12 @@ function frame(now: number): void {
   stage.setShadow(ctrl.pos);
   stage.update(dt, elapsed);
 
-  // 偶爾主動說話
+  // 主動發言：每 15 秒檢查一次，距離上次發言超過 45 秒才說話
   if (ctrl.awake && pet.onboarded) {
     talkIn -= dt;
     if (talkIn <= 0) {
-      const talk = pet.personality === 'playful' ? 1.4 : pet.personality === 'cautious' ? 0.7 : 1;
-      talkIn = (18 + Math.random() * 25) / talk;
-      if (ctrl.mode === 'idle' || ctrl.mode === 'approach' || ctrl.mode === 'wander') {
+      talkIn = 15;
+      if (now - lastSpoke > 45_000 && (ctrl.mode === 'idle' || ctrl.mode === 'approach' || ctrl.mode === 'wander')) {
         say(pet.hunger < 6 ? 'hungry' : pet.energy < 25 ? 'sleepy' : night && Math.random() < 0.3 ? 'night' : 'idle');
       }
     }
@@ -326,4 +344,4 @@ function frame(now: number): void {
 requestAnimationFrame(frame);
 
 // 方便自動化測試與除錯
-Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS } });
+Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound } });

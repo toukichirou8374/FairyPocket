@@ -218,6 +218,7 @@ html, body {
   margin-top: 10px;
 }
 .btn.primary { background: var(--accent); color: #fff; font-weight: 700; }
+.btn.on { border-color: var(--accent); background: #e4f4ff; box-shadow: 0 0 0 2px var(--accent); font-weight: 700; }
 .btn.danger { border-color: #b03040; color: #b03040; font-size: 14px; }
 .btnrow { display: flex; gap: 8px; }
 .btnrow .btn { margin-top: 0; }

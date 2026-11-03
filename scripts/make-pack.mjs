@@ -8,6 +8,16 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
+import { OggVorbisDecoder } from '@wasm-audio-decoders/ogg-vorbis';
+
+// 音效在遊戲的資源索引（assets/objects）裡；轉成 WAV 讓所有 iPhone 都能播放
+const SOUNDS = {
+  allay_with_item1: 'mob/allay/idle_with_item1',
+  allay_with_item2: 'mob/allay/idle_with_item2',
+  allay_with_item3: 'mob/allay/idle_with_item3',
+  allay_with_item4: 'mob/allay/idle_with_item4',
+  amethyst_chime: 'block/amethyst/shimmer',
+};
 
 const FILES = {
   allay: 'textures/entity/allay/allay.png',
@@ -84,6 +94,53 @@ for (const [key, path] of Object.entries(FILES)) {
   else missing.push(path);
 }
 if (!files.allay) throw new Error('遊戲檔裡找不到悅靈貼圖');
+
+/** 單聲道 16-bit WAV */
+function toWav(channels, rate) {
+  const n = channels[0].length;
+  const buf = Buffer.alloc(44 + n * 2);
+  buf.write('RIFF', 0);
+  buf.writeUInt32LE(36 + n * 2, 4);
+  buf.write('WAVEfmt ', 8);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(rate, 24);
+  buf.writeUInt32LE(rate * 2, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write('data', 36);
+  buf.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) {
+    let s = 0;
+    for (const c of channels) s += c[i];
+    s = Math.max(-1, Math.min(1, s / channels.length));
+    buf.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
+  }
+  return buf;
+}
+
+try {
+  const mc = join(process.env.APPDATA ?? '', '.minecraft');
+  const meta = JSON.parse(readFileSync(join(mc, 'versions', v, `${v}.json`), 'utf8'));
+  const index = JSON.parse(readFileSync(join(mc, 'assets', 'indexes', `${meta.assetIndex.id}.json`), 'utf8')).objects;
+  const decoder = new OggVorbisDecoder();
+  await decoder.ready;
+  for (const [key, name] of Object.entries(SOUNDS)) {
+    const obj = index[`minecraft/sounds/${name}.ogg`];
+    const path = obj && join(mc, 'assets', 'objects', obj.hash.slice(0, 2), obj.hash);
+    if (!path || !existsSync(path)) {
+      missing.push(`${name}.ogg`);
+      continue;
+    }
+    const { channelData, sampleRate } = await decoder.decodeFile(new Uint8Array(readFileSync(path)));
+    await decoder.reset();
+    files[key] = `data:audio/wav;base64,${toWav(channelData, sampleRate).toString('base64')}`;
+  }
+  decoder.free();
+} catch (e) {
+  console.log(`讀不到音效（將沒有聲音）：${e.message}`);
+}
 
 mkdirSync('private', { recursive: true });
 const out = join('private', 'FairyPocket-原版素材包.json');

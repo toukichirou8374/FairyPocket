@@ -8,6 +8,10 @@ export const ASSET_KEYS = [
 ] as const;
 export type AssetKey = (typeof ASSET_KEYS)[number];
 
+/** 原版音效（entity.allay.ambient_with_item 1–4、block.amethyst_block.chime），WAV 格式 */
+export const SOUND_KEYS = ['allay_with_item1', 'allay_with_item2', 'allay_with_item3', 'allay_with_item4', 'amethyst_chime'] as const;
+export type SoundKey = (typeof SOUND_KEYS)[number];
+
 /** 少了這些就無法套用 */
 const REQUIRED: AssetKey[] = ['allay'];
 
@@ -16,7 +20,7 @@ export interface AssetPack {
   kind: 'mc-assets';
   format: 1;
   source: string;
-  files: Partial<Record<AssetKey, string>>;
+  files: Partial<Record<AssetKey | SoundKey, string>>;
 }
 
 export const ASSETS_KEY = 'fairypocket.assets.v1';
@@ -35,6 +39,10 @@ export function parsePack(text: string): AssetPack {
   for (const k of ASSET_KEYS) {
     const v = (d.files as Record<string, unknown>)[k];
     if (typeof v === 'string' && v.startsWith('data:image/png;base64,')) files[k] = v;
+  }
+  for (const k of SOUND_KEYS) {
+    const v = (d.files as Record<string, unknown>)[k];
+    if (typeof v === 'string' && v.startsWith('data:audio/wav;base64,')) files[k] = v;
   }
   for (const k of REQUIRED) if (!files[k]) throw new Error('素材包缺少悅靈貼圖');
   return { app: 'FairyPocket', kind: 'mc-assets', format: 1, source: String(d.source ?? '未知版本').slice(0, 40), files };
@@ -64,8 +72,8 @@ export type AssetImages = Partial<Record<AssetKey, HTMLImageElement>>;
 export async function loadImages(p: AssetPack): Promise<AssetImages> {
   const out: AssetImages = {};
   await Promise.all(
-    (Object.entries(p.files) as [AssetKey, string][]).map(
-      ([k, src]) =>
+    ASSET_KEYS.filter((k) => p.files[k]).map(
+      (k) =>
         new Promise<void>((resolve) => {
           const img = new Image();
           img.onload = () => {
@@ -73,7 +81,7 @@ export async function loadImages(p: AssetPack): Promise<AssetImages> {
             resolve();
           };
           img.onerror = () => resolve();
-          img.src = src;
+          img.src = p.files[k]!;
         }),
     ),
   );

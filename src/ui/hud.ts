@@ -3,6 +3,7 @@
 import { gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, statGrid } from '../pixel';
 import { affectionLevel, NAME_MAX, PERSONALITIES, toIcons, type Personality, type PetState } from '../game/state';
 import type { AssetImages } from '../game/assets';
+import { SOUND_MODES, type SoundMode } from '../audio';
 
 export type Slot = 'apple' | 'bread' | 'feather' | 'slime' | 'call';
 export const SLOTS: { id: Slot; label: string; hint: string }[] = [
@@ -33,6 +34,10 @@ export interface HudActions {
   clearAssets(): void;
   /** 已套用的原版素材版本，未套用時為 null */
   assetSource(): string | null;
+  soundMode(): SoundMode;
+  setSoundMode(m: SoundMode): void;
+  /** 素材包裡有沒有音效 */
+  soundAvailable(): boolean;
 }
 
 export class Hud {
@@ -275,6 +280,19 @@ export class Hud {
     input.addEventListener('change', () => input.value.trim() && this.actions.rename(input.value.trim()));
     el('label', '', box).textContent = '個性';
     this.personalityPicker(box, s.personality, (p) => this.actions.setPersonality(p));
+
+    el('label', '', box).textContent = '聲音';
+    const srow = el('div', 'btnrow', box);
+    (Object.keys(SOUND_MODES) as SoundMode[]).forEach((m) => {
+      const b = el('button', 'btn' + (m === this.actions.soundMode() ? ' on' : ''), srow);
+      b.dataset.sound = m;
+      b.textContent = SOUND_MODES[m].label;
+      b.addEventListener('click', () => {
+        srow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
+        this.actions.setSoundMode(m);
+      });
+    });
+    if (!this.actions.soundAvailable()) el('div', 'info', box).textContent = '匯入含音效的原版素材包後才會有悅靈的聲音。';
 
     const info = el('div', 'info', box);
     const days = Math.max(1, Math.ceil((Date.now() - s.createdAt) / 86400000));

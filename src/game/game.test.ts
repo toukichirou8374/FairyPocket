@@ -3,6 +3,7 @@ import { applyElapsed, createPet, feed, play, tickPet, toIcons, MAX_HUNGER } fro
 import { loadPet, parseSave, serialize, storePet, SAVE_KEY, BACKUP_KEY } from './save';
 import { pickLine } from './dialogue';
 import { parsePack } from './assets';
+import { allayRate, loadSoundMode, SOUND_MODES } from '../audio';
 
 function memStorage() {
   const m = new Map<string, string>();
@@ -110,6 +111,24 @@ describe('asset pack', () => {
   it('rejects packs without the allay or of the wrong kind', () => {
     expect(() => parsePack(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', files: { apple: png } }))).toThrow('悅靈');
     expect(() => parsePack(serialize(createPet()))).toThrow('素材包');
+  });
+});
+
+describe('sound spec', () => {
+  it('uses the standard personality pitch and sound modes', () => {
+    expect(allayRate('guardian')).toBeCloseTo(1.525, 5);
+    expect(allayRate('brave')).toBeCloseTo(1.375, 5);
+    expect(allayRate('cautious')).toBeCloseTo(1.65, 5);
+    expect(allayRate('playful')).toBeCloseTo(1.7875, 5);
+    expect(SOUND_MODES.bright).toMatchObject({ allay: 1, chime: 0.58, chimePitch: 1.5 });
+    expect(SOUND_MODES.soft).toMatchObject({ allay: 0.52, chime: 0.21, chimePitch: 1.35 });
+    expect(SOUND_MODES.off).toMatchObject({ allay: 0, chime: 0 });
+    expect(loadSoundMode({ getItem: () => null })).toBe('bright');
+  });
+  it('keeps wav sounds from the pack', () => {
+    const p = parsePack(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', files: { allay: 'data:image/png;base64,AA', amethyst_chime: 'data:audio/wav;base64,AA', allay_with_item1: 'data:audio/ogg;base64,AA' } }));
+    expect(p.files.amethyst_chime).toBeDefined();
+    expect(p.files.allay_with_item1).toBeUndefined();
   });
 });
 
