@@ -244,6 +244,25 @@ export class Hud {
       this.actions.onboard(input.value.trim() || defaultName, p);
       close();
     });
+    if (!this.actions.assetSource()) {
+      // 新裝置上先提示匯入原版素材包（網站本身不含原版檔案）
+      const hint = el('div', 'info', box);
+      hint.textContent = '有「原版素材包」嗎？匯入後就是 Minecraft 原版外觀。';
+      const ai = el('button', 'btn', box);
+      ai.textContent = '匯入原版素材';
+      const afile = el('input', '', box);
+      afile.type = 'file';
+      afile.accept = 'application/json,.json';
+      afile.style.display = 'none';
+      afile.dataset.kind = 'assets';
+      ai.addEventListener('click', () => afile.click());
+      afile.addEventListener('change', () => {
+        if (!afile.files?.[0]) return;
+        this.actions.importAssets(afile.files[0]);
+        hint.remove();
+        ai.remove();
+      });
+    }
   }
 
   private openSettings(): void {
