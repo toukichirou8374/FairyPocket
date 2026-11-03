@@ -7,7 +7,10 @@ import type { Personality, PetState } from '../game/state';
 
 export type Mode =
   | 'idle' | 'wander' | 'approach' | 'called' | 'rest' | 'sleep'
-  | 'play' | 'eat' | 'happy' | 'tickled' | 'startled' | 'curious' | 'waking';
+  | 'play' | 'eat' | 'happy' | 'tickled' | 'startled' | 'curious' | 'waking' | 'dance';
+
+/** 聽到音符後跳舞的秒數（每次彈奏都會重新計時） */
+const DANCE_TIME = 10;
 
 interface Traits {
   speed: number; // 最高飛行速度
@@ -157,6 +160,22 @@ export class AllayController {
     this.setMode('play', 9);
   }
 
+  /** 聽到音符盒：飛到音符盒上方跳舞（原版悅靈喜歡音符盒） */
+  dance(at: THREE.Vector3): void {
+    this.wake();
+    if (this.mode === 'play' || this.mode === 'eat') return;
+    this.danceAt.copy(at);
+    // 已經在跳舞就延長時間，不重設動作節奏
+    if (this.mode === 'dance') this.modeDur = this.modeTime + DANCE_TIME;
+    else this.setMode('dance', DANCE_TIME);
+  }
+
+  private readonly danceAt = new THREE.Vector3();
+
+  get dancing(): boolean {
+    return this.mode === 'dance';
+  }
+
   // ---------- 每幀更新 ----------
 
   update(dt: number): void {
@@ -247,6 +266,12 @@ export class AllayController {
         if (this.modeTime > this.modeDur) this.toIdle();
         break;
       }
+      case 'dance':
+        this.target.copy(this.danceAt);
+        speed *= 1.3;
+        if (Math.floor(this.modeTime / 0.7) !== Math.floor((this.modeTime - dt) / 0.7)) this.hooks.particle('note', this.headTop(tmp), 1);
+        if (this.modeTime > this.modeDur) this.toIdle();
+        break;
       case 'waking':
         this.target.set(this.pos.x, b.minY + 0.6, this.pos.z);
         speed *= 0.6;
@@ -336,10 +361,18 @@ export class AllayController {
     this.yawRate = THREE.MathUtils.lerp(this.yawRate, (this.yaw - prevYaw) / Math.max(dt, 1e-4), 1 - Math.exp(-6 * dt));
 
     // 轉圈動作
+    // 跳舞：原版每 2.75 秒在 0.75 秒內轉兩圈，其餘時間左右搖擺
+    let danceSpin = 0;
     if (this.mode === 'happy' || this.mode === 'tickled') {
       const k = Math.min(1, this.modeTime / this.modeDur);
       this.spin = (this.mode === 'tickled' ? 4 : 2) * Math.PI * (1 - Math.pow(1 - k, 3));
+    } else if (this.mode === 'dance') {
+      const cyc = this.modeTime % 2.75;
+      danceSpin = cyc < 0.75 ? cyc / 0.75 : 0;
+      this.spin = danceSpin * 4 * Math.PI;
     } else this.spin = 0;
+    const dancing = this.mode === 'dance';
+    const sway = dancing ? Math.cos(this.t * 2.79) * (1 - danceSpin) : 0;
 
     // 以下動作數值參照原版悅靈的動畫（翅膀 45°±27°、手臂外張 25° 慢擺、飛行時身體前傾 45°）
     const k = (rate: number) => 1 - Math.exp(-rate * dt);
@@ -357,7 +390,7 @@ export class AllayController {
     const wantRoll = THREE.MathUtils.clamp(-this.yawRate * 0.12, -0.5, 0.5) + (this.mode === 'tickled' ? Math.sin(this.t * 30) * 0.15 : 0);
     this.roll = THREE.MathUtils.lerp(this.roll, wantRoll, k(4));
     this.pitch = THREE.MathUtils.lerp(this.pitch, sleeping ? 0.2 : 0, k(3));
-    m.tilt.rotation.set(this.pitch, 0, this.roll);
+    m.tilt.rotation.set(this.pitch, 0, this.roll + sway * 0.279); // 跳舞時全身左右搖 16°
     // 飛行時只有身體前傾，頭保持
     m.body.rotation.x = mv * (Math.PI / 4);
 
@@ -394,14 +427,15 @@ export class AllayController {
     let headX = -THREE.MathUtils.clamp(Math.atan2(cam.y - this.pos.y - 0.25, Math.hypot(cam.x - this.pos.x, cam.z - this.pos.z)), -0.6, 0.6);
     if (this.mode === 'eat') headX = 0.25 + Math.sin(this.modeTime * 14) * 0.12;
     if (sleeping) { headX = 0.35 + Math.sin(this.t * 1.2) * 0.03; headY = 0; }
+    if (dancing) { headY = sway * 0.244; headX = 0; } // 頭左右轉 14°
     m.head.rotation.x = THREE.MathUtils.lerp(m.head.rotation.x, headX, k(6));
-    m.head.rotation.y = THREE.MathUtils.lerp(m.head.rotation.y, headY, k(6));
-    m.head.rotation.z = this.mode === 'curious' ? Math.sin(this.t * 2) * 0.2 : 0;
+    m.head.rotation.y = dancing ? headY : THREE.MathUtils.lerp(m.head.rotation.y, headY, k(6));
+    m.head.rotation.z = dancing ? sway * 0.524 : this.mode === 'curious' ? Math.sin(this.t * 2) * 0.2 : 0; // 頭歪 30°
 
     // 眼睛：眨眼 / 睡覺 / 開心
     this.blinkIn -= dt;
     if (sleeping || this.mode === 'rest' && this.modeTime > 4) m.setEyes('closed');
-    else if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'eat') m.setEyes('happy');
+    else if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'eat' || dancing) m.setEyes('happy');
     else if (this.blinkIn < 0) {
       m.setEyes('closed');
       if (this.blinkIn < -0.13) this.blinkIn = rand(2, 5);

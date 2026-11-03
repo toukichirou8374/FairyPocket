@@ -28,7 +28,12 @@ export interface PetState {
   createdAt: number;
   lastSeen: number;
   stats: { fed: number; petted: number; played: number };
+  /** 跳舞時給紫水晶碎片複製出來的悅靈數量 */
+  friends: number;
 }
+
+/** 最多能複製出幾隻悅靈夥伴 */
+export const MAX_FRIENDS = 3;
 
 /** 背包裡的食物；飢餓度回復量與原版相同，圖示為 textures/item/<id>.png */
 export const FOODS = {
@@ -75,6 +80,7 @@ export function createPet(now = Date.now()): PetState {
     createdAt: now,
     lastSeen: now,
     stats: { fed: 0, petted: 0, played: 0 },
+    friends: 0,
   };
 }
 

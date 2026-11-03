@@ -6,7 +6,7 @@ import { AllayModel } from './three/allayModel';
 import { AllayController, TRAITS } from './three/allayController';
 import { Hud } from './ui/hud';
 import { pickLine, type LineKind } from './game/dialogue';
-import { applyElapsed, createPet, FAVORITE_FOOD, feed, FOOD_IDS, FOODS, isNight, pet as petPet, play, tickPet, type Food } from './game/state';
+import { applyElapsed, createPet, FAVORITE_FOOD, feed, FOOD_IDS, FOODS, isNight, MAX_FRIENDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
 import { BACKUP_KEY, exportFileName, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
@@ -62,8 +62,89 @@ const ctrl = new AllayController(
   },
 );
 
+// ---------- 複製出來的悅靈夥伴 ----------
+
+interface Friend {
+  model: AllayModel;
+  ctrl: AllayController;
+  pet: PetState;
+}
+const friends: Friend[] = [];
+let skin: CanvasImageSource | null = null;
+
+function addFriend(at?: THREE.Vector3): void {
+  const m = new AllayModel();
+  if (skin) m.setSkin(skin);
+  stage.scene.add(m.root);
+  const p = createPet();
+  p.personality = (['guardian', 'brave', 'cautious', 'playful'] as const)[Math.floor(Math.random() * 4)];
+  p.onboarded = true;
+  const c = new AllayController(m, { camera: stage.camera, bounds: () => stage.bounds(), night: () => night }, p, {
+    say: () => {},
+    particle: (kind, pos, count) => stage.spawn(kind, pos, count),
+    caught: () => {},
+  });
+  if (at) {
+    c.pos.copy(at);
+    c.anchor.copy(at);
+  } else c.pos.set((Math.random() - 0.5) * 1.5, 1 + Math.random() * 0.6, -0.5 - Math.random());
+  friends.push({ model: m, ctrl: c, pet: p });
+}
+
+/** 讓畫面上的夥伴數量跟存檔一致（重新開始、還原存檔時） */
+function syncFriends(): void {
+  while (friends.length > pet.friends) stage.scene.remove(friends.pop()!.model.root);
+  while (friends.length < pet.friends) addFriend();
+}
+
+/** 原版複製冷卻 5 分鐘 */
+const DUPLICATE_COOLDOWN = 5 * 60_000;
+let lastDuplicate = -Infinity;
+
+/** 跳舞中的悅靈收到紫水晶碎片：複製出一隻新夥伴 */
+function giveShard(): void {
+  if (pet.friends >= MAX_FRIENDS) return hud.showItem(`最多只能有 ${MAX_FRIENDS} 隻夥伴喔`);
+  const wait = lastDuplicate + DUPLICATE_COOLDOWN - performance.now();
+  if (wait > 0) return hud.showItem(`紫水晶的力量還在恢復，再等 ${Math.ceil(wait / 60_000)} 分鐘`);
+  lastDuplicate = performance.now();
+  pet.friends++;
+  addFriend(ctrl.pos.clone().add(new THREE.Vector3(0.4, 0, 0)));
+  stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), 4);
+  stage.spawn('sparkle', ctrl.pos, 12);
+  sound.effect('sounds/block/amethyst/shimmer', 1, 1);
+  save();
+  say('duplicate');
+}
+
+/** 音符盒：點地面放下或搬過去，點到方塊就彈奏 */
+const SCALE = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24]; // 五聲音階，聽起來都和諧
+function useNoteBlock(ray: THREE.Ray, hitBlock: boolean): void {
+  if (!hitBlock || !stage.noteBlock) {
+    const t = -ray.origin.y / ray.direction.y;
+    if (!(t > 0)) return;
+    const p = ray.at(t, new THREE.Vector3());
+    const b = stage.bounds();
+    p.x = THREE.MathUtils.clamp(p.x, b.minX, b.maxX);
+    p.z = THREE.MathUtils.clamp(p.z, b.minZ, b.maxZ);
+    stage.placeNoteBlock(p);
+  }
+  const block = stage.noteBlock!;
+  stage.bumpNoteBlock();
+  const note = SCALE[Math.floor(Math.random() * SCALE.length)];
+  sound.effect('sounds/note/harp', 0.9, Math.pow(2, (note - 12) / 12));
+  stage.spawn('note', block.position.clone().add(new THREE.Vector3(0, 0.35, 0)), 1);
+  // 悅靈與夥伴飛過來跳舞
+  const wasDancing = ctrl.dancing;
+  const top = block.position.clone().add(new THREE.Vector3(0, 0.95, 0));
+  ctrl.dance(top);
+  friends.forEach((f, i) => f.ctrl.dance(top.clone().add(new THREE.Vector3(Math.cos(i * 2.1) * 0.7, 0.15 * i, Math.sin(i * 2.1) * 0.5))));
+  if (!wasDancing && ctrl.dancing) say('dance');
+}
+
 const hud = new Hud(overlay, {
-  select: () => {},
+  select: (slot) => {
+    if (slot !== 'note') stage.removeNoteBlock();
+  },
   call: () => ctrl.call(),
   rename: (name) => {
     pet.name = name;
@@ -88,6 +169,7 @@ const hud = new Hud(overlay, {
     localStorage.removeItem(SAVE_KEY);
     localStorage.removeItem(BACKUP_KEY);
     Object.assign(pet, createPet());
+    syncFriends();
     stage.removeBall();
     ctrl.setMode('idle');
     hud.setName(pet.name);
@@ -131,7 +213,12 @@ async function applyPack(p: AssetPack): Promise<void> {
   const food = await loadImages(p, Object.fromEntries(FOOD_IDS.map((f) => [f, `textures/item/${f}.png`])) as Record<Food, string>);
   pack = p;
   sound.usePack(p);
-  if (img.allay) model.setSkin(img.allay);
+  if (img.allay) {
+    skin = img.allay;
+    model.setSkin(img.allay);
+    friends.forEach((f) => f.model.setSkin(img.allay!));
+  }
+  if (img.note_block) stage.useNoteBlockImage(img.note_block);
   stage.useImages(img);
   stage.useFoodImages(food);
   hud.useImages(img);
@@ -164,6 +251,7 @@ hud.updateStats(pet);
   await localPack().catch(() => {});
 })();
 if (pet.onboarded) setTimeout(() => say(awayMs > 3600_000 ? 'welcomeBack' : 'greet'), 1200);
+for (let i = 0; i < pet.friends; i++) addFriend();
 
 // ---------- 存檔 ----------
 
@@ -197,6 +285,7 @@ async function importSave(file: File): Promise<void> {
     const data = parseSave(await file.text());
     if (!confirm(`要用「${data.name}」的存檔覆蓋目前進度嗎？`)) return;
     Object.assign(pet, data, { onboarded: true });
+    syncFriends();
     stage.removeBall();
     ctrl.setMode(pet.asleep ? 'sleep' : 'idle');
     hud.setName(pet.name);
@@ -258,6 +347,12 @@ function tap(x: number, y: number): void {
   const hit = hitsAllay(x, y);
   const ray = raycaster.ray;
   const sel = hud.selected;
+  if (sel === 'note') {
+    // 跳舞中點悅靈 = 送紫水晶碎片；其他時候點哪裡都是放下 / 彈奏音符盒
+    if (hit && ctrl.dancing) return giveShard();
+    const hitBlock = !!stage.noteBlock && raycaster.intersectObject(stage.noteBlock, false).length > 0;
+    return useNoteBlock(ray, hitBlock);
+  }
   if (sel === 'food' && hud.food) {
     // 食物不蓄力，輕輕拋給悅靈接
     throwAt(hud.food, ray, 0);
@@ -353,8 +448,14 @@ function frame(now: number): void {
   tickPet(pet, dt, night);
   ctrl.ballPos = stage.ball ? stage.ball.mesh.position : null;
   ctrl.update(dt);
+  for (const f of friends) {
+    tickPet(f.pet, dt, night);
+    f.pet.hunger = 20; // 夥伴不需要照顧飽食度
+    f.ctrl.update(dt);
+  }
   stage.setShadow(ctrl.pos);
   stage.update(dt, elapsed);
+  hud.setShardReady(ctrl.dancing);
 
   // 主動發言：每 15 秒檢查一次，距離上次發言超過 45 秒才說話
   if (ctrl.awake && pet.onboarded) {

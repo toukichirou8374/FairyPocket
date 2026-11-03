@@ -21,6 +21,8 @@ export const IMAGE_PATHS = {
   particle_heart: 'textures/particle/heart.png',
   particle_note: 'textures/particle/note.png',
   chest: 'textures/entity/chest/normal.png',
+  bell: 'textures/item/bell.png',
+  amethyst_shard: 'textures/item/amethyst_shard.png',
 } as const;
 export type AssetKey = keyof typeof IMAGE_PATHS;
 

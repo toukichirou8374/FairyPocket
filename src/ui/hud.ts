@@ -8,12 +8,12 @@ import { SOUND_MODES, type SoundMode } from '../audio';
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
 
-export type Slot = 'food' | 'feather' | 'slime' | 'empty' | 'call';
+export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'call';
 export const SLOTS: { id: Slot; label: string; hint: string }[] = [
   { id: 'food', label: '背包', hint: '點畫面丟給悅靈' },
   { id: 'feather', label: '羽毛', hint: '點悅靈搔癢' },
   { id: 'slime', label: '史萊姆球', hint: '按住蓄力，放開丟球' },
-  { id: 'empty', label: '', hint: '' },
+  { id: 'note', label: '音符盒', hint: '點地面放下，點它彈奏' },
   { id: 'call', label: '呼喚', hint: '' },
 ];
 
@@ -73,6 +73,7 @@ export class Hud {
   food: Food | null = null;
   private foodURL = {} as Record<Food, string>;
   private foodBadge!: HTMLImageElement;
+  private shardBadge!: HTMLImageElement;
   private chargeEl!: HTMLDivElement;
   private lastStat = '';
   private bar!: HTMLDivElement;
@@ -109,18 +110,20 @@ export class Hud {
       const b = el('button', 'slot', bar);
       b.dataset.slot = s.id;
       this.slots.push(b);
-      if (s.id === 'empty') {
-        b.disabled = true;
-        return;
-      }
       b.setAttribute('aria-label', s.label);
-      const icon = s.id === 'food' ? ITEM_ICONS.chest : ITEM_ICONS[s.id];
+      const icon = ITEM_ICONS[{ food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', call: 'bell' }[s.id]];
       const img = el('img', '', b);
       img.src = gridURL(icon.grid, icon.pal, 4);
       img.alt = s.label;
       if (s.id === 'food') {
         this.foodBadge = el('img', 'badge', b);
         this.foodBadge.hidden = true;
+      }
+      if (s.id === 'note') {
+        // 悅靈跳舞時，音符盒格右下角出現紫水晶碎片
+        this.shardBadge = el('img', 'badge', b);
+        this.shardBadge.src = gridURL(ITEM_ICONS.amethyst.grid, ITEM_ICONS.amethyst.pal, 4);
+        this.shardBadge.hidden = true;
       }
       b.addEventListener('click', () => {
         if (s.id === 'call') {
@@ -145,6 +148,13 @@ export class Hud {
     if (slot === 'food' && this.food) this.showItem(`${FOODS[this.food].label}　${s!.hint}`);
     else if (s) this.showItem(`${s.label}　${s.hint}`);
     this.actions.select(slot);
+  }
+
+  /** 悅靈正在跳舞：可以給牠紫水晶碎片 */
+  setShardReady(on: boolean): void {
+    if (this.shardBadge.hidden !== on) return;
+    this.shardBadge.hidden = !on;
+    if (on && this.selected === 'note') this.showItem('紫水晶碎片　點跳舞中的悅靈送給牠');
   }
 
   /** 史萊姆球蓄力條；null 代表隱藏 */
@@ -214,12 +224,13 @@ export class Hud {
     this.lastStat = '';
 
     const items: Record<Slot, string | undefined> = {
-      food: img.chest && chestIcon(img.chest), feather: img.feather?.src, slime: img.slime_ball?.src, empty: undefined, call: img.note_block?.src,
+      food: img.chest && chestIcon(img.chest), feather: img.feather?.src, slime: img.slime_ball?.src, note: img.note_block?.src, call: img.bell?.src,
     };
     this.slots.forEach((b) => {
       const src = items[b.dataset.slot as Slot];
       if (src) b.querySelector('img')!.src = src;
     });
+    if (img.amethyst_shard) this.shardBadge.src = img.amethyst_shard.src;
 
     if (img.hotbar && img.hotbar_selection) {
       // 原版快捷欄有 9 格，這裡裁成 5 格（左邊 5 格 + 最右側邊框）

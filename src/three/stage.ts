@@ -255,6 +255,44 @@ export class Stage {
     this.ball = null;
   }
 
+  // ---------- 音符盒 ----------
+
+  noteBlock: THREE.Mesh | null = null;
+  private noteTex: THREE.Texture = spriteTex(drawGrid(ITEM_ICONS.noteblock.grid, ITEM_ICONS.noteblock.pal, 1));
+
+  /** 放到地面上某個位置（已經有就搬過去） */
+  placeNoteBlock(at: THREE.Vector3): void {
+    if (!this.noteBlock) {
+      this.noteBlock = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), new THREE.MeshLambertMaterial({ map: this.noteTex }));
+      this.scene.add(this.noteBlock);
+    }
+    this.noteBlock.position.set(at.x, 0.21, at.z);
+    this.noteBlock.rotation.y = 0.35;
+  }
+
+  removeNoteBlock(): void {
+    if (!this.noteBlock) return;
+    this.scene.remove(this.noteBlock);
+    this.noteBlock.geometry.dispose();
+    (this.noteBlock.material as THREE.Material).dispose();
+    this.noteBlock = null;
+  }
+
+  /** 彈奏時方塊輕輕一跳 */
+  bumpNoteBlock(): void {
+    if (this.noteBlock) this.noteBlock.scale.setScalar(1.15);
+  }
+
+  useNoteBlockImage(img: CanvasImageSource): void {
+    const c = document.createElement('canvas');
+    const s = img as HTMLImageElement;
+    c.width = s.width;
+    c.height = s.height;
+    c.getContext('2d')!.drawImage(img, 0, 0);
+    this.noteTex = spriteTex(c);
+    if (this.noteBlock) (this.noteBlock.material as THREE.MeshLambertMaterial).map = this.noteTex;
+  }
+
   itemTexture(kind: Throwable): THREE.Texture {
     return kind === 'slime' ? this.ballTex : this.foodTex[kind];
   }
@@ -278,6 +316,7 @@ export class Stage {
         this.particles.splice(i, 1);
       }
     }
+    if (this.noteBlock) this.noteBlock.scale.lerp(new THREE.Vector3(1, 1, 1), 1 - Math.exp(-10 * dt));
     this.motes.position.y = Math.sin(t * 0.2) * 0.1;
     this.motes.rotation.y = t * 0.02;
 

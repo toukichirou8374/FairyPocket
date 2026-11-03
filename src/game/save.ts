@@ -1,6 +1,6 @@
 // 本機存檔、匯出與還原。
 
-import { clamp, createPet, MAX_AFFECTION, MAX_ENERGY, MAX_HEALTH, MAX_HUNGER, NAME_MAX, PERSONALITIES, type PetState } from './state';
+import { clamp, createPet, MAX_AFFECTION, MAX_ENERGY, MAX_FRIENDS, MAX_HEALTH, MAX_HUNGER, NAME_MAX, PERSONALITIES, type PetState } from './state';
 
 export const SAVE_KEY = 'fairypocket.save.v1';
 export const BACKUP_KEY = 'fairypocket.save.v1.bak';
@@ -58,6 +58,7 @@ export function parseSave(text: string): PetState {
       petted: num(stats.petted, 0, 1e9, 0),
       played: num(stats.played, 0, 1e9, 0),
     },
+    friends: Math.round(num(p.friends, 0, MAX_FRIENDS, 0)),
   };
 }
 

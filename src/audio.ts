@@ -132,6 +132,11 @@ export class Sound {
     src.start();
   }
 
+  /** 一般音效（音符盒等），音量跟著聲音模式 */
+  effect(path: string, volume = 1, rate = 1): void {
+    void this.play(path, volume * SOUND_MODES[this.mode].allay, rate);
+  }
+
   /** 悅靈發言：悅靈叫聲 + 紫水晶鈴聲 */
   speak(p: Personality): void {
     const m = SOUND_MODES[this.mode];

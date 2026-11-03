@@ -5,7 +5,7 @@ import type { Personality } from './state';
 export type LineKind =
   | 'greet' | 'welcomeBack' | 'idle' | 'hungry' | 'sleepy' | 'wake' | 'fed' | 'full'
   | 'pet' | 'tickle' | 'play' | 'call' | 'night' | 'curious'
-  | 'fedFood' | 'favorite' | 'fullFood';
+  | 'fedFood' | 'favorite' | 'fullFood' | 'dance' | 'duplicate';
 
 type Table = Partial<Record<LineKind, string[]>>;
 
@@ -27,6 +27,8 @@ const COMMON: Record<LineKind, string[]> = {
   fedFood: ['是{f}！謝謝你～', '{f}耶！我認得！', '哇，{f}！好好吃！', '接到{f}了！開動囉～'],
   favorite: ['{f}！我最喜歡{f}了！', '是{f}！！你怎麼知道我愛吃這個！'],
   fullFood: ['是{f}…可是我吃不下了啦～', '{f}先留著，等等再吃好嗎？'],
+  dance: ['是音樂！我要跳舞～♪', '♪～這個聲音好好聽！', '一起跳舞吧！'],
+  duplicate: ['哇！多了一個好朋友！', '紫水晶亮晶晶～新夥伴誕生了！', '我們變成兩個了耶！'],
 };
 
 const BY_PERSONALITY: Record<Personality, Table> = {
@@ -47,6 +49,7 @@ const BY_PERSONALITY: Record<Personality, Table> = {
   playful: {
     idle: ['來玩嘛來玩嘛！', '轉圈圈～轉圈圈～', '我們來比賽誰飛得快！', '史萊姆球！我要玩史萊姆球！'],
     play: ['再一次！再一次！', '耶～我最厲害！'],
+    dance: ['轉圈圈～跳舞最好玩了！'],
   },
 };
 
