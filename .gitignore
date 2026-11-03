@@ -1,3 +1,5 @@
+# 個人用 Minecraft 原版素材，禁止提交或公開
+private/
 node_modules/
 dist/
 dev-dist/

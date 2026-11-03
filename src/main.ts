@@ -8,6 +8,7 @@ import { Hud } from './ui/hud';
 import { pickLine, type LineKind } from './game/dialogue';
 import { applyElapsed, createPet, feed, isNight, pet as petPet, play, tickPet, type Food } from './game/state';
 import { BACKUP_KEY, exportFileName, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
+import { clearPack, loadImages, loadStoredPack, parsePack, storePack, type AssetPack } from './game/assets';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const overlay = document.getElementById('overlay') as HTMLDivElement;
@@ -70,7 +71,37 @@ const hud = new Hud(overlay, {
     save();
     setTimeout(() => say('greet'), 600);
   },
+  importAssets: async (file) => {
+    try {
+      const p = parsePack(await file.text());
+      storePack(localStorage, p);
+      await applyPack(p);
+      hud.toast(`已套用 Minecraft ${p.source} 原版素材`);
+    } catch (e) {
+      hud.toast((e as Error).message);
+    }
+  },
+  clearAssets: () => {
+    clearPack(localStorage);
+    save();
+    location.reload();
+  },
+  assetSource: () => pack?.source ?? null,
 });
+
+// ---------- 原版素材 ----------
+
+let pack: AssetPack | null = loadStoredPack(localStorage);
+
+async function applyPack(p: AssetPack): Promise<void> {
+  const img = await loadImages(p);
+  pack = p;
+  if (img.allay) model.setSkin(img.allay);
+  stage.useImages(img);
+  hud.useImages(img);
+}
+
+if (pack) applyPack(pack);
 hud.getPet = () => pet;
 hud.setName(pet.name);
 hud.updateStats(pet);

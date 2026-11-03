@@ -2,6 +2,7 @@
 
 import { gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, statGrid } from '../pixel';
 import { affectionLevel, NAME_MAX, PERSONALITIES, toIcons, type Personality, type PetState } from '../game/state';
+import type { AssetImages } from '../game/assets';
 
 export type Slot = 'apple' | 'bread' | 'feather' | 'slime' | 'call';
 export const SLOTS: { id: Slot; label: string; hint: string }[] = [
@@ -28,6 +29,10 @@ export interface HudActions {
   importSave(file: File): void;
   reset(): void;
   onboard(name: string, p: Personality): void;
+  importAssets(file: File): void;
+  clearAssets(): void;
+  /** 已套用的原版素材版本，未套用時為 null */
+  assetSource(): string | null;
 }
 
 export class Hud {
@@ -44,6 +49,9 @@ export class Hud {
   private shankURL: string[];
   selected: Slot | null = null;
   private lastStat = '';
+  private bar!: HTMLDivElement;
+  private selFrame!: HTMLDivElement;
+  private mc: { hotbarW: number; selW: number; selH: number } | null = null;
 
   constructor(private root: HTMLElement, private actions: HudActions) {
     this.nameTag = el('div', 'nametag', root);
@@ -68,6 +76,8 @@ export class Hud {
       this.shanks.unshift(el('img', 'icon', srow)); // 飽食度由右往左排列
     }
     const bar = el('div', 'hotbar', hud);
+    this.bar = bar;
+    this.selFrame = el('div', 'selframe', bar);
     SLOTS.forEach((s) => {
       const b = el('button', 'slot', bar);
       b.setAttribute('aria-label', s.label);
@@ -91,6 +101,7 @@ export class Hud {
   setSelected(slot: Slot | null): void {
     this.selected = slot;
     this.slots.forEach((b) => b.classList.toggle('selected', b.dataset.slot === slot));
+    this.layout();
     const s = SLOTS.find((x) => x.id === slot);
     if (s) this.showItem(`${s.label}　${s.hint}`);
     this.actions.select(slot);
@@ -101,6 +112,66 @@ export class Hud {
     this.itemName.classList.add('show');
     clearTimeout(this.itemTimer);
     this.itemTimer = window.setTimeout(() => this.itemName.classList.remove('show'), 1800);
+  }
+
+  /** 套用 Minecraft 原版介面素材 */
+  useImages(img: AssetImages): void {
+    const canvas = (w: number, h: number) => {
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      return { c, ctx: c.getContext('2d')! };
+    };
+    const layered = (base?: HTMLImageElement, top?: HTMLImageElement) => {
+      const { c, ctx } = canvas(9, 9);
+      if (base) ctx.drawImage(base, 0, 0);
+      if (top) ctx.drawImage(top, 0, 0);
+      return c.toDataURL();
+    };
+    if (img.heart_container && img.heart_full && img.heart_half) {
+      this.heartURL = [layered(img.heart_container), layered(img.heart_container, img.heart_half), layered(img.heart_container, img.heart_full)];
+    }
+    if (img.food_empty && img.food_full && img.food_half) {
+      this.shankURL = [layered(img.food_empty), layered(img.food_empty, img.food_half), layered(img.food_empty, img.food_full)];
+    }
+    this.lastStat = '';
+
+    const items: Record<Slot, HTMLImageElement | undefined> = {
+      apple: img.apple, bread: img.bread, feather: img.feather, slime: img.slime_ball, call: img.note_block,
+    };
+    this.slots.forEach((b) => {
+      const src = items[b.dataset.slot as Slot];
+      if (src) b.querySelector('img')!.src = src.src;
+    });
+
+    if (img.hotbar && img.hotbar_selection) {
+      // 原版快捷欄有 9 格，這裡裁成 5 格（左邊 5 格 + 最右側邊框）
+      const w = 1 + SLOTS.length * 20 + 1;
+      const { c, ctx } = canvas(w, img.hotbar.height);
+      ctx.drawImage(img.hotbar, 0, 0, w - 1, img.hotbar.height, 0, 0, w - 1, img.hotbar.height);
+      ctx.drawImage(img.hotbar, img.hotbar.width - 1, 0, 1, img.hotbar.height, w - 1, 0, 1, img.hotbar.height);
+      this.bar.style.backgroundImage = `url(${c.toDataURL()})`;
+      this.selFrame.style.backgroundImage = `url(${img.hotbar_selection.src})`;
+      this.mc = { hotbarW: w, selW: img.hotbar_selection.width, selH: img.hotbar_selection.height };
+      this.root.classList.add('mc');
+      window.addEventListener('resize', () => this.layout());
+      this.layout();
+    }
+  }
+
+  /** 原版模式下依螢幕寬度以整數倍放大像素介面 */
+  private layout(): void {
+    if (!this.mc) return;
+    const s = Math.max(2, Math.floor(Math.min(window.innerWidth - 24, 420) / this.mc.hotbarW));
+    const r = this.root.style;
+    r.setProperty('--s', `${s}px`);
+    r.setProperty('--u', `${(this.mc.hotbarW * s - 8) / 162}px`);
+    const i = SLOTS.findIndex((x) => x.id === this.selected);
+    this.selFrame.style.display = i < 0 ? 'none' : 'block';
+    this.selFrame.style.left = `${(i * 20 - 1) * s}px`;
+    this.selFrame.style.width = `${this.mc.selW * s}px`;
+    this.selFrame.style.height = `${this.mc.selH * s}px`;
+    this.bar.style.width = `${this.mc.hotbarW * s}px`;
   }
 
   updateStats(s: PetState): void {
@@ -204,6 +275,7 @@ export class Hud {
     file.type = 'file';
     file.accept = 'application/json,.json';
     file.style.display = 'none';
+    file.dataset.kind = 'save';
     im.addEventListener('click', () => file.click());
     file.addEventListener('change', () => {
       if (file.files?.[0]) {
@@ -211,6 +283,33 @@ export class Hud {
         close();
       }
     });
+    const src = this.actions.assetSource();
+    el('label', '', box).textContent = '原版素材';
+    el('div', 'info', box).textContent = src ? `已套用 Minecraft ${src} 原版素材（只存在這台裝置）` : '目前使用暫用素材。匯入「原版素材包」即可換成 Minecraft 原版外觀。';
+    const arow = el('div', 'btnrow', box);
+    const ai = el('button', 'btn', arow);
+    ai.textContent = src ? '重新匯入' : '匯入原版素材';
+    const afile = el('input', '', box);
+    afile.type = 'file';
+    afile.accept = 'application/json,.json';
+    afile.style.display = 'none';
+    afile.dataset.kind = 'assets';
+    ai.addEventListener('click', () => afile.click());
+    afile.addEventListener('change', () => {
+      if (afile.files?.[0]) {
+        this.actions.importAssets(afile.files[0]);
+        close();
+      }
+    });
+    if (src) {
+      const ac = el('button', 'btn', arow);
+      ac.textContent = '移除原版素材';
+      ac.addEventListener('click', () => {
+        close();
+        this.actions.clearAssets();
+      });
+    }
+
     const reset = el('button', 'btn danger', box);
     reset.textContent = '重新開始（清除存檔）';
     reset.addEventListener('click', () => {

@@ -224,6 +224,38 @@ html, body {
 .info { font-size: 13px; margin-top: 12px; line-height: 1.6; color: #44557a; }
 .ver { text-align: center; font-size: 12px; color: #8090b0; margin-top: 10px; }
 
+/* ---- 套用原版素材後的像素介面 ---- */
+.selframe { display: none; }
+.mc .hotbar {
+  position: relative;
+  height: calc(var(--s) * 22);
+  border: 0;
+  padding: 0;
+  gap: 0;
+  background-color: transparent;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+}
+.mc .slot {
+  width: calc(var(--s) * 20);
+  height: calc(var(--s) * 20);
+  margin-top: var(--s);
+  border: 0;
+  background: transparent;
+}
+.mc .slot:first-of-type { margin-left: var(--s); }
+.mc .slot img { width: calc(var(--s) * 16); height: calc(var(--s) * 16); }
+.mc .slot.selected { box-shadow: none; }
+.mc .selframe {
+  position: absolute;
+  top: calc(var(--s) * -1);
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+.mc .stats { width: auto; gap: 8px; }
+.mc .icon { width: calc(var(--u) * 9); height: calc(var(--u) * 9); margin-right: calc(var(--u) * -1); filter: none; }
+
 @media (max-width: 360px) {
   .slot { width: 54px; height: 54px; }
   .slot img { width: 34px; height: 34px; }

@@ -66,6 +66,7 @@ export class AllayController {
   private yawRate = 0;
   private spin = 0;
   private flapPhase = 0;
+  private wingSpread = 0.9;
   private blinkIn = 3;
   private pitch = 0;
   private roll = 0;
@@ -97,7 +98,7 @@ export class AllayController {
 
   /** 頭頂（名字顯示位置） */
   headTop(out: THREE.Vector3): THREE.Vector3 {
-    return out.copy(this.model.root.position).add(tmp.set(0, 0.95, 0));
+    return out.copy(this.model.root.position).add(tmp.set(0, 0.72, 0));
   }
 
   // ---------- 玩家互動 ----------
@@ -195,7 +196,7 @@ export class AllayController {
         break;
       }
       case 'sleep': {
-        this.target.set(this.anchor.x, b.minY - 0.05, this.anchor.z);
+        this.target.set(this.anchor.x, b.minY + 0.1, this.anchor.z);
         speed *= 0.3;
         this.zzzIn -= dt;
         if (this.zzzIn <= 0) {
@@ -353,16 +354,13 @@ export class AllayController {
     // 翅膀拍動
     let flapSpeed = 10 + speed * 6;
     let amp = 0.45;
-    let open = 0.55;
+    let open = 0.72;
     if (this.mode === 'rest') { flapSpeed = 5; amp = 0.25; }
-    if (sleeping) { flapSpeed = 1.2; amp = 0.05; open = 1.25; }
+    if (sleeping) { flapSpeed = 1.2; amp = 0.04; open = 0.15; }
     if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'called') flapSpeed += 6;
     this.flapPhase += flapSpeed * dt;
-    const flap = Math.sin(this.flapPhase) * amp;
-    m.wingL.rotation.y = THREE.MathUtils.lerp(m.wingL.rotation.y, open + flap, 1 - Math.exp(-20 * dt));
-    m.wingR.rotation.y = -m.wingL.rotation.y;
-    m.wingL.rotation.z = m.wingR.rotation.z = 0;
-    m.wingL.rotation.x = m.wingR.rotation.x = -0.15;
+    this.wingSpread = THREE.MathUtils.lerp(this.wingSpread, open + Math.sin(this.flapPhase) * amp, 1 - Math.exp(-20 * dt));
+    m.setWings(this.wingSpread, sleeping ? 0.1 : 0.35);
 
     // 手臂
     let armX = 0.3 + Math.sin(this.t * 2.2 + 0.6) * 0.12 + fwd * 0.25;

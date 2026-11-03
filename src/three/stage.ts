@@ -45,8 +45,8 @@ export class Stage {
   private tex: Record<ParticleKind, THREE.Texture[]>;
   private shadow: THREE.Mesh;
   private motes: THREE.Points;
-  ball: { mesh: THREE.Mesh; vel: THREE.Vector3; life: number } | null = null;
-  private ballMat: THREE.MeshStandardMaterial;
+  ball: { mesh: THREE.Sprite; vel: THREE.Vector3; life: number } | null = null;
+  private ballTex: THREE.Texture;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -125,13 +125,27 @@ export class Stage {
       sparkle: [spark],
     };
 
-    this.ballMat = new THREE.MeshStandardMaterial({
-      map: spriteTex(drawGrid(['gLgg', 'gggG', 'Gggg', 'ggGg'], { g: '#6fd24a', G: '#3e9a2a', L: '#c4f5a8' })),
-      roughness: 0.4,
-      transparent: true,
-      opacity: 0.92,
-    });
+    this.ballTex = spriteTex(drawGrid(ITEM_ICONS.slime.grid, ITEM_ICONS.slime.pal, 4));
   }
+
+  /** 套用原版素材（丟出去的史萊姆球、愛心與音符粒子） */
+  useImages(img: { slime_ball?: CanvasImageSource; particle_heart?: CanvasImageSource; particle_note?: CanvasImageSource }): void {
+    const t = (src: CanvasImageSource) => {
+      const c = document.createElement('canvas');
+      const s = src as HTMLImageElement;
+      c.width = s.width;
+      c.height = s.height;
+      c.getContext('2d')!.drawImage(src, 0, 0);
+      return spriteTex(c);
+    };
+    if (img.slime_ball) this.ballTex = t(img.slime_ball);
+    if (img.particle_heart) this.tex.heart = [t(img.particle_heart)];
+    if (img.particle_note) {
+      this.tex.note = [t(img.particle_note)];
+      this.tintNotes = true;
+    }
+  }
+  private tintNotes = false;
 
   resize(w: number, h: number): void {
     this.renderer.setSize(w, h, false);
@@ -156,6 +170,8 @@ export class Stage {
     for (let i = 0; i < count; i++) {
       const list = this.tex[kind];
       const mat = new THREE.SpriteMaterial({ map: list[Math.floor(Math.random() * list.length)], transparent: true, depthWrite: false });
+      // 原版音符粒子是灰階，依音高上色
+      if (kind === 'note' && this.tintNotes) mat.color.setHSL(Math.random(), 0.9, 0.6);
       const s = new THREE.Sprite(mat);
       const size = kind === 'crumb' ? 0.05 : kind === 'zzz' ? 0.2 : kind === 'sparkle' ? 0.14 : 0.2;
       s.scale.setScalar(size);
@@ -173,7 +189,8 @@ export class Stage {
 
   throwBall(from: THREE.Vector3, dir: THREE.Vector3): void {
     this.removeBall();
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.16), this.ballMat);
+    const mesh = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.ballTex, transparent: true }));
+    mesh.scale.setScalar(0.28);
     mesh.position.copy(from);
     this.scene.add(mesh);
     this.ball = { mesh, vel: dir.clone().multiplyScalar(5).add(new THREE.Vector3(0, 2.2, 0)), life: 9 };
@@ -182,6 +199,7 @@ export class Stage {
   removeBall(): void {
     if (!this.ball) return;
     this.scene.remove(this.ball.mesh);
+    this.ball.mesh.material.dispose();
     this.ball = null;
   }
 
@@ -206,17 +224,15 @@ export class Stage {
       b.life -= dt;
       b.vel.y -= 6 * dt;
       b.mesh.position.addScaledVector(b.vel, dt);
-      b.mesh.rotation.x += dt * 4;
-      b.mesh.rotation.z += dt * 3;
       const bd = this.bounds();
-      if (b.mesh.position.y < 0.08) {
-        b.mesh.position.y = 0.08;
+      if (b.mesh.position.y < 0.12) {
+        b.mesh.position.y = 0.12;
         b.vel.y = Math.abs(b.vel.y) * 0.62; // 史萊姆般地彈跳
         b.vel.x *= 0.8;
         b.vel.z *= 0.8;
-        b.mesh.scale.set(1.25, 0.7, 1.25);
+        b.mesh.scale.set(0.35, 0.2, 1);
       }
-      b.mesh.scale.lerp(new THREE.Vector3(1, 1, 1), 1 - Math.exp(-8 * dt));
+      b.mesh.scale.lerp(new THREE.Vector3(0.28, 0.28, 1), 1 - Math.exp(-8 * dt));
       for (const [k, lo, hi] of [['x', bd.minX - 0.2, bd.maxX + 0.2], ['z', bd.minZ - 0.4, bd.maxZ + 1.2]] as const) {
         if (b.mesh.position[k] < lo || b.mesh.position[k] > hi) {
           b.mesh.position[k] = THREE.MathUtils.clamp(b.mesh.position[k], lo, hi);

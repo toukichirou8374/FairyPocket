@@ -14,12 +14,14 @@
 
 ## 素材說明
 
-目前所有模型貼圖、圖示皆為原創暫用像素圖（程式內以字串格子繪製），
-未包含任何 Minecraft 原版檔案。替換位置：
+悅靈模型的比例、轉軸與 UV 依照原版悅靈製作。網站本身**不含任何 Minecraft 原版檔案**，
+預設顯示原創暫用貼圖。
 
-- 悅靈貼圖：`src/three/allayModel.ts`
-- 介面圖示（愛心、飽食度、道具）：`src/pixel.ts`
-- App 圖示：`scripts/gen-icons.mjs`
+### 原版素材包（個人使用，禁止公開）
+
+1. `npm run pack`：從自己安裝的 Minecraft Java 版遊戲檔（唯讀）取出需要的貼圖，
+   產生 `private/FairyPocket-原版素材包.json`。`private/` 已排除在 Git 與建置之外。
+2. 在遊戲「設定 → 匯入原版素材」選這個檔案，素材只會存在該裝置上。
 
 ## 結構
 

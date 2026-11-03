@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyElapsed, createPet, feed, play, tickPet, toIcons, MAX_HUNGER } from './state';
 import { loadPet, parseSave, serialize, storePet, SAVE_KEY, BACKUP_KEY } from './save';
 import { pickLine } from './dialogue';
+import { parsePack } from './assets';
 
 function memStorage() {
   const m = new Map<string, string>();
@@ -94,6 +95,21 @@ describe('save', () => {
     expect(st.m.has(BACKUP_KEY)).toBe(true);
     st.m.set(SAVE_KEY, '{broken');
     expect(loadPet(st)?.name).toBe('A');
+  });
+});
+
+describe('asset pack', () => {
+  const png = 'data:image/png;base64,AAAA';
+  it('accepts a pack with the allay texture and drops unknown or non-png entries', () => {
+    const p = parsePack(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', format: 1, source: '26.3', files: { allay: png, apple: 'http://evil', junk: png } }));
+    expect(p.source).toBe('26.3');
+    expect(p.files.allay).toBe(png);
+    expect(p.files.apple).toBeUndefined();
+    expect('junk' in p.files).toBe(false);
+  });
+  it('rejects packs without the allay or of the wrong kind', () => {
+    expect(() => parsePack(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', files: { apple: png } }))).toThrow('悅靈');
+    expect(() => parsePack(serialize(createPet()))).toThrow('素材包');
   });
 });
 

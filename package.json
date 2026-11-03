@@ -1,14 +1,15 @@
 {
   "name": "fairypocket",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "icons": "node scripts/gen-icons.mjs"
+    "icons": "node scripts/gen-icons.mjs",
+    "pack": "node scripts/make-pack.mjs"
   },
   "dependencies": {
     "three": "^0.187.0"
