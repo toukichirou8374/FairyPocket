@@ -12,7 +12,10 @@ type Rect = [u: number, v: number, w: number, h: number];
  * 建立 Minecraft 方塊（addBox）：texOffs(u,v)、尺寸 w×h×d（像素）、膨脹值 inflate。
  * 座標換算：MC 的 y 向下、臉朝 -z；這裡 y 向上、臉朝 +z（繞 X 軸轉 180°）。
  */
-function mcBox(u: number, v: number, w: number, h: number, d: number, inflate = 0): THREE.BoxGeometry {
+// 原版實體的分面明暗（頂最亮、前後次之、左右較暗、底最暗），以 sRGB 倍率換成線性值
+const SHADE = [0.65, 0.65, 1, 0.5, 0.85, 0.85].map((f) => Math.pow(f, 2.2));
+
+function mcBox(u: number, v: number, w: number, h: number, d: number, inflate = 0, flatShade = false): THREE.BoxGeometry {
   const g = new THREE.BoxGeometry(
     Math.max(w + inflate * 2, 0.001) * PX,
     (h + inflate * 2) * PX,
@@ -40,6 +43,12 @@ function mcBox(u: number, v: number, w: number, h: number, d: number, inflate = 
     uv.setXY(i + 3, r, b);
   });
   uv.needsUpdate = true;
+  const col = new Float32Array(24 * 3);
+  for (let f = 0; f < 6; f++) {
+    const s = flatShade ? Math.pow(0.9, 2.2) : SHADE[f];
+    for (let k = 0; k < 4; k++) col.set([s, s, s], (f * 4 + k) * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return g;
 }
 
@@ -144,25 +153,19 @@ export class AllayModel {
   readonly hitbox: THREE.Mesh;
   private skins!: Record<Eyes, THREE.Texture>;
   private eyes: Eyes = 'open';
-  private solid: THREE.MeshStandardMaterial;
-  private faceMat: THREE.MeshStandardMaterial;
-  private glass: THREE.MeshStandardMaterial;
-  private wingMat: THREE.MeshStandardMaterial;
+  private solid: THREE.MeshBasicMaterial;
+  private faceMat: THREE.MeshBasicMaterial;
+  private glass: THREE.MeshBasicMaterial;
+  private wingMat: THREE.MeshBasicMaterial;
 
   constructor() {
-    const mat = (o: THREE.MeshStandardMaterialParameters = {}) =>
-      new THREE.MeshStandardMaterial({
-        emissive: '#ffffff',
-        emissiveIntensity: 0.55,
-        roughness: 1,
-        metalness: 0,
-        alphaTest: 0.02,
-        ...o,
-      });
+    // 悅靈在原版是全亮度渲染（不受環境光影響），只有分面明暗
+    const mat = (o: THREE.MeshBasicMaterialParameters = {}) =>
+      new THREE.MeshBasicMaterial({ vertexColors: true, alphaTest: 0.02, ...o });
     this.solid = mat();
     this.faceMat = mat();
     this.glass = mat({ transparent: true, depthWrite: false });
-    this.wingMat = mat({ transparent: true, side: THREE.DoubleSide, depthWrite: false, emissiveIntensity: 0.7 });
+    this.wingMat = mat({ transparent: true, side: THREE.DoubleSide, depthWrite: false });
 
     this.root.add(this.tilt);
     this.tilt.add(this.head, this.body);
@@ -193,18 +196,13 @@ export class AllayModel {
 
     // 翅膀：texOffs(16,14) 0×5×8，往身後延伸
     for (const [wing, x] of [[this.wingR, -0.5], [this.wingL, 0.5]] as const) {
-      const m = new THREE.Mesh(mcBox(16, 14, 0, 5, 8), this.wingMat);
+      const m = new THREE.Mesh(mcBox(16, 14, 0, 5, 8, 0, true), this.wingMat);
       m.position.copy(center(0, 1, 0, 0, 5, 8));
       m.renderOrder = 2;
       wing.position.copy(pivot(x, 0, 0.6));
       wing.add(m);
       this.body.add(wing);
     }
-
-    // 身後柔光，照亮地面
-    const light = new THREE.PointLight('#9fe4ff', 0.6, 2.2, 2);
-    light.position.set(0, -0.4, -0.35);
-    this.body.add(light);
 
     // 觸控判定用的放大隱形球
     this.hitbox = new THREE.Mesh(new THREE.SphereGeometry(0.62, 12, 8), new THREE.MeshBasicMaterial({ visible: false }));
@@ -218,12 +216,12 @@ export class AllayModel {
     const v = eyeVariants(src);
     this.skins = { open: texFrom(v.open), closed: texFrom(v.closed), happy: texFrom(v.happy) };
     for (const m of [this.solid, this.glass, this.wingMat]) {
-      m.map = m.emissiveMap = this.skins.open;
+      m.map = this.skins.open;
       m.needsUpdate = true;
     }
     const e = this.eyes;
     this.eyes = 'open';
-    this.faceMat.map = this.faceMat.emissiveMap = this.skins.open;
+    this.faceMat.map = this.skins.open;
     this.faceMat.needsUpdate = true;
     this.setEyes(e);
   }
@@ -231,7 +229,7 @@ export class AllayModel {
   setEyes(e: Eyes): void {
     if (e === this.eyes) return;
     this.eyes = e;
-    this.faceMat.map = this.faceMat.emissiveMap = this.skins[e];
+    this.faceMat.map = this.skins[e];
     this.faceMat.needsUpdate = true;
   }
 

@@ -66,7 +66,10 @@ export class AllayController {
   private yawRate = 0;
   private spin = 0;
   private flapPhase = 0;
-  private wingSpread = 0.9;
+  private wingSpread = 0.8;
+  private wingTilt = 0.43;
+  private moveAmt = 0;
+  private holdAmt = 0;
   private blinkIn = 3;
   private pitch = 0;
   private roll = 0;
@@ -317,7 +320,6 @@ export class AllayController {
     const m = this.model;
     const sleeping = this.mode === 'sleep';
     const hspeed = Math.hypot(this.vel.x, this.vel.z);
-    const speed = this.vel.length();
 
     // 轉向：移動時面向前進方向，否則面向玩家
     let wantYaw: number;
@@ -338,45 +340,61 @@ export class AllayController {
       this.spin = (this.mode === 'tickled' ? 4 : 2) * Math.PI * (1 - Math.pow(1 - k, 3));
     } else this.spin = 0;
 
+    // 以下動作數值參照原版悅靈的動畫（翅膀 45°±27°、手臂外張 25° 慢擺、飛行時身體前傾 45°）
+    const k = (rate: number) => 1 - Math.exp(-rate * dt);
+    const fwd = Math.cos(this.yaw) * this.vel.z + Math.sin(this.yaw) * this.vel.x;
+    this.moveAmt = THREE.MathUtils.lerp(this.moveAmt, sleeping ? 0 : THREE.MathUtils.clamp(fwd / 1.2, 0, 1), k(5));
+    const mv = this.moveAmt;
+    const still = 1 - mv;
+
     m.root.position.copy(this.pos);
-    const bob = sleeping ? Math.sin(this.t * 1.2) * 0.02 : Math.sin(this.t * 2.2) * 0.05;
+    const bob = sleeping ? Math.sin(this.t * 1.2) * 0.02 : Math.sin(this.t * 2.2) * 0.03 + Math.cos(this.t * Math.PI) * 0.025 * still;
     m.root.position.y += bob + (this.mode === 'happy' ? Math.sin(Math.min(1, this.modeTime / this.modeDur) * Math.PI) * 0.18 : 0);
     m.root.rotation.y = this.yaw + this.spin;
 
-    // 前傾與側傾
-    const fwd = Math.cos(this.yaw) * this.vel.z + Math.sin(this.yaw) * this.vel.x;
-    const wantPitch = sleeping ? 0.25 : THREE.MathUtils.clamp(fwd * 0.22, -0.2, 0.45);
+    // 轉彎側傾；睡覺時整體微微前傾
     const wantRoll = THREE.MathUtils.clamp(-this.yawRate * 0.12, -0.5, 0.5) + (this.mode === 'tickled' ? Math.sin(this.t * 30) * 0.15 : 0);
-    this.pitch = THREE.MathUtils.lerp(this.pitch, wantPitch, 1 - Math.exp(-4 * dt));
-    this.roll = THREE.MathUtils.lerp(this.roll, wantRoll, 1 - Math.exp(-4 * dt));
+    this.roll = THREE.MathUtils.lerp(this.roll, wantRoll, k(4));
+    this.pitch = THREE.MathUtils.lerp(this.pitch, sleeping ? 0.2 : 0, k(3));
     m.tilt.rotation.set(this.pitch, 0, this.roll);
+    // 飛行時只有身體前傾，頭保持
+    m.body.rotation.x = mv * (Math.PI / 4);
 
-    // 翅膀拍動
-    let flapSpeed = 10 + speed * 6;
-    let amp = 0.45;
-    let open = 0.72;
-    if (this.mode === 'rest') { flapSpeed = 5; amp = 0.25; }
-    if (sleeping) { flapSpeed = 1.2; amp = 0.04; open = 0.15; }
-    if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'called') flapSpeed += 6;
-    this.flapPhase += flapSpeed * dt;
-    this.wingSpread = THREE.MathUtils.lerp(this.wingSpread, open + Math.sin(this.flapPhase) * amp, 1 - Math.exp(-20 * dt));
-    m.setWings(this.wingSpread, sleeping ? 0.1 : 0.35);
+    // 翅膀
+    let flapRate = 7 + mv * 3;
+    if (this.mode === 'rest') flapRate = 4;
+    if (sleeping) flapRate = 1.2;
+    if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'called') flapRate += 4;
+    this.flapPhase += flapRate * dt;
+    const amp = sleeping ? 0.03 : this.mode === 'rest' ? 0.25 : Math.PI * 0.15;
+    const open = sleeping ? 0.12 : Math.PI / 4 - mv * 0.3;
+    this.wingSpread = THREE.MathUtils.lerp(this.wingSpread, open - Math.cos(this.flapPhase) * amp, k(20));
+    this.wingTilt = THREE.MathUtils.lerp(this.wingTilt, sleeping ? 0.1 : 0.4363 * still, k(6));
+    m.setWings(this.wingSpread, this.wingTilt);
 
-    // 手臂
-    let armX = 0.3 + Math.sin(this.t * 2.2 + 0.6) * 0.12 + fwd * 0.25;
-    let armZ = 0.08;
-    if (this.mode === 'eat') { armX = -1.3 + Math.sin(this.modeTime * 14) * 0.15; armZ = -0.15; }
-    if (this.mode === 'happy' || this.mode === 'tickled') { armX = -0.6 + Math.sin(this.t * 18) * 0.4; armZ = 0.5; }
-    if (sleeping) { armX = 0.1; armZ = 0.02; }
-    m.armL.rotation.x = THREE.MathUtils.lerp(m.armL.rotation.x, armX, 1 - Math.exp(-10 * dt));
+    // 手臂：平常外張慢擺；拿東西（吃）時往前舉
+    const hold = this.mode === 'eat' ? 1 : 0;
+    this.holdAmt = THREE.MathUtils.lerp(this.holdAmt, hold, k(8));
+    const h = this.holdAmt;
+    let armX = h * THREE.MathUtils.lerp(-Math.PI / 3, -1.134, mv) + (this.mode === 'eat' ? Math.sin(this.modeTime * 14) * 0.1 : 0);
+    let armZ = 0.4363 - Math.cos(this.t * Math.PI + Math.PI * 1.5) * Math.PI * 0.075 * still * (1 - h);
+    if (this.mode === 'happy' || this.mode === 'tickled') { armX = -0.6 + Math.sin(this.t * 18) * 0.4; armZ = 0.7; }
+    if (sleeping) { armX = 0; armZ = 0.15; }
+    m.armL.rotation.x = THREE.MathUtils.lerp(m.armL.rotation.x, armX, k(10));
     m.armR.rotation.x = m.armL.rotation.x;
-    m.armL.rotation.z = THREE.MathUtils.lerp(m.armL.rotation.z, armZ, 1 - Math.exp(-10 * dt));
+    m.armL.rotation.z = THREE.MathUtils.lerp(m.armL.rotation.z, armZ, k(10));
     m.armR.rotation.z = -m.armL.rotation.z;
+    m.armL.rotation.y = 0.2793 * h;
+    m.armR.rotation.y = -0.2793 * h;
 
-    // 頭部
-    let headX = this.mode === 'eat' ? 0.25 + Math.sin(this.modeTime * 14) * 0.12 : Math.sin(this.t * 0.9) * 0.05;
-    if (sleeping) headX = 0.35 + Math.sin(this.t * 1.2) * 0.03;
-    m.head.rotation.x = THREE.MathUtils.lerp(m.head.rotation.x, headX, 1 - Math.exp(-6 * dt));
+    // 頭：自動看向玩家
+    const cam = this.world.camera.position;
+    let headY = this.spin ? 0 : THREE.MathUtils.clamp(angleDiff(this.yaw, Math.atan2(cam.x - this.pos.x, cam.z - this.pos.z)), -1, 1);
+    let headX = -THREE.MathUtils.clamp(Math.atan2(cam.y - this.pos.y - 0.25, Math.hypot(cam.x - this.pos.x, cam.z - this.pos.z)), -0.6, 0.6);
+    if (this.mode === 'eat') headX = 0.25 + Math.sin(this.modeTime * 14) * 0.12;
+    if (sleeping) { headX = 0.35 + Math.sin(this.t * 1.2) * 0.03; headY = 0; }
+    m.head.rotation.x = THREE.MathUtils.lerp(m.head.rotation.x, headX, k(6));
+    m.head.rotation.y = THREE.MathUtils.lerp(m.head.rotation.y, headY, k(6));
     m.head.rotation.z = this.mode === 'curious' ? Math.sin(this.t * 2) * 0.2 : 0;
 
     // 眼睛：眨眼 / 睡覺 / 開心
