@@ -75,6 +75,7 @@ const hud = new Hud(overlay, {
     try {
       const p = parsePack(await file.text());
       storePack(localStorage, p);
+      localStorage.removeItem(OPT_OUT_KEY);
       await applyPack(p);
       hud.toast(`已套用 Minecraft ${p.source} 原版素材`);
     } catch (e) {
@@ -83,6 +84,7 @@ const hud = new Hud(overlay, {
   },
   clearAssets: () => {
     clearPack(localStorage);
+    localStorage.setItem(OPT_OUT_KEY, '1');
     save();
     location.reload();
   },
@@ -101,7 +103,21 @@ async function applyPack(p: AssetPack): Promise<void> {
   hud.useImages(img);
 }
 
+const OPT_OUT_KEY = 'fairypocket.assets.optout';
+
 if (pack) applyPack(pack);
+else if (localStorage.getItem(OPT_OUT_KEY) !== '1') {
+  // 本機開發或預覽伺服器會提供 private/ 裡的素材包（建置與公開網站不含此檔）
+  fetch('local-pack.json')
+    .then((r) => (r.ok ? r.text() : null))
+    .then(async (text) => {
+      if (!text) return;
+      const p = parsePack(text);
+      storePack(localStorage, p);
+      await applyPack(p);
+    })
+    .catch(() => {});
+}
 hud.getPet = () => pet;
 hud.setName(pet.name);
 hud.updateStats(pet);
