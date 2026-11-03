@@ -20,6 +20,7 @@ export const IMAGE_PATHS = {
   hotbar_selection: 'textures/gui/sprites/hud/hotbar_selection.png',
   particle_heart: 'textures/particle/heart.png',
   particle_note: 'textures/particle/note.png',
+  chest: 'textures/entity/chest/normal.png',
 } as const;
 export type AssetKey = keyof typeof IMAGE_PATHS;
 
@@ -196,10 +197,14 @@ export function packFile(p: AssetPack, path: string): Blob | undefined {
 
 export type AssetImages = Partial<Record<AssetKey, HTMLImageElement>>;
 
-export async function loadImages(p: AssetPack): Promise<AssetImages> {
-  const out: AssetImages = {};
+/** 依「名稱 → 原版路徑」表載入圖片，素材包裡沒有的會略過 */
+export async function loadImages<K extends string = AssetKey>(
+  p: AssetPack,
+  paths: Record<K, string> = IMAGE_PATHS as unknown as Record<K, string>,
+): Promise<Partial<Record<K, HTMLImageElement>>> {
+  const out: Partial<Record<K, HTMLImageElement>> = {};
   await Promise.all(
-    (Object.entries(IMAGE_PATHS) as [AssetKey, string][]).map(([k, path]) => {
+    (Object.entries(paths) as [K, string][]).map(([k, path]) => {
       const blob = p.files.get(path);
       if (!blob) return;
       return new Promise<void>((resolve) => {

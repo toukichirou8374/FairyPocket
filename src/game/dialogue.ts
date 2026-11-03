@@ -1,10 +1,11 @@
-// 悅靈的台詞。{n} 會被替換成玩家為牠取的名字。
+// 悅靈的台詞。{n} 會被替換成玩家為牠取的名字，{f} 是食物名稱。
 
 import type { Personality } from './state';
 
 export type LineKind =
   | 'greet' | 'welcomeBack' | 'idle' | 'hungry' | 'sleepy' | 'wake' | 'fed' | 'full'
-  | 'pet' | 'tickle' | 'play' | 'call' | 'night' | 'curious';
+  | 'pet' | 'tickle' | 'play' | 'call' | 'night' | 'curious'
+  | 'fedFood' | 'favorite' | 'fullFood';
 
 type Table = Partial<Record<LineKind, string[]>>;
 
@@ -23,6 +24,9 @@ const COMMON: Record<LineKind, string[]> = {
   call: ['我來了！', '你叫我嗎？', '飛過來囉～'],
   night: ['夜深了，要早點睡喔', '星星好漂亮…'],
   curious: ['那裡有什麼嗎？', '咦？', '我去看看！'],
+  fedFood: ['是{f}！謝謝你～', '{f}耶！我認得！', '哇，{f}！好好吃！', '接到{f}了！開動囉～'],
+  favorite: ['{f}！我最喜歡{f}了！', '是{f}！！你怎麼知道我愛吃這個！'],
+  fullFood: ['是{f}…可是我吃不下了啦～', '{f}先留著，等等再吃好嗎？'],
 };
 
 const BY_PERSONALITY: Record<Personality, Table> = {
@@ -46,7 +50,7 @@ const BY_PERSONALITY: Record<Personality, Table> = {
   },
 };
 
-export function pickLine(kind: LineKind, personality: Personality, name: string, rnd = Math.random): string {
+export function pickLine(kind: LineKind, personality: Personality, name: string, rnd = Math.random, food = ''): string {
   const pool = [...COMMON[kind], ...(BY_PERSONALITY[personality][kind] ?? []), ...(BY_PERSONALITY[personality][kind] ?? [])];
-  return pool[Math.floor(rnd() * pool.length)].replaceAll('{n}', name);
+  return pool[Math.floor(rnd() * pool.length)].replaceAll('{n}', name).replaceAll('{f}', food);
 }

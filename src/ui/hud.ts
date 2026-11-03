@@ -1,21 +1,34 @@
 // 畫面上的 HTML 介面：名字、對話泡泡、愛心 / 飽食度、快捷欄、設定與開場。
 
-import { gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, statGrid } from '../pixel';
-import { affectionLevel, NAME_MAX, PERSONALITIES, toIcons, type Personality, type PetState } from '../game/state';
+import { foodIcon, gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, statGrid } from '../pixel';
+import { affectionLevel, FOOD_IDS, FOODS, NAME_MAX, PERSONALITIES, toIcons, type Food, type Personality, type PetState } from '../game/state';
 import type { AssetImages } from '../game/assets';
 import { SOUND_MODES, type SoundMode } from '../audio';
 
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
 
-export type Slot ='apple' | 'bread' | 'feather' | 'slime' | 'call';
+export type Slot = 'food' | 'feather' | 'slime' | 'empty' | 'call';
 export const SLOTS: { id: Slot; label: string; hint: string }[] = [
-  { id: 'apple', label: '蘋果', hint: '點悅靈餵食' },
-  { id: 'bread', label: '麵包', hint: '點悅靈餵食' },
+  { id: 'food', label: '背包', hint: '點畫面丟給悅靈' },
   { id: 'feather', label: '羽毛', hint: '點悅靈搔癢' },
-  { id: 'slime', label: '史萊姆球', hint: '點畫面丟球' },
+  { id: 'slime', label: '史萊姆球', hint: '按住蓄力，放開丟球' },
+  { id: 'empty', label: '', hint: '' },
   { id: 'call', label: '呼喚', hint: '' },
 ];
+
+/** 用原版箱子材質（textures/entity/chest/normal.png）拼出箱子正面圖示 */
+function chestIcon(tex: HTMLImageElement): string {
+  const k = tex.width / 64;
+  const c = document.createElement('canvas');
+  c.width = c.height = 16;
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(tex, 14 * k, 14 * k, 14 * k, 5 * k, 1, 1, 14, 5); // 蓋子正面
+  ctx.drawImage(tex, 14 * k, 33 * k, 14 * k, 10 * k, 1, 6, 14, 9); // 箱身正面
+  ctx.drawImage(tex, 1 * k, 1 * k, 2 * k, 4 * k, 7, 4, 2, 4); // 鎖扣
+  return c.toDataURL();
+}
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', parent?: HTMLElement): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -56,6 +69,11 @@ export class Hud {
   private heartURL: string[];
   private shankURL: string[];
   selected: Slot | null = null;
+  /** 從背包選好、準備丟出去的食物 */
+  food: Food | null = null;
+  private foodURL = {} as Record<Food, string>;
+  private foodBadge!: HTMLImageElement;
+  private chargeEl!: HTMLDivElement;
   private lastStat = '';
   private bar!: HTMLDivElement;
   private selFrame!: HTMLDivElement;
@@ -86,23 +104,36 @@ export class Hud {
     const bar = el('div', 'hotbar', hud);
     this.bar = bar;
     this.selFrame = el('div', 'selframe', bar);
+    for (const f of FOOD_IDS) this.foodURL[f] = foodIcon(f, 4).toDataURL();
     SLOTS.forEach((s) => {
       const b = el('button', 'slot', bar);
-      b.setAttribute('aria-label', s.label);
       b.dataset.slot = s.id;
+      this.slots.push(b);
+      if (s.id === 'empty') {
+        b.disabled = true;
+        return;
+      }
+      b.setAttribute('aria-label', s.label);
+      const icon = s.id === 'food' ? ITEM_ICONS.chest : ITEM_ICONS[s.id];
       const img = el('img', '', b);
-      img.src = gridURL(ITEM_ICONS[s.id].grid, ITEM_ICONS[s.id].pal, 4);
+      img.src = gridURL(icon.grid, icon.pal, 4);
       img.alt = s.label;
+      if (s.id === 'food') {
+        this.foodBadge = el('img', 'badge', b);
+        this.foodBadge.hidden = true;
+      }
       b.addEventListener('click', () => {
         if (s.id === 'call') {
           this.showItem('呼喚');
           this.actions.call();
           return;
         }
+        if (s.id === 'food') return this.openBag();
         this.setSelected(this.selected === s.id ? null : s.id);
       });
-      this.slots.push(b);
     });
+    this.chargeEl = el('div', 'charge', hud);
+    el('div', '', this.chargeEl);
     this.toastEl = el('div', 'toast', root);
   }
 
@@ -111,8 +142,46 @@ export class Hud {
     this.slots.forEach((b) => b.classList.toggle('selected', b.dataset.slot === slot));
     this.layout();
     const s = SLOTS.find((x) => x.id === slot);
-    if (s) this.showItem(`${s.label}　${s.hint}`);
+    if (slot === 'food' && this.food) this.showItem(`${FOODS[this.food].label}　${s!.hint}`);
+    else if (s) this.showItem(`${s.label}　${s.hint}`);
     this.actions.select(slot);
+  }
+
+  /** 史萊姆球蓄力條；null 代表隱藏 */
+  setCharge(v: number | null): void {
+    this.chargeEl.classList.toggle('show', v !== null);
+    if (v !== null) (this.chargeEl.firstChild as HTMLDivElement).style.width = `${Math.round(v * 100)}%`;
+  }
+
+  /** 背包：選一種食物，選好後就可以丟給悅靈 */
+  private openBag(): void {
+    const { box, close } = this.modal('背包');
+    box.classList.add('bag');
+    const name = el('div', 'bagname', box);
+    name.textContent = this.food ? FOODS[this.food].label : '選一樣食物丟給悅靈吧';
+    const grid = el('div', 'baggrid', box);
+    for (const f of FOOD_IDS) {
+      const b = el('button', 'bagslot' + (f === this.food ? ' on' : ''), grid);
+      b.dataset.food = f;
+      b.setAttribute('aria-label', FOODS[f].label);
+      el('img', '', b).src = this.foodURL[f];
+      b.addEventListener('click', () => {
+        this.food = f;
+        this.foodBadge.src = this.foodURL[f];
+        this.foodBadge.hidden = false;
+        close();
+        this.setSelected('food');
+      });
+    }
+    const cancel = el('button', 'btn', box);
+    cancel.textContent = '關閉';
+    cancel.addEventListener('click', close);
+  }
+
+  /** 套用原版食物圖示 */
+  useFoodImages(img: Partial<Record<Food, HTMLImageElement>>): void {
+    for (const [f, src] of Object.entries(img) as [Food, HTMLImageElement][]) this.foodURL[f] = src.src;
+    if (this.food) this.foodBadge.src = this.foodURL[this.food];
   }
 
   showItem(text: string): void {
@@ -144,12 +213,12 @@ export class Hud {
     }
     this.lastStat = '';
 
-    const items: Record<Slot, HTMLImageElement | undefined> = {
-      apple: img.apple, bread: img.bread, feather: img.feather, slime: img.slime_ball, call: img.note_block,
+    const items: Record<Slot, string | undefined> = {
+      food: img.chest && chestIcon(img.chest), feather: img.feather?.src, slime: img.slime_ball?.src, empty: undefined, call: img.note_block?.src,
     };
     this.slots.forEach((b) => {
       const src = items[b.dataset.slot as Slot];
-      if (src) b.querySelector('img')!.src = src.src;
+      if (src) b.querySelector('img')!.src = src;
     });
 
     if (img.hotbar && img.hotbar_selection) {
@@ -170,7 +239,8 @@ export class Hud {
   /** 原版模式下依螢幕寬度以整數倍放大像素介面 */
   private layout(): void {
     if (!this.mc) return;
-    const s = Math.max(2, Math.floor(Math.min(window.innerWidth - 24, 420) / this.mc.hotbarW));
+    // 橫拿手機時畫面較矮，也依高度縮小，避免介面佔掉太多畫面
+    const s = Math.max(2, Math.floor(Math.min(window.innerWidth - 24, 420, window.innerHeight * 0.9) / this.mc.hotbarW));
     const r = this.root.style;
     r.setProperty('--s', `${s}px`);
     r.setProperty('--u', `${(this.mc.hotbarW * s - 8) / 162}px`);

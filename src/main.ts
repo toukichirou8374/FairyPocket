@@ -1,12 +1,12 @@
 import './style.css';
 import * as THREE from 'three';
 import { registerSW } from 'virtual:pwa-register';
-import { Stage } from './three/stage';
+import { Stage, type Throwable } from './three/stage';
 import { AllayModel } from './three/allayModel';
 import { AllayController, TRAITS } from './three/allayController';
 import { Hud } from './ui/hud';
 import { pickLine, type LineKind } from './game/dialogue';
-import { applyElapsed, createPet, feed, isNight, pet as petPet, play, tickPet, type Food } from './game/state';
+import { applyElapsed, createPet, FAVORITE_FOOD, feed, FOOD_IDS, FOODS, isNight, pet as petPet, play, tickPet, type Food } from './game/state';
 import { BACKUP_KEY, exportFileName, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
@@ -26,11 +26,30 @@ stage.scene.add(model.root);
 
 const sound = new Sound(localStorage);
 let lastSpoke = 0;
-const say = (kind: LineKind) => {
-  hud.say(pickLine(kind, pet.personality, pet.name));
+const say = (kind: LineKind, food?: Food) => {
+  hud.say(pickLine(kind, pet.personality, pet.name, Math.random, food ? FOODS[food].label : ''));
   sound.speak(pet.personality);
   lastSpoke = performance.now();
 };
+
+/** 悅靈接住丟過來的東西 */
+function caught(): void {
+  const kind = stage.ball?.kind;
+  stage.removeBall();
+  if (!kind) return;
+  if (kind === 'slime') {
+    play(pet);
+    say('play');
+    return;
+  }
+  // 食物：悅靈認得是什麼，接住後吃掉
+  if (feed(pet, kind) === 'ok') {
+    ctrl.eat();
+    model.holdItem(stage.itemTexture(kind));
+    setTimeout(() => model.holdItem(null), 1400);
+    say(FAVORITE_FOOD[pet.personality] === kind ? 'favorite' : 'fedFood', kind);
+  } else say('fullFood', kind);
+}
 
 const ctrl = new AllayController(
   model,
@@ -39,11 +58,7 @@ const ctrl = new AllayController(
   {
     say,
     particle: (kind, at, count) => stage.spawn(kind, at, count),
-    caught: () => {
-      stage.removeBall();
-      play(pet);
-      say('play');
-    },
+    caught,
   },
 );
 
@@ -113,11 +128,14 @@ let pack: AssetPack | null = null;
 
 async function applyPack(p: AssetPack): Promise<void> {
   const img = await loadImages(p);
+  const food = await loadImages(p, Object.fromEntries(FOOD_IDS.map((f) => [f, `textures/item/${f}.png`])) as Record<Food, string>);
   pack = p;
   sound.usePack(p);
   if (img.allay) model.setSkin(img.allay);
   stage.useImages(img);
+  stage.useFoodImages(food);
   hud.useImages(img);
+  hud.useFoodImages(food);
 }
 
 const OPT_OUT_KEY = 'fairypocket.assets.optout';
@@ -225,19 +243,24 @@ function hitsAllay(x: number, y: number): boolean {
   return raycaster.intersectObject(model.hitbox, false).length > 0;
 }
 
+function throwAt(kind: Throwable, ray: THREE.Ray, power: number): void {
+  const from = stage.camera.position.clone().add(new THREE.Vector3(0, -0.7, -0.6));
+  stage.throwItem(kind, from, ray.direction, power);
+  ctrl.chaseBall();
+}
+
+/** 史萊姆球：按住蓄力（最多 1.2 秒），放開時依蓄力程度決定距離 */
+const CHARGE_TIME = 1.2;
+let chargeStart: number | null = null;
+const chargeLevel = () => (chargeStart === null ? 0 : Math.min(1, (performance.now() - chargeStart) / 1000 / CHARGE_TIME));
+
 function tap(x: number, y: number): void {
   const hit = hitsAllay(x, y);
   const ray = raycaster.ray;
   const sel = hud.selected;
-  if (sel === 'apple' || sel === 'bread') {
-    if (!hit) return hud.showItem('點一下悅靈來餵食');
-    if (feed(pet, sel as Food) === 'ok') {
-      ctrl.eat();
-      setTimeout(() => say('fed'), 900);
-    } else {
-      ctrl.wake();
-      say('full');
-    }
+  if (sel === 'food' && hud.food) {
+    // 食物不蓄力，輕輕拋給悅靈接
+    throwAt(hud.food, ray, 0);
     return;
   }
   if (sel === 'feather') {
@@ -245,12 +268,6 @@ function tap(x: number, y: number): void {
     play(pet);
     ctrl.tickled();
     say('tickle');
-    return;
-  }
-  if (sel === 'slime') {
-    const from = stage.camera.position.clone().add(new THREE.Vector3(0, -0.7, -0.6));
-    stage.throwBall(from, ray.direction);
-    ctrl.chaseBall();
     return;
   }
   if (hit) {
@@ -270,6 +287,7 @@ let down: { x: number; y: number; t: number; moved: number; rub: number } | null
 let lastRubPet = 0;
 canvas.addEventListener('pointerdown', (e) => {
   down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0, rub: 0 };
+  if (hud.selected === 'slime') chargeStart = performance.now();
 });
 canvas.addEventListener('pointermove', (e) => {
   if (!down) return;
@@ -288,18 +306,30 @@ canvas.addEventListener('pointermove', (e) => {
   }
 });
 canvas.addEventListener('pointerup', (e) => {
-  if (down && down.moved < 14 && performance.now() - down.t < 600) tap(e.clientX, e.clientY);
+  if (chargeStart !== null) {
+    // 放開就丟，蓄力時手指移動也沒關係（以放開的位置決定方向）
+    throwAt('slime', rayFrom(e.clientX, e.clientY), chargeLevel());
+    chargeStart = null;
+    hud.setCharge(null);
+  } else if (down && down.moved < 14 && performance.now() - down.t < 600) tap(e.clientX, e.clientY);
   down = null;
 });
-canvas.addEventListener('pointercancel', () => (down = null));
+canvas.addEventListener('pointercancel', () => {
+  down = null;
+  chargeStart = null;
+  hud.setCharge(null);
+});
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 // ---------- 主迴圈 ----------
 
+const hudEl = overlay.querySelector('.hud') as HTMLElement;
 function resize(): void {
-  stage.resize(window.innerWidth, window.innerHeight);
+  const h = window.innerHeight;
+  stage.resize(window.innerWidth, h, h - hudEl.getBoundingClientRect().top);
 }
 window.addEventListener('resize', resize);
+new ResizeObserver(resize).observe(hudEl);
 resize();
 
 function updateSky(): void {
@@ -336,6 +366,8 @@ function frame(now: number): void {
       }
     }
   }
+
+  if (chargeStart !== null) hud.setCharge(chargeLevel());
 
   ctrl.headTop(tmpV).project(stage.camera);
   hud.place(((tmpV.x + 1) / 2) * window.innerWidth, ((1 - tmpV.y) / 2) * window.innerHeight, tmpV.z < 1);

@@ -222,7 +222,8 @@ export class AllayController {
         if (this.pos.distanceTo(this.target) < 0.4) {
           this.hooks.caught();
           this.hooks.particle('sparkle', this.pos, 8);
-          this.setMode('happy', 1);
+          // 接到食物時 caught() 會切換成吃東西
+          if (this.mode === 'play') this.setMode('happy', 1);
         } else if (this.modeTime > this.modeDur) this.toIdle();
         break;
       }

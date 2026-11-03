@@ -233,6 +233,22 @@ export class AllayModel {
     this.faceMat.needsUpdate = true;
   }
 
+  private held: THREE.Sprite | null = null;
+
+  /** 讓悅靈雙手捧著物品（像原版拿著東西時一樣）；null 代表放下 */
+  holdItem(tex: THREE.Texture | null): void {
+    if (this.held) {
+      this.body.remove(this.held);
+      this.held.material.dispose();
+      this.held = null;
+    }
+    if (!tex) return;
+    this.held = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true }));
+    this.held.scale.setScalar(0.26);
+    this.held.position.set(0, -0.28, 0.32); // 雙手前方
+    this.body.add(this.held);
+  }
+
   /** 翅膀張開角度（弧度）：0 = 平貼背後 */
   setWings(spread: number, tilt: number): void {
     this.wingL.rotation.set(tilt, -spread, 0);

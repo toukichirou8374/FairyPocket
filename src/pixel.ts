@@ -1,5 +1,7 @@
 // 以字串格子繪製像素圖。所有圖案皆為原創暫用素材，可直接替換成正式材質。
 
+import { FOODS, type Food } from './game/state';
+
 export type Palette = Record<string, string>;
 
 export function drawGrid(grid: string[], pal: Palette, scale = 1): HTMLCanvasElement {
@@ -136,4 +138,40 @@ export const ITEM_ICONS: Record<string, { grid: string[]; pal: Palette }> = {
     ],
     pal: { n: '#ffe066' },
   },
+  chest: {
+    grid: [
+      '.kkkkkkkkkk.',
+      'kbbbbbbbbbbk',
+      'kbBBBBBBBBbk',
+      'kkkkkggkkkkk',
+      'kbbbbggbbbbk',
+      'kbBBBBBBBBbk',
+      'kbBBBBBBBBbk',
+      'kbbbbbbbbbbk',
+      '.kkkkkkkkkk.',
+    ],
+    pal: { k: '#3a2410', b: '#a0682a', B: '#c88a3c', g: '#d8d8d8' },
+  },
 };
+
+const FOOD_BLOB = [
+  '...kkkk...',
+  '..kcwccck.',
+  '.kcwcccCck',
+  '.kccccccCk',
+  '.kcccccCCk',
+  '..kccCCCk.',
+  '...kkkk...',
+];
+
+/** 沒有原版素材時的食物暫用圖示（依食物顏色上色的小圓塊） */
+export function foodIcon(food: Food, scale = 1): HTMLCanvasElement {
+  const c = FOODS[food].color;
+  return drawGrid(FOOD_BLOB, { k: '#2a1a10', c, C: shade(c, 0.7), w: '#ffffff' }, scale);
+}
+
+function shade(hex: string, k: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const ch = (s: number) => Math.round(((n >> s) & 255) * k);
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
+}

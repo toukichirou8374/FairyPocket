@@ -1,7 +1,8 @@
 // 場景：鏡頭、燈光、地面影子、粒子特效與史萊姆球。
 
 import * as THREE from 'three';
-import { drawGrid, HEART, HEART_PAL, ITEM_ICONS } from '../pixel';
+import { drawGrid, foodIcon, HEART, HEART_PAL, ITEM_ICONS } from '../pixel';
+import { FOOD_IDS, type Food } from '../game/state';
 
 function spriteTex(c: HTMLCanvasElement): THREE.Texture {
   const t = new THREE.CanvasTexture(c);
@@ -29,6 +30,12 @@ function textCanvas(text: string, color: string): HTMLCanvasElement {
 
 export type ParticleKind = 'heart' | 'zzz' | 'crumb' | 'note' | 'sparkle';
 
+/** 可以丟出去的東西：史萊姆球或背包裡的食物 */
+export type Throwable = 'slime' | Food;
+
+/** 丟出去的東西能飛到的最遠深度 */
+const FAR_Z = -9;
+
 interface Particle {
   sprite: THREE.Sprite;
   vel: THREE.Vector3;
@@ -45,8 +52,10 @@ export class Stage {
   private tex: Record<ParticleKind, THREE.Texture[]>;
   private shadow: THREE.Mesh;
   private motes: THREE.Points;
-  ball: { mesh: THREE.Sprite; vel: THREE.Vector3; life: number } | null = null;
+  ball: { kind: Throwable; mesh: THREE.Sprite; shadow: THREE.Mesh; vel: THREE.Vector3; life: number } | null = null;
   private ballTex: THREE.Texture;
+  private foodTex = {} as Record<Food, THREE.Texture>;
+  private shadowMat: THREE.MeshBasicMaterial;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -85,10 +94,8 @@ export class Stage {
     sg.addColorStop(1, 'rgba(20,40,90,0)');
     sctx.fillStyle = sg;
     sctx.fillRect(0, 0, 64, 64);
-    this.shadow = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.9, 0.9),
-      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(shC), transparent: true, depthWrite: false }),
-    );
+    this.shadowMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(shC), transparent: true, depthWrite: false });
+    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), this.shadowMat);
     this.shadow.rotation.x = -Math.PI / 2;
     this.shadow.position.y = 0.01;
     this.scene.add(this.shadow);
@@ -126,6 +133,18 @@ export class Stage {
     };
 
     this.ballTex = spriteTex(drawGrid(ITEM_ICONS.slime.grid, ITEM_ICONS.slime.pal, 4));
+    for (const f of FOOD_IDS) this.foodTex[f] = spriteTex(foodIcon(f, 4));
+  }
+
+  /** 套用原版食物圖示 */
+  useFoodImages(img: Partial<Record<Food, CanvasImageSource>>): void {
+    for (const [f, src] of Object.entries(img) as [Food, HTMLImageElement][]) {
+      const c = document.createElement('canvas');
+      c.width = src.width;
+      c.height = src.height;
+      c.getContext('2d')!.drawImage(src, 0, 0);
+      this.foodTex[f] = spriteTex(c);
+    }
   }
 
   /** 套用原版素材（丟出去的史萊姆球、愛心與音符粒子） */
@@ -147,16 +166,38 @@ export class Stage {
   }
   private tintNotes = false;
 
-  resize(w: number, h: number): void {
+  /**
+   * hudH：畫面下方介面（愛心、快捷欄）的高度。
+   * 畫面中心往上移到介面上方的區域，橫拿手機時悅靈才不會被快捷欄擋住。
+   */
+  resize(w: number, h: number, hudH = 0): void {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    // 橫向時畫面較矮，鏡頭拉近一點讓悅靈不會太小
+    this.camera.fov = w > h ? 34 : 42;
+    this.camera.clearViewOffset();
+    this.camera.updateProjectionMatrix();
+    // 地面（悅靈休息、睡覺的位置）若被介面擋住，就把整個畫面往上移
+    const ground = new THREE.Vector3(0, 0, 0).project(this.camera);
+    const groundY = ((1 - ground.y) / 2) * h;
+    const shift = THREE.MathUtils.clamp(groundY - (h - hudH - 8), 0, h * 0.35);
+    if (shift > 0) this.camera.setViewOffset(w, h, 0, shift, w, h);
     this.camera.updateProjectionMatrix();
   }
 
   /** 悅靈可以活動的範圍（依螢幕寬度調整） */
   bounds() {
-    const halfW = Math.max(0.35, 5.4 * Math.tan(THREE.MathUtils.degToRad(21)) * this.camera.aspect * 0.8 - 0.3);
-    return { minX: -halfW, maxX: halfW, minY: 0.45, maxY: 2.1, minZ: -1.6, maxZ: 1.0 };
+    const halfW = Math.max(0.35, 5.4 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect * 0.8 - 0.3);
+    // 頭頂不能飛出畫面上緣（橫拿手機時畫面較矮）
+    const maxY = THREE.MathUtils.clamp(this.worldYAtScreen(0.9) - 0.8, 1.0, 2.1);
+    return { minX: -halfW, maxX: halfW, minY: 0.45, maxY, minZ: -1.6, maxZ: 1.0 };
+  }
+
+  /** 畫面上某個高度（-1 底 ~ 1 頂）對應到 z=0 平面上的世界高度 */
+  private worldYAtScreen(ndcY: number): number {
+    const p = new THREE.Vector3(0, ndcY, 0.5).unproject(this.camera);
+    const o = this.camera.position;
+    return o.y + ((p.y - o.y) * (0 - o.z)) / (p.z - o.z);
   }
 
   setShadow(pos: THREE.Vector3): void {
@@ -187,20 +228,41 @@ export class Stage {
     }
   }
 
-  throwBall(from: THREE.Vector3, dir: THREE.Vector3): void {
+  /**
+   * 丟出史萊姆球或食物。power 0–1 是蓄力程度（只有史萊姆球會用到，食物固定輕輕拋出）。
+   */
+  throwItem(kind: Throwable, from: THREE.Vector3, dir: THREE.Vector3, power = 0): void {
     this.removeBall();
-    const mesh = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.ballTex, transparent: true }));
+    const slime = kind === 'slime';
+    const map = slime ? this.ballTex : this.foodTex[kind];
+    const mesh = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true }));
     mesh.scale.setScalar(0.28);
     mesh.position.copy(from);
-    this.scene.add(mesh);
-    this.ball = { mesh, vel: dir.clone().multiplyScalar(5).add(new THREE.Vector3(0, 2.2, 0)), life: 9 };
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), this.shadowMat);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.set(from.x, 0.012, from.z);
+    this.scene.add(mesh, shadow);
+    const speed = slime ? 3.2 + 8 * power : 3.4;
+    const up = slime ? 1.9 + 1.6 * power : 1.8;
+    this.ball = { kind, mesh, shadow, vel: dir.clone().multiplyScalar(speed).add(new THREE.Vector3(0, up, 0)), life: 9 + 3 * power };
   }
 
   removeBall(): void {
     if (!this.ball) return;
-    this.scene.remove(this.ball.mesh);
+    this.scene.remove(this.ball.mesh, this.ball.shadow);
     this.ball.mesh.material.dispose();
+    this.ball.shadow.geometry.dispose();
     this.ball = null;
+  }
+
+  itemTexture(kind: Throwable): THREE.Texture {
+    return kind === 'slime' ? this.ballTex : this.foodTex[kind];
+  }
+
+  /** 某個深度下畫面左右可見的半寬 */
+  private halfWidthAt(z: number): number {
+    const dist = this.camera.position.z - z;
+    return dist * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * this.camera.aspect * 0.85;
   }
 
   update(dt: number, t: number): void {
@@ -224,21 +286,26 @@ export class Stage {
       b.life -= dt;
       b.vel.y -= 6 * dt;
       b.mesh.position.addScaledVector(b.vel, dt);
-      const bd = this.bounds();
-      if (b.mesh.position.y < 0.12) {
-        b.mesh.position.y = 0.12;
-        b.vel.y = Math.abs(b.vel.y) * 0.62; // 史萊姆般地彈跳
-        b.vel.x *= 0.8;
-        b.vel.z *= 0.8;
-        b.mesh.scale.set(0.35, 0.2, 1);
+      const p = b.mesh.position;
+      const slime = b.kind === 'slime';
+      if (p.y < 0.12) {
+        p.y = 0.12;
+        // 史萊姆球會彈；食物落地只輕輕彈一下就停住
+        b.vel.y = Math.abs(b.vel.y) * (slime ? 0.62 : 0.2);
+        b.vel.x *= slime ? 0.8 : 0.4;
+        b.vel.z *= slime ? 0.8 : 0.4;
+        if (slime) b.mesh.scale.set(0.35, 0.2, 1);
       }
       b.mesh.scale.lerp(new THREE.Vector3(0.28, 0.28, 1), 1 - Math.exp(-8 * dt));
-      for (const [k, lo, hi] of [['x', bd.minX - 0.2, bd.maxX + 0.2], ['z', bd.minZ - 0.4, bd.maxZ + 1.2]] as const) {
-        if (b.mesh.position[k] < lo || b.mesh.position[k] > hi) {
-          b.mesh.position[k] = THREE.MathUtils.clamp(b.mesh.position[k], lo, hi);
+      const hw = this.halfWidthAt(p.z);
+      for (const [k, lo, hi] of [['x', -hw, hw], ['z', FAR_Z, 2.2]] as const) {
+        if (p[k] < lo || p[k] > hi) {
+          p[k] = THREE.MathUtils.clamp(p[k], lo, hi);
           b.vel[k] *= -0.6;
         }
       }
+      b.shadow.position.set(p.x, 0.012, p.z);
+      b.shadow.scale.setScalar(THREE.MathUtils.clamp(1.2 - p.y * 0.3, 0.4, 1.1));
       if (b.life <= 0) this.removeBall();
     }
     this.renderer.render(this.scene, this.camera);

@@ -30,11 +30,31 @@ export interface PetState {
   stats: { fed: number; petted: number; played: number };
 }
 
-export type Food = 'apple' | 'bread';
+/** 背包裡的食物；飢餓度回復量與原版相同，圖示為 textures/item/<id>.png */
+export const FOODS = {
+  apple: { label: '蘋果', hunger: 4, health: 2, color: '#e0303a' },
+  bread: { label: '麵包', hunger: 5, health: 1, color: '#c48a3a' },
+  cookie: { label: '餅乾', hunger: 2, health: 1, color: '#b0743a' },
+  carrot: { label: '胡蘿蔔', hunger: 3, health: 1, color: '#f08a20' },
+  baked_potato: { label: '烤馬鈴薯', hunger: 5, health: 1, color: '#d8a850' },
+  sweet_berries: { label: '甜莓', hunger: 2, health: 1, color: '#c02040' },
+  glow_berries: { label: '發光漿果', hunger: 2, health: 1, color: '#f8b030' },
+  melon_slice: { label: '西瓜片', hunger: 2, health: 1, color: '#e04848' },
+  cooked_chicken: { label: '烤雞', hunger: 6, health: 2, color: '#d89048' },
+  pumpkin_pie: { label: '南瓜派', hunger: 8, health: 2, color: '#e09030' },
+  honey_bottle: { label: '蜂蜜瓶', hunger: 6, health: 2, color: '#f8c030' },
+  golden_carrot: { label: '金胡蘿蔔', hunger: 6, health: 4, color: '#f8d848' },
+  golden_apple: { label: '金蘋果', hunger: 4, health: 10, color: '#f8d020' },
+} as const;
+export type Food = keyof typeof FOODS;
+export const FOOD_IDS = Object.keys(FOODS) as Food[];
 
-export const FOODS: Record<Food, { label: string; hunger: number; health: number }> = {
-  apple: { label: '蘋果', hunger: 4, health: 2 },
-  bread: { label: '麵包', hunger: 5, health: 1 },
+/** 每種個性最喜歡的食物（吃到時好感度加更多） */
+export const FAVORITE_FOOD: Record<Personality, Food> = {
+  guardian: 'bread',
+  brave: 'cooked_chicken',
+  cautious: 'honey_bottle',
+  playful: 'cookie',
 };
 
 export function clamp(v: number, lo: number, hi: number): number {
@@ -100,7 +120,7 @@ export function feed(s: PetState, food: Food): 'ok' | 'full' {
   const f = FOODS[food];
   s.hunger = clamp(s.hunger + f.hunger, 0, MAX_HUNGER);
   s.health = clamp(s.health + f.health, 0, MAX_HEALTH);
-  s.affection = clamp(s.affection + 3, 0, MAX_AFFECTION);
+  s.affection = clamp(s.affection + (FAVORITE_FOOD[s.personality] === food ? 6 : 3), 0, MAX_AFFECTION);
   s.stats.fed++;
   return 'ok';
 }
