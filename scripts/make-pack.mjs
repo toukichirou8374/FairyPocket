@@ -13,7 +13,7 @@ import { inflateRawSync, crc32 } from 'node:zlib';
 
 /** 不放進素材包的音效資料夾（檔案太大）；但遊戲用到的背景音樂與唱片例外 */
 const SKIP_SOUNDS = /^minecraft\/sounds\/(music|records)\//;
-const KEEP_MUSIC = /^minecraft\/sounds\/(music\/game\/(minecraft|sweden|wet_hands)|records\/(cat|far))\.ogg$/;
+const KEEP_MUSIC = /^minecraft\/sounds\/(music\/game\/(minecraft|sweden|wet_hands)|records\/(creator_music_box|far))\.ogg$/;
 
 /**
  * 遊戲實際用到的檔案：掃描 src 裡寫到的原版路徑。

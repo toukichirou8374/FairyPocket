@@ -37,7 +37,7 @@ export const IMAGE_PATHS = {
   // 唱片機與唱片
   jukebox_side: 'textures/block/jukebox_side.png',
   jukebox_top: 'textures/block/jukebox_top.png',
-  music_disc_cat: 'textures/item/music_disc_cat.png',
+  music_disc_creator_music_box: 'textures/item/music_disc_creator_music_box.png',
   music_disc_far: 'textures/item/music_disc_far.png',
   // 快捷欄：煙火、水桶
   firework_rocket: 'textures/item/firework_rocket.png',

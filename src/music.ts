@@ -9,9 +9,9 @@ import type { Sound } from './audio';
 /** 3 首原版經典背景音樂（C418）：Minecraft、Sweden、Wet Hands（26.3 起檔名改成曲名） */
 export const BGM = ['sounds/music/game/minecraft', 'sounds/music/game/sweden', 'sounds/music/game/wet_hands'];
 
-/** 唱片機的 2 張唱片 */
+/** 唱片機的 2 張唱片（安靜、溫馨的兩首） */
 export const DISCS = [
-  { id: 'cat', path: 'sounds/records/cat', tex: 'textures/item/music_disc_cat.png', title: 'C418 - cat' },
+  { id: 'creator_music_box', path: 'sounds/records/creator_music_box', tex: 'textures/item/music_disc_creator_music_box.png', title: 'Lena Raine - Creator (Music Box)' },
   { id: 'far', path: 'sounds/records/far', tex: 'textures/item/music_disc_far.png', title: 'C418 - far' },
 ] as const;
 
