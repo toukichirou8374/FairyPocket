@@ -175,6 +175,19 @@ export const ITEM_ICONS: Record<string, { grid: string[]; pal: Palette }> = {
     ],
     pal: { k: '#3a2a1a', w: '#f0c090' },
   },
+  jukebox: {
+    grid: [
+      'kkkkkkkkkkkk',
+      'kbbbbbbbbbbk',
+      'kbkkkkkkkkbk',
+      'kbbbbbbbbbbk',
+      'kBbBbBbBbBbk',
+      'kbBbBbBbBbBk',
+      'kBbBbBbBbBbk',
+      'kkkkkkkkkkkk',
+    ],
+    pal: { k: '#3a2414', b: '#7a4a2a', B: '#5a3420' },
+  },
   bed: {
     grid: [
       'kk..........',

@@ -29,7 +29,7 @@ export function getLang(): Lang {
   return lang;
 }
 
-type Item = Food | 'feather' | 'slime_ball' | 'note_block' | 'bell' | 'amethyst_shard' | 'allay' | 'inventory' | 'bed' | 'firework' | 'water_bucket';
+type Item = Food | 'feather' | 'slime_ball' | 'note_block' | 'bell' | 'amethyst_shard' | 'allay' | 'inventory' | 'bed' | 'jukebox' | 'firework' | 'water_bucket';
 
 /** Java 版語言檔中的名稱（item.minecraft.* / block.minecraft.* / entity.minecraft.allay / container.inventory） */
 const ITEMS: Record<Lang, Record<Item, string>> = {
@@ -39,7 +39,7 @@ const ITEMS: Record<Lang, Record<Item, string>> = {
     golden_carrot: '金胡蘿蔔', golden_apple: '金蘋果', cooked_beef: '牛排', cooked_porkchop: '烤豬肉', cooked_mutton: '烤羊肉',
     cooked_cod: '烤鱈魚', cooked_salmon: '烤鮭魚', cooked_rabbit: '烤兔肉', mushroom_stew: '蘑菇湯', rabbit_stew: '兔肉湯',
     beetroot_soup: '甜菜湯', dried_kelp: '海帶乾', cake: '蛋糕', feather: '羽毛', slime_ball: '史萊姆球', note_block: '音階盒',
-    bell: '鐘', amethyst_shard: '紫水晶碎片', bed: '紅色床', firework: '煙火', water_bucket: '水桶', allay: '悅靈', inventory: '物品欄',
+    bell: '鐘', amethyst_shard: '紫水晶碎片', bed: '紅色床', jukebox: '唱片機', firework: '煙火', water_bucket: '水桶', allay: '悅靈', inventory: '物品欄',
   },
   ja_jp: {
     apple: 'リンゴ', bread: 'パン', cookie: 'クッキー', carrot: 'ニンジン', baked_potato: 'ベイクドポテト', sweet_berries: 'スイートベリー',
@@ -47,7 +47,7 @@ const ITEMS: Record<Lang, Record<Item, string>> = {
     honey_bottle: 'ハチミツ入りの瓶', golden_carrot: '金のニンジン', golden_apple: '金のリンゴ', cooked_beef: 'ステーキ', cooked_porkchop: '焼き豚',
     cooked_mutton: '焼き羊肉', cooked_cod: '焼き鱈', cooked_salmon: '焼き鮭', cooked_rabbit: '焼き兎肉', mushroom_stew: 'キノコシチュー',
     rabbit_stew: 'ウサギシチュー', beetroot_soup: 'ビートルートスープ', dried_kelp: '乾燥した昆布', cake: 'ケーキ', feather: '羽根',
-    slime_ball: 'スライムボール', note_block: '音符ブロック', bell: '鐘', amethyst_shard: 'アメジストの欠片', bed: '赤色のベッド', firework: 'ロケット花火', water_bucket: '水入りバケツ', allay: 'アレイ',
+    slime_ball: 'スライムボール', note_block: '音符ブロック', bell: '鐘', amethyst_shard: 'アメジストの欠片', bed: '赤色のベッド', jukebox: 'ジュークボックス', firework: 'ロケット花火', water_bucket: '水入りバケツ', allay: 'アレイ',
     inventory: 'インベントリ',
   },
   en_us: {
@@ -56,7 +56,7 @@ const ITEMS: Record<Lang, Record<Item, string>> = {
     honey_bottle: 'Honey Bottle', golden_carrot: 'Golden Carrot', golden_apple: 'Golden Apple', cooked_beef: 'Steak', cooked_porkchop: 'Cooked Porkchop',
     cooked_mutton: 'Cooked Mutton', cooked_cod: 'Cooked Cod', cooked_salmon: 'Cooked Salmon', cooked_rabbit: 'Cooked Rabbit',
     mushroom_stew: 'Mushroom Stew', rabbit_stew: 'Rabbit Stew', beetroot_soup: 'Beetroot Soup', dried_kelp: 'Dried Kelp', cake: 'Cake', feather: 'Feather',
-    slime_ball: 'Slimeball', note_block: 'Note Block', bell: 'Bell', amethyst_shard: 'Amethyst Shard', bed: 'Red Bed', firework: 'Firework Rocket', water_bucket: 'Water Bucket', allay: 'Allay',
+    slime_ball: 'Slimeball', note_block: 'Note Block', bell: 'Bell', amethyst_shard: 'Amethyst Shard', bed: 'Red Bed', jukebox: 'Jukebox', firework: 'Firework Rocket', water_bucket: 'Water Bucket', allay: 'Allay',
     inventory: 'Inventory',
   },
 };
@@ -106,6 +106,15 @@ const UI = {
     putAway: '收起',
     'hint.wave': '開啟前鏡頭，對著鏡頭揮手{a}會回應',
     'hint.bed': '點地面放床，點床讓{a}去睡、再點一次叫醒',
+    'hint.jukebox': '點地面放唱片機，點它換唱片',
+    nowPlaying: '正在播放：{t}',
+    musicStop: '停止播放',
+    bgm: '背景音樂',
+    bgmNeed: '用最新的原版素材包才有背景音樂與唱片。',
+    arPoses: '動作',
+    packReading: '正在讀取素材包…',
+    packSaving: '正在存入這台裝置…（{n}/{m}）',
+    packFail: '匯入失敗：{e}',
     'hint.firework': '點地面放煙火',
     'hint.bath': '點{a}幫牠洗澡',
     ar: '相機 AR',
@@ -222,6 +231,15 @@ const UI = {
     putAway: 'しまう',
     'hint.wave': 'インカメラで、手をふると{a}が返事するよ',
     'hint.bed': '地面にベッドを置いて、タップで{a}を寝かせる／もう一度で起こす',
+    'hint.jukebox': '地面をタップでジュークボックスを置く。タップでレコードを替える',
+    nowPlaying: '再生中：{t}',
+    musicStop: '停止',
+    bgm: 'BGM',
+    bgmNeed: '最新の素材パックを読み込むと BGM とレコードが使えます。',
+    arPoses: 'ポーズ',
+    packReading: '素材パックを読み込み中…',
+    packSaving: 'この端末に保存中…（{n}/{m}）',
+    packFail: '読み込みに失敗しました：{e}',
     'hint.firework': '地面をタップで花火を打ち上げ',
     'hint.bath': '{a}をタップしてお風呂',
     ar: 'カメラ AR',
@@ -338,6 +356,15 @@ const UI = {
     putAway: 'Put away',
     'hint.wave': 'Uses the front camera; wave and the {a} waves back',
     'hint.bed': 'Tap the ground to place the bed; tap the bed to put the {a} to sleep, again to wake it',
+    'hint.jukebox': 'Tap the ground to place the jukebox; tap it to change discs',
+    nowPlaying: 'Now Playing: {t}',
+    musicStop: 'Stopped',
+    bgm: 'Music',
+    bgmNeed: 'Import the latest asset pack for music and discs.',
+    arPoses: 'Pose',
+    packReading: 'Reading the asset pack…',
+    packSaving: 'Saving to this device… ({n}/{m})',
+    packFail: 'Import failed: {e}',
     'hint.firework': 'Tap the ground to launch a firework',
     'hint.bath': 'Tap the {a} to give it a bath',
     ar: 'Camera AR',

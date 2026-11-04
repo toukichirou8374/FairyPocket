@@ -34,6 +34,11 @@ export const IMAGE_PATHS = {
   cake_side: 'textures/block/cake_side.png',
   cake_bottom: 'textures/block/cake_bottom.png',
   cake_inner: 'textures/block/cake_inner.png',
+  // 唱片機與唱片
+  jukebox_side: 'textures/block/jukebox_side.png',
+  jukebox_top: 'textures/block/jukebox_top.png',
+  music_disc_cat: 'textures/item/music_disc_cat.png',
+  music_disc_far: 'textures/item/music_disc_far.png',
   // 快捷欄：煙火、水桶
   firework_rocket: 'textures/item/firework_rocket.png',
   water_bucket: 'textures/item/water_bucket.png',
@@ -261,10 +266,11 @@ async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
 /** 每批存幾個檔案（分批存，避免一次交易太大讓 iPad 記憶體不足） */
 const PART = 400;
 
-export async function savePack(p: AssetPack): Promise<void> {
+export async function savePack(p: AssetPack, progress?: (done: number, total: number) => void): Promise<void> {
   const entries = [...p.files];
   const parts = Math.ceil(entries.length / PART);
   for (let i = 0; i < parts; i++) {
+    progress?.(i + 1, parts);
     const chunk = Object.fromEntries(entries.slice(i * PART, (i + 1) * PART));
     await tx('readwrite', (s) => s.put(chunk, `part:${i}`));
   }

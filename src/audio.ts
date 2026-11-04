@@ -13,6 +13,9 @@ export const SOUND_MODES: Record<SoundMode, { label: string; allay: number; chim
   off: { label: '關閉', allay: 0, chime: 0, chimePitch: 1 },
 };
 
+/** 情境音效整體音量（偏安靜） */
+const EFFECT_LEVEL = 0.7;
+
 /** 個性基礎音高 × 原版事件音高 1.25 */
 const EVENT_PITCH = 1.25;
 export const PERSONALITY_PITCH: Record<Personality, number> = {
@@ -160,9 +163,46 @@ export class Sound {
     src.start();
   }
 
-  /** 一般音效（音符盒等），音量跟著聲音模式 */
+  /** 一般音效（音符盒等），音量跟著聲音模式；整體偏安靜（原音量的 7 成） */
   effect(path: string, volume = 1, rate = 1, pan = 0): void {
-    void this.play(path, volume * SOUND_MODES[this.mode].allay, rate, pan);
+    void this.play(path, volume * SOUND_MODES[this.mode].allay * EFFECT_LEVEL, rate, pan);
+  }
+
+  // ---------- 音樂用 ----------
+
+  /** 音樂接到這裡（錄影時也錄得到） */
+  musicOut(): GainNode | null {
+    return this.ctx ? this.output(this.ctx) : null;
+  }
+
+  /** 音樂音量倍率：跟著聲音模式（關閉時為 0） */
+  musicVolume(): number {
+    return SOUND_MODES[this.mode].allay;
+  }
+
+  /** 整首解碼並混成單聲道（瀏覽器不能串流播放 OGG 時用，省一半記憶體） */
+  async decodeMono(blob: Blob): Promise<AudioBuffer | null> {
+    const ctx = this.ctx;
+    if (!ctx) return null;
+    const data = await blob.arrayBuffer();
+    let buf: AudioBuffer;
+    try {
+      buf = await ctx.decodeAudioData(data.slice(0));
+    } catch {
+      try {
+        buf = await decodeOgg(ctx, data);
+      } catch {
+        return null;
+      }
+    }
+    if (buf.numberOfChannels === 1) return buf;
+    const mono = ctx.createBuffer(1, buf.length, buf.sampleRate);
+    const out = mono.getChannelData(0);
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < d.length; i++) out[i] += d[i] / buf.numberOfChannels;
+    }
+    return mono;
   }
 
   /**

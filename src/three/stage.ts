@@ -64,7 +64,8 @@ function tinted(src: HTMLImageElement, tint?: string): HTMLCanvasElement {
   return c;
 }
 
-const BED = 0.5;
+/** 床的大小（1 個方塊；悅靈躺得下） */
+const BED = 1;
 const BED_FACES = ['head_up', 'foot_up', 'head_east', 'head_west', 'foot_east', 'foot_west', 'foot_south', 'head_north', 'down'] as const;
 type BedFace = (typeof BED_FACES)[number];
 
@@ -645,6 +646,7 @@ export class Stage {
       return new THREE.Mesh(geo, mats);
     };
     g.add(box(true), box(false));
+    this.blanket = null;
     g.position.set(at.x, 0, at.z);
     g.rotation.y = 0.35;
     this.bed = g;
@@ -655,12 +657,35 @@ export class Stage {
     if (!this.bed) return;
     this.scene.remove(this.bed);
     this.bed = null;
+    this.blanket = null;
   }
 
-  /** 悅靈躺下的位置（枕頭上方） */
+  /** 悅靈躺下的位置：頭靠在枕頭上（脖子在床頭半格的位置） */
   bedSpot(out: THREE.Vector3): THREE.Vector3 {
     const b = this.bed!;
-    return out.set(0, (9 / 16) * BED + 0.18, -BED * 0.35).applyAxisAngle(new THREE.Vector3(0, 1, 0), b.rotation.y).add(b.position);
+    return out.set(0, (9 / 16) * BED + 0.05, -BED * 0.5).applyAxisAngle(new THREE.Vector3(0, 1, 0), b.rotation.y).add(b.position);
+  }
+
+  /** 床的方向（悅靈躺下時跟著轉） */
+  bedYaw(): number {
+    return this.bed?.rotation.y ?? 0;
+  }
+
+  private blanket: THREE.Mesh | null = null;
+
+  /** 悅靈睡在床上時蓋上被子（原版床尾的紅色被子） */
+  setBlanket(on: boolean): void {
+    if (!this.bed) return;
+    if (!this.blanket) {
+      const h = 0.2;
+      const geo = new THREE.BoxGeometry(BED * 0.98, h, BED * 1.42);
+      geo.translate(0, (9 / 16) * BED + h / 2, BED * 0.28);
+      const top = new THREE.MeshLambertMaterial({ map: this.bedTex.foot_up ?? null, color: this.bedTex.foot_up ? '#ffffff' : '#c83030' });
+      const side = new THREE.MeshLambertMaterial({ color: '#a82828' });
+      this.blanket = new THREE.Mesh(geo, [side, side, top, side, side, side]);
+      this.bed.add(this.blanket);
+    }
+    this.blanket.visible = on;
   }
 
   useBedImages(img: Partial<Record<`bed_${BedFace}`, HTMLImageElement>>): void {
@@ -669,6 +694,34 @@ export class Stage {
       if (src) this.bedTex[k] = spriteTex(tinted(src));
     }
     if (this.bed) this.placeBed(this.bed.position);
+  }
+
+  // ---------- 唱片機 ----------
+
+  jukebox: THREE.Mesh | null = null;
+  private jukeTex: { side: THREE.Texture | null; top: THREE.Texture | null } = { side: null, top: null };
+
+  placeJukebox(at: THREE.Vector3): void {
+    if (!this.jukebox) {
+      const m = (t: THREE.Texture | null, c: string) => new THREE.MeshLambertMaterial({ map: t, color: t ? '#ffffff' : c });
+      const side = m(this.jukeTex.side, '#7a4a2a');
+      const top = m(this.jukeTex.top, '#5a3420');
+      this.jukebox = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), [side, side, top, side, side, side]);
+      this.scene.add(this.jukebox);
+    }
+    this.jukebox.position.set(at.x, 0.21, at.z);
+    this.jukebox.rotation.y = -0.35;
+  }
+
+  useJukeboxImages(img: { jukebox_side?: HTMLImageElement; jukebox_top?: HTMLImageElement }): void {
+    if (img.jukebox_side) this.jukeTex.side = spriteTex(tinted(img.jukebox_side));
+    if (img.jukebox_top) this.jukeTex.top = spriteTex(tinted(img.jukebox_top));
+    if (this.jukebox) {
+      const at = this.jukebox.position.clone();
+      this.scene.remove(this.jukebox);
+      this.jukebox = null;
+      this.placeJukebox(at);
+    }
   }
 
   // ---------- 煙火（原版的火花粒子 spark_7 → spark_0） ----------

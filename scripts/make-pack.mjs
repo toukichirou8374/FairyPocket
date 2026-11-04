@@ -1,5 +1,7 @@
 // 從「你自己安裝的」Minecraft Java 版遊戲檔取出原版素材，
-// 打包成 private/FairyPocket-原版素材包.zip（全部材質 + 背景音樂與唱片以外的全部音效）。
+// 打包成兩個素材包：
+//   private/FairyPocket-原版素材包.zip         完整版：全部材質 + 全部音效（背景音樂與唱片只收錄遊戲用到的 5 首）
+//   private/FairyPocket-原版素材包-精簡版.zip  精簡版：只有遊戲實際用到的檔案（給 iPad 等容易記憶體不足的裝置）
 // 這個素材包只供個人使用：private/ 已排除在 Git 與網站建置之外，請勿公開散布。
 //
 // 用法：node scripts/make-pack.mjs [版本名稱，例如 26.3]
@@ -9,8 +11,40 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, existsSy
 import { join } from 'node:path';
 import { inflateRawSync, crc32 } from 'node:zlib';
 
-/** 不放進素材包的音效資料夾（檔案太大、手機用不到） */
+/** 不放進素材包的音效資料夾（檔案太大）；但遊戲用到的背景音樂與唱片例外 */
 const SKIP_SOUNDS = /^minecraft\/sounds\/(music|records)\//;
+const KEEP_MUSIC = /^minecraft\/sounds\/(music\/game\/(minecraft|sweden|wet_hands)|records\/(cat|far))\.ogg$/;
+
+/**
+ * 遊戲實際用到的檔案：掃描 src 裡寫到的原版路徑。
+ * 'textures/…png' 取那個檔案；'sounds/…'（沒有副檔名）取所有以它開頭的檔案（例如 eat1～3）。
+ * 另外加上食物圖示（textures/item/<食物>.png）與生態域材質（block('名稱')）。
+ */
+function usedPaths() {
+  const exact = new Set();
+  const prefixes = new Set();
+  const scan = (dir) => {
+    for (const n of readdirSync(dir)) {
+      const p = join(dir, n);
+      if (statSync(p).isDirectory()) scan(p);
+      else if (n.endsWith('.ts') && !n.endsWith('.test.ts')) {
+        const src = readFileSync(p, 'utf8');
+        for (const m of src.matchAll(/['"`]((?:textures|sounds)\/[\w/.-]+)/g)) {
+          const v = m[1];
+          if (v.endsWith('/')) continue;
+          if (v.endsWith('.png')) exact.add(v);
+          else prefixes.add(v);
+        }
+        for (const m of src.matchAll(/block\('([\w]+)'\)/g)) exact.add(`textures/block/${m[1]}.png`);
+      }
+    }
+  };
+  scan('src');
+  const state = readFileSync(join('src', 'game', 'state.ts'), 'utf8');
+  const foods = state.slice(state.indexOf('export const FOODS'), state.indexOf('} as const;'));
+  for (const m of foods.matchAll(/^\s+(\w+): \{ hunger/gm)) exact.add(`textures/item/${m[1]}.png`);
+  return (name) => name === 'pack.json' || exact.has(name) || [...prefixes].some((p) => name.startsWith(p));
+}
 
 const mc = join(process.env.APPDATA ?? '', '.minecraft');
 
@@ -116,7 +150,7 @@ const index = JSON.parse(readFileSync(join(mc, 'assets', 'indexes', `${meta.asse
 let sounds = 0;
 const missing = [];
 for (const [name, obj] of Object.entries(index)) {
-  if (!name.startsWith('minecraft/sounds/') || SKIP_SOUNDS.test(name)) continue;
+  if (!name.startsWith('minecraft/sounds/') || (SKIP_SOUNDS.test(name) && !KEEP_MUSIC.test(name))) continue;
   const path = join(mc, 'assets', 'objects', obj.hash.slice(0, 2), obj.hash);
   if (!existsSync(path)) {
     missing.push(name);
@@ -128,12 +162,19 @@ for (const [name, obj] of Object.entries(index)) {
 const sj = index['minecraft/sounds.json'];
 if (sj) files.push(['sounds.json', readFileSync(join(mc, 'assets', 'objects', sj.hash.slice(0, 2), sj.hash))]);
 
-const id = `${v}-${Date.now()}`;
-files.unshift(['pack.json', Buffer.from(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', format: 2, source: v, id }))]);
-
+const stamp = Date.now();
 mkdirSync('private', { recursive: true });
+const pack = (source, id) => ['pack.json', Buffer.from(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', format: 2, source, id }))];
+
 const out = join('private', 'FairyPocket-原版素材包.zip');
-const zip = writeZip(files);
+const zip = writeZip([pack(v, `${v}-${stamp}`), ...files]);
 writeFileSync(out, zip);
 console.log(`完成：${out}（材質 ${textures} 個、音效 ${sounds} 個，${(zip.length / 1e6).toFixed(1)} MB，Minecraft ${v}）`);
+
+const used = usedPaths();
+const lite = files.filter(([n]) => used(n));
+const liteOut = join('private', 'FairyPocket-原版素材包-精簡版.zip');
+const liteZip = writeZip([pack(`${v}（精簡版）`, `${v}-lite-${stamp}`), ...lite]);
+writeFileSync(liteOut, liteZip);
+console.log(`完成：${liteOut}（${lite.length} 個檔案，${(liteZip.length / 1e6).toFixed(1)} MB）`);
 if (missing.length) console.log(`尚未下載的音效 ${missing.length} 個（請用官方啟動器開一次遊戲）`);

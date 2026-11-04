@@ -57,6 +57,8 @@ export interface World {
   night(): boolean;
   /** 地上有床時，悅靈躺下的位置 */
   bed?(): THREE.Vector3 | null;
+  /** 床的方向 */
+  bedYaw?(): number;
 }
 
 export interface Hooks {
@@ -246,6 +248,12 @@ export class AllayController {
     this.mode = POSE_MODE[p];
     this.modeTime = 0;
     this.modeDur = Infinity;
+  }
+
+  /** 正躺在床上睡覺（頭靠枕頭、蓋著被子） */
+  get lying(): boolean {
+    const spot = this.mode === 'sleep' && !this.posed ? this.world.bed?.() : null;
+    return !!spot && this.pos.distanceTo(spot) < 0.35;
   }
 
   /** 去床上睡覺（放好床後點床、或到了就寢時間） */
@@ -601,7 +609,9 @@ export class AllayController {
     // 轉向：移動時面向前進方向，否則面向玩家
     let wantYaw: number;
     const facePlayer = this.mode === 'startled' || this.mode === 'sleep' || this.mode === 'rest' || this.mode === 'eat' || this.mode === 'wave';
-    if (this.posed) {
+    const lying = this.lying;
+    if (lying) wantYaw = this.world.bedYaw?.() ?? 0;
+    else if (this.posed) {
       const cam = this.world.camera.position;
       wantYaw = Math.atan2(cam.x - this.pos.x, cam.z - this.pos.z) + this.poseYaw;
     } else if (hspeed > 0.25 && !facePlayer) wantYaw = Math.atan2(this.vel.x, this.vel.z);
@@ -647,7 +657,8 @@ export class AllayController {
     // 轉彎側傾；睡覺時整體微微前傾
     const wantRoll = THREE.MathUtils.clamp(-this.yawRate * 0.12, -0.5, 0.5) + (this.mode === 'tickled' ? Math.sin(this.t * 30) * 0.15 : 0);
     this.roll = THREE.MathUtils.lerp(this.roll, wantRoll, k(4));
-    this.pitch = THREE.MathUtils.lerp(this.pitch, sleeping ? 0.2 : 0, k(3));
+    // 躺在床上：整個身體往後倒，臉朝上、頭靠枕頭
+    this.pitch = THREE.MathUtils.lerp(this.pitch, lying ? -Math.PI / 2 : sleeping ? 0.2 : 0, k(lying ? 4 : 3));
     const shake = this.mode === 'bath' && this.modeTime > 0.4 ? Math.sin(this.modeTime * 42) * 0.35 * Math.max(0, 1 - (this.modeTime - 0.4) / 1.4) : 0;
     m.tilt.rotation.set(this.pitch, 0, this.roll + sway * 0.279 + shake); // 跳舞時全身左右搖 16°；洗澡時甩水
     // 飛行時只有身體前傾，頭保持
@@ -665,6 +676,8 @@ export class AllayController {
     this.wingSpread = THREE.MathUtils.lerp(this.wingSpread, open - Math.cos(this.flapPhase) * amp, k(20));
     this.wingTilt = THREE.MathUtils.lerp(this.wingTilt, sleeping ? 0.1 : 0.4363 * still, k(6));
     m.setWings(this.wingSpread, this.wingTilt);
+    // 躺在床上時翅膀收在背後（不然會穿過床墊）
+    m.wingL.visible = m.wingR.visible = !lying;
 
     // 手臂：平常外張慢擺；拿東西（吃）時往前舉
     const hold = this.mode === 'eat' || this.posed === 'hold' ? 1 : 0;
@@ -697,7 +710,8 @@ export class AllayController {
     let headY = this.spin ? 0 : THREE.MathUtils.clamp(angleDiff(this.yaw, Math.atan2(cam.x - this.pos.x, cam.z - this.pos.z)), -1, 1);
     let headX = -THREE.MathUtils.clamp(Math.atan2(cam.y - this.pos.y - 0.25, Math.hypot(cam.x - this.pos.x, cam.z - this.pos.z)), -0.6, 0.6);
     if (this.mode === 'eat') headX = 0.25 + Math.sin(this.modeTime * 14) * 0.12;
-    if (sleeping) { headX = 0.35 + Math.sin(this.t * 1.2) * 0.03; headY = 0; }
+    if (lying) { headX = Math.sin(this.t * 1.2) * 0.03; headY = 0.25; }
+    else if (sleeping) { headX = 0.35 + Math.sin(this.t * 1.2) * 0.03; headY = 0; }
     // 心情低落：垂著頭
     else if (moodLevel(this.pet.mood) === 0 && (this.mode === 'idle' || this.mode === 'approach' || this.mode === 'wander')) headX += 0.2;
     if (dancing) { headY = sway * 0.244; headX = 0; } // 頭左右轉 14°

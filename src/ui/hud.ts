@@ -11,22 +11,22 @@ import { getLang, itemName, LANGS, personalityText, t, type Lang, type UiKey } f
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
 
-export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'mic' | 'wave' | 'bed' | 'firework' | 'bath' | 'call';
-export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'mic', 'wave', 'bed', 'firework', 'bath', 'call'];
+export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'jukebox' | 'mic' | 'wave' | 'bed' | 'firework' | 'bath' | 'call';
+export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'jukebox', 'mic', 'wave', 'bed', 'firework', 'bath', 'call'];
 
 /** 快捷欄的 5 個分類格：點一下拿起這一類上次用的東西，再點一下打開選單換別的 */
 export type Group = 'food' | 'toys' | 'blocks' | 'sense' | 'call';
 export const GROUPS: { id: Group; tools: Slot[] }[] = [
   { id: 'food', tools: ['food'] },
   { id: 'toys', tools: ['feather', 'slime', 'firework', 'bath'] },
-  { id: 'blocks', tools: ['note', 'bed'] },
+  { id: 'blocks', tools: ['note', 'jukebox', 'bed'] },
   { id: 'sense', tools: ['mic', 'wave'] },
   { id: 'call', tools: ['call'] },
 ];
 const groupOf = (t: Slot) => GROUPS.find((g) => g.tools.includes(t))!;
 
 const TOOL_ICON: Record<Slot, string> = {
-  food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', mic: 'mic', wave: 'hand', bed: 'bed', firework: 'firework', bath: 'bucket', call: 'bell',
+  food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', jukebox: 'jukebox', mic: 'mic', wave: 'hand', bed: 'bed', firework: 'firework', bath: 'bucket', call: 'bell',
 };
 
 /** 快捷欄名稱（Java 版譯名）與操作提示 */
@@ -36,6 +36,7 @@ function slotText(s: Slot): { label: string; hint: string } {
     case 'feather': return { label: itemName('feather'), hint: t('hint.feather') };
     case 'slime': return { label: itemName('slime_ball'), hint: t('hint.slime') };
     case 'note': return { label: itemName('note_block'), hint: t('hint.note') };
+    case 'jukebox': return { label: itemName('jukebox'), hint: t('hint.jukebox') };
     case 'mic': return { label: t('mic'), hint: t('hint.mic') };
     case 'wave': return { label: t('waveSlot'), hint: t('hint.wave') };
     case 'bed': return { label: itemName('bed'), hint: t('hint.bed') };
@@ -111,6 +112,10 @@ export interface HudActions {
   setSoundMode(m: SoundMode): void;
   /** 素材包裡有沒有音效 */
   soundAvailable(): boolean;
+  /** 背景音樂 */
+  bgm(): boolean;
+  setBgm(on: boolean): void;
+  musicAvailable(): boolean;
   /** 介面音效：按鈕、打開／關上物品欄 */
   sfx(e: 'click' | 'open' | 'close'): void;
 }
@@ -175,7 +180,8 @@ export class Hud {
     tool('shutter', t('arPhoto'), () => this.actions.arPhoto());
     this.recBtn = tool('record', t('arRecord'), () => this.actions.arRecord());
     tool('flip', t('arFlip'), () => this.actions.arFlip()).textContent = '⇄';
-    // AR 攝影棚：選悅靈的姿勢（取代快捷欄）
+    // 動作：按了才展開姿勢清單；沒選姿勢時悅靈照常自由行動
+    tool('posebtn', t('arPoses'), () => root.classList.toggle('poseopen')).textContent = t('arPoses');
     const poses = el('div', 'posebar', root);
     const POSES: (Pose | 'turn' | 'free')[] = ['fly', 'wave', 'dance', 'happy', 'hold', 'sleep', 'turn', 'free'];
     for (const p of POSES) {
@@ -270,8 +276,9 @@ export class Hud {
   /** AR 模式開關：顯示相機工具列、藏起相機按鈕 */
   setAr(on: boolean): void {
     this.root.classList.toggle('ar', on);
-    // 進 AR 時預設「飛行」姿勢
-    this.poseBar.querySelectorAll('.pose').forEach((x) => x.classList.toggle('on', on && (x as HTMLElement).dataset.pose === 'fly'));
+    // 進出 AR 都恢復自由行動、收起動作清單
+    this.root.classList.remove('poseopen');
+    this.poseBar.querySelectorAll('.pose').forEach((x) => x.classList.remove('on'));
     document.body.classList.toggle('ar', on);
   }
 
@@ -392,7 +399,7 @@ export class Hud {
     this.lastStat = '';
 
     const items: Record<Slot, string | undefined> = {
-      food: img.chest && chestIcon(img.chest), feather: img.feather?.src, slime: img.slime_ball?.src, note: img.note_block?.src, mic: undefined, wave: undefined,
+      food: img.chest && chestIcon(img.chest), feather: img.feather?.src, slime: img.slime_ball?.src, note: img.note_block?.src, jukebox: img.jukebox_side?.src, mic: undefined, wave: undefined,
       bed: img.bed_head_east && img.bed_foot_east && bedIcon(img.bed_head_east, img.bed_foot_east),
       firework: img.firework_rocket?.src, bath: img.water_bucket?.src, call: img.bell?.src,
     };
@@ -611,6 +618,19 @@ export class Hud {
       });
     });
     if (!this.actions.soundAvailable()) el('div', 'info', box).textContent = t('soundNeed');
+
+    el('label', '', box).textContent = t('bgm');
+    const mrow = el('div', 'btnrow', box);
+    for (const on of [true, false]) {
+      const b = el('button', 'btn' + (on === this.actions.bgm() ? ' on' : ''), mrow);
+      b.dataset.bgm = on ? 'on' : 'off';
+      b.textContent = t(on ? 'on' : 'off');
+      b.addEventListener('click', () => {
+        mrow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
+        this.actions.setBgm(on);
+      });
+    }
+    if (!this.actions.musicAvailable()) el('div', 'info', box).textContent = t('bgmNeed');
 
     el('label', '', box).textContent = t('glow');
     const grow = el('div', 'btnrow', box);

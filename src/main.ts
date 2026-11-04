@@ -11,6 +11,7 @@ import { BACKUP_KEY, decodeLink, encodeLink, exportFileName, linkKind, loadPet, 
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
 import { SFX, sfxPitch, type Sfx } from './sfx';
+import { Music } from './music';
 import { ArCamera, Composer, saveMedia, type ArEvents, type Facing } from './ar';
 import { forgetVoiceData, Listener } from './voice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
@@ -36,6 +37,7 @@ const model = new AllayModel();
 stage.scene.add(model.root);
 
 const sound = new Sound(localStorage);
+const music = new Music(sound, localStorage);
 let lastSpoke = 0;
 const say = (kind: LineKind, food?: Food | null, d: number | string = '') => {
   hud.say(pickLine(kind, pet.personality, pet.name, Math.random, food ? itemName(food) : '', undefined, d));
@@ -145,9 +147,8 @@ async function arOpen(facing: Facing = 'environment'): Promise<void> {
   wantPhoto = false;
   hud.setAr(true);
   stage.setAR(true);
-  // AR 攝影棚：悅靈停下來，由玩家決定姿勢和位置
-  ctrl.setPose('fly');
-  hud.showItem(t('arPoseHint'));
+  // 預設跟平常一樣自由行動；按「動作」選姿勢時才停下來擺姿勢
+  ctrl.setPose(null);
   if (facing === 'user') hud.showItem(t('arFront'));
 }
 
@@ -212,6 +213,20 @@ stage.onBurst = (at) => {
   }
 };
 
+/** 唱片機在放歌：悅靈和夥伴飛到唱片機上方跳舞（原版悅靈聽到唱片機也會跳舞） */
+let jukeDanceAt = 0;
+function danceToJukebox(force = false): void {
+  const box = stage.jukebox;
+  if (!box || !music.playingDisc) return;
+  const now = performance.now();
+  if (!force && now - jukeDanceAt < 4000) return;
+  jukeDanceAt = now;
+  const top = box.position.clone().add(new THREE.Vector3(0, 0.95, 0));
+  if (!ctrl.posed) ctrl.dance(top);
+  friends.forEach((f, i) => f.ctrl.dance(top.clone().add(new THREE.Vector3(Math.cos(i * 2.1) * 0.7, 0.15 * i, Math.sin(i * 2.1) * 0.5))));
+  stage.spawn('note', box.position.clone().add(new THREE.Vector3(0, 0.35, 0)), 1);
+}
+
 /** 從畫面點到的地面位置（限制在悅靈活動範圍內） */
 function groundPoint(ray: THREE.Ray): THREE.Vector3 | null {
   const t = -ray.origin.y / ray.direction.y;
@@ -266,7 +281,7 @@ function caught(): void {
 
 const ctrl = new AllayController(
   model,
-  { camera: stage.camera, bounds: () => stage.bounds(), night: () => night, bed: () => (stage.bed ? stage.bedSpot(new THREE.Vector3()) : null) },
+  { camera: stage.camera, bounds: () => stage.bounds(), night: () => night, bed: () => (stage.bed ? stage.bedSpot(new THREE.Vector3()) : null), bedYaw: () => stage.bedYaw() },
   pet,
   {
     say,
@@ -296,7 +311,8 @@ function addFriend(at: THREE.Vector3): void {
   const p = createPet();
   p.personality = PERSONALITY_IDS[Math.floor(Math.random() * PERSONALITY_IDS.length)];
   p.onboarded = true;
-  const c = new AllayController(m, { camera: stage.camera, bounds: () => stage.bounds(), night: () => night, bed: () => (stage.bed ? stage.bedSpot(new THREE.Vector3()) : null) }, p, {
+  // 夥伴不睡床（床只有一張，給主角）
+  const c = new AllayController(m, { camera: stage.camera, bounds: () => stage.bounds(), night: () => night }, p, {
     say: () => {},
     particle: (kind, pos, count, color, spread) => stage.spawn(kind, pos, count, color, spread),
     caught: () => {},
@@ -414,6 +430,7 @@ const hud = new Hud(overlay, {
       model.holdItem(null);
       return;
     }
+    if (!ctrl.posed) hud.showItem(t('arPoseHint'));
     // 捧著：每按一次換一樣食物
     if (p === 'hold') {
       holdIndex = ctrl.posed === 'hold' ? (holdIndex + 1) % FOOD_IDS.length : holdIndex;
@@ -444,6 +461,12 @@ const hud = new Hud(overlay, {
     if (m !== 'off') sound.speak(pet.personality);
   },
   soundAvailable: () => sound.available,
+  bgm: () => music.enabled,
+  setBgm: (on) => {
+    sound.unlock();
+    music.setEnabled(on);
+  },
+  musicAvailable: () => music.available,
   exportSave,
   importSave,
   shareLink,
@@ -469,15 +492,15 @@ const hud = new Hud(overlay, {
     setTimeout(() => say('greet'), 600);
   },
   importAssets: async (file) => {
-    hud.toast(t('packImporting'));
+    hud.toast(t('packReading'));
     try {
       const p = await readPackFile(file);
-      await savePack(p);
+      await savePack(p, (n, m) => hud.toast(t('packSaving', { n, m })));
       localStorage.removeItem(OPT_OUT_KEY);
       await applyPack(p);
       hud.toast(t('packDone', { v: p.source }));
     } catch (e) {
-      hud.toast((e as Error).message);
+      hud.toast(t('packFail', { e: (e as Error).message || String(e) }));
     }
   },
   clearAssets: async () => {
@@ -531,6 +554,8 @@ async function applyPack(p: AssetPack): Promise<void> {
   stage.useFoodImages(food);
   stage.useCakeImages(img);
   stage.useBedImages(img);
+  stage.useJukeboxImages(img);
+  music.usePack(p);
   stage.usePlayImages(img);
   hud.useImages(img);
   if (img.ascii) await useAsciiFont(img.ascii).catch(() => {});
@@ -666,6 +691,7 @@ function receive(data: PetState): void {
 setInterval(save, 5000);
 let hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
+  music.pause(document.hidden);
   if (document.hidden) {
     if (listener.on) hud.setSelected(null);
     hiddenAt = Date.now();
@@ -715,6 +741,23 @@ function tap(x: number, y: number): void {
   const hit = hitsAllay(x, y);
   const ray = raycaster.ray;
   const sel = hud.selected;
+  if (sel === 'jukebox') {
+    // 點到唱片機：換下一張唱片（最後一張之後停止）；點地面：放下或搬過去
+    const hitJuke = !!stage.jukebox && raycaster.intersectObject(stage.jukebox, false).length > 0;
+    if (hitJuke) {
+      sound.unlock();
+      void music.nextDisc().then((title) => {
+        hud.showItem(title ? t('nowPlaying', { t: title }) : t('musicStop'));
+        if (title) danceToJukebox(true);
+      });
+      return;
+    }
+    const p = groundPoint(ray);
+    if (!p) return;
+    stage.placeJukebox(p);
+    playSfx('wood', p);
+    return;
+  }
   if (sel === 'note') {
     // 跳舞中點悅靈 = 送紫水晶碎片；其他時候點哪裡都是放下 / 彈奏音符盒
     if (hit && ctrl.dancing) return giveShard();
@@ -959,6 +1002,9 @@ function frame(now: number): void {
   }
 
   if (chargeStart !== null) hud.setCharge(chargeLevel());
+  danceToJukebox();
+  // 睡在床上時蓋被子
+  stage.setBlanket(ctrl.lying);
   ctrl.hearing += (listener.level - ctrl.hearing) * Math.min(1, dt * 12);
 
   // 生態域的環境音（沼澤的青蛙、地獄的低鳴…），偶爾響一次
