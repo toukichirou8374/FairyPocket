@@ -37,8 +37,13 @@ export const IMAGE_PATHS = {
   // 唱片機與唱片
   jukebox_side: 'textures/block/jukebox_side.png',
   jukebox_top: 'textures/block/jukebox_top.png',
+  crafting_table_top: 'textures/block/crafting_table_top.png',
+  crafting_table_front: 'textures/block/crafting_table_front.png',
+  crafting_table_side: 'textures/block/crafting_table_side.png',
+  spyglass: 'textures/item/spyglass.png',
   music_disc_creator_music_box: 'textures/item/music_disc_creator_music_box.png',
   music_disc_far: 'textures/item/music_disc_far.png',
+  music_disc_relic: 'textures/item/music_disc_relic.png',
   // 快捷欄：煙火、水桶
   firework_rocket: 'textures/item/firework_rocket.png',
   water_bucket: 'textures/item/water_bucket.png',

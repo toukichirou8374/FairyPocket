@@ -1,6 +1,6 @@
 // 從「你自己安裝的」Minecraft Java 版遊戲檔取出原版素材，
 // 打包成兩個素材包：
-//   private/FairyPocket-原版素材包.zip         完整版：全部材質 + 全部音效（背景音樂與唱片只收錄遊戲用到的 5 首）
+//   private/FairyPocket-原版素材包.zip         完整版：全部材質 + 全部音效（背景音樂與唱片只收錄遊戲用到的 6 首）
 //   private/FairyPocket-原版素材包-精簡版.zip  精簡版：只有遊戲實際用到的檔案（給 iPad 等容易記憶體不足的裝置）
 // 這個素材包只供個人使用：private/ 已排除在 Git 與網站建置之外，請勿公開散布。
 //
@@ -13,7 +13,7 @@ import { inflateRawSync, crc32 } from 'node:zlib';
 
 /** 不放進素材包的音效資料夾（檔案太大）；但遊戲用到的背景音樂與唱片例外 */
 const SKIP_SOUNDS = /^minecraft\/sounds\/(music|records)\//;
-const KEEP_MUSIC = /^minecraft\/sounds\/(music\/game\/(minecraft|sweden|wet_hands)|records\/(creator_music_box|far))\.ogg$/;
+const KEEP_MUSIC = /^minecraft\/sounds\/(music\/game\/(minecraft|sweden|wet_hands)|records\/(creator_music_box|far|relic))\.ogg$/;
 
 /**
  * 遊戲實際用到的檔案：掃描 src 裡寫到的原版路徑。

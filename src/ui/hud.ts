@@ -7,6 +7,7 @@ import { SOUND_MODES, type SoundMode } from '../audio';
 import { BIOMES, type Biome } from '../three/biome';
 import type { Pose } from '../three/allayController';
 import { getLang, itemName, LANGS, personalityText, t, type Lang, type UiKey } from '../i18n';
+import { bedIso, chestIso, isoCube } from './isoIcon';
 import { VOICE_STYLES, type VoiceStyle } from '../voicefx';
 
 /** 素材包：新版 zip、舊版 json 都可以 */
@@ -45,31 +46,6 @@ function slotText(s: Slot): { label: string; hint: string } {
     case 'bath': return { label: itemName('water_bucket'), hint: t('hint.bath') };
     case 'call': return { label: t('call'), hint: '' };
   }
-}
-
-/** 用原版箱子材質（textures/entity/chest/normal.png）拼出箱子正面圖示 */
-function chestIcon(tex: HTMLImageElement): string {
-  const k = tex.width / 64;
-  const c = document.createElement('canvas');
-  c.width = c.height = 16;
-  const ctx = c.getContext('2d')!;
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(tex, 14 * k, 14 * k, 14 * k, 5 * k, 1, 1, 14, 5); // 蓋子正面
-  ctx.drawImage(tex, 14 * k, 33 * k, 14 * k, 10 * k, 1, 6, 14, 9); // 箱身正面
-  ctx.drawImage(tex, 1 * k, 1 * k, 2 * k, 4 * k, 7, 4, 2, 4); // 鎖扣
-  return c.toDataURL();
-}
-
-/** 用原版床的側面材質（床尾 + 床頭）拼出快捷欄的床圖示 */
-function bedIcon(head: HTMLImageElement, foot: HTMLImageElement): string {
-  const c = document.createElement('canvas');
-  c.width = c.height = 32;
-  const ctx = c.getContext('2d')!;
-  ctx.imageSmoothingEnabled = false;
-  // 床的高度是 9 像素（材質的下半部）
-  ctx.drawImage(foot, 0, 7 * (foot.height / 16), foot.width, 9 * (foot.height / 16), 0, 11, 16, 9);
-  ctx.drawImage(head, 0, 7 * (head.height / 16), head.width, 9 * (head.height / 16), 16, 11, 16, 9);
-  return c.toDataURL();
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', parent?: HTMLElement): HTMLElementTagNameMap[K] {
@@ -165,6 +141,7 @@ export class Hud {
     this.shankURL = [0, 1, 2].map((l) => gridURL(statGrid(SHANK, l, 4, true), SHANK_PAL));
 
     const gear = el('button', 'gear', root);
+    this.gearBtn = gear;
     gear.setAttribute('aria-label', t('settings'));
     gear.textContent = '⚙';
     gear.addEventListener('click', () => {
@@ -175,7 +152,8 @@ export class Hud {
     // 相機 AR 模式的按鈕（左上）與 AR 工具列（右側）
     const cam = el('button', 'gear camera', root);
     cam.setAttribute('aria-label', t('ar'));
-    el('img', '', cam).src = gridURL(ITEM_ICONS.camera.grid, ITEM_ICONS.camera.pal, 3);
+    this.camImg = el('img', '', cam);
+    this.camImg.src = gridURL(ITEM_ICONS.camera.grid, ITEM_ICONS.camera.pal, 3);
     cam.addEventListener('click', () => {
       this.actions.sfx('click');
       this.actions.arOpen();
@@ -264,6 +242,8 @@ export class Hud {
   /** 每個分類上次拿的東西 */
   private current: Record<Group, Slot> = { food: 'food', toys: 'feather', blocks: 'note', sense: 'mic', call: 'call' };
   private toolURL = {} as Record<Slot, string>;
+  private gearBtn!: HTMLButtonElement;
+  private camImg!: HTMLImageElement;
 
   setSelected(slot: Slot | null): void {
     this.selected = slot;
@@ -409,11 +389,28 @@ export class Hud {
     this.lastStat = '';
 
     const items: Record<Slot, string | undefined> = {
-      food: img.chest && chestIcon(img.chest), feather: img.feather?.src, slime: img.slime_ball?.src, note: img.note_block?.src, jukebox: img.jukebox_side?.src, mic: undefined, wave: undefined,
-      bed: img.bed_head_east && img.bed_foot_east && bedIcon(img.bed_head_east, img.bed_foot_east),
+      // 方塊類用原版物品欄那樣的斜角立體圖示
+      food: img.chest && chestIso(img.chest),
+      feather: img.feather?.src,
+      slime: img.slime_ball?.src,
+      note: img.note_block && isoCube(img.note_block),
+      jukebox: img.jukebox_top && img.jukebox_side && isoCube(img.jukebox_top, img.jukebox_side),
+      mic: undefined,
+      wave: undefined,
+      bed:
+        img.bed_head_up && img.bed_foot_up && img.bed_head_east && img.bed_foot_east && img.bed_foot_south
+          ? bedIso({ head_up: img.bed_head_up, foot_up: img.bed_foot_up, head_side: img.bed_head_east, foot_side: img.bed_foot_east, foot_end: img.bed_foot_south })
+          : undefined,
       firework: img.firework_rocket?.src, bath: img.water_bucket?.src, call: img.bell?.src,
     };
     for (const tool of SLOTS) if (items[tool]) this.toolURL[tool] = items[tool]!;
+    // 設定按鈕用工作台、相機按鈕用望遠鏡
+    if (img.crafting_table_top && img.crafting_table_front && img.crafting_table_side) {
+      this.gearBtn.textContent = '';
+      this.gearBtn.classList.add('icon');
+      el('img', '', this.gearBtn).src = isoCube(img.crafting_table_top, img.crafting_table_front, img.crafting_table_side);
+    }
+    if (img.spyglass) this.camImg.src = img.spyglass.src;
     this.slots.forEach((b) => {
       b.querySelector('img')!.src = this.toolURL[this.current[b.dataset.slot as Group]];
     });

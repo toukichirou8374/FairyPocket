@@ -9,10 +9,11 @@ import type { Sound } from './audio';
 /** 3 首原版經典背景音樂（C418）：Minecraft、Sweden、Wet Hands（26.3 起檔名改成曲名） */
 export const BGM = ['sounds/music/game/minecraft', 'sounds/music/game/sweden', 'sounds/music/game/wet_hands'];
 
-/** 唱片機的 2 張唱片（安靜、溫馨的兩首） */
+/** 唱片機的 3 張唱片（安靜、溫馨的三首） */
 export const DISCS = [
   { id: 'creator_music_box', path: 'sounds/records/creator_music_box', tex: 'textures/item/music_disc_creator_music_box.png', title: 'Lena Raine - Creator (Music Box)' },
   { id: 'far', path: 'sounds/records/far', tex: 'textures/item/music_disc_far.png', title: 'C418 - far' },
+  { id: 'relic', path: 'sounds/records/relic', tex: 'textures/item/music_disc_relic.png', title: 'Aaron Cherof - Relic' },
 ] as const;
 
 const BGM_KEY = 'fairypocket.bgm.v1';

@@ -498,3 +498,7 @@ body.ar #sky { display: none; }
 .progress-back.done .ppct { color: #80ff20; }
 .progress-back.fail .pfill { background: #ff5555; box-shadow: inset 0 -3px 0 #a00; }
 .progress-back.fail .plabel { color: #ff8888; }
+
+/* 設定按鈕：原版工作台圖示 */
+.gear.icon { display: grid; place-items: center; padding: 0; width: 44px; height: 44px; min-width: 44px; box-sizing: border-box; overflow: hidden; }
+.gear.icon img { width: 32px; height: 32px; image-rendering: pixelated; }
