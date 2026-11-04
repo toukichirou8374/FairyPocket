@@ -53,12 +53,11 @@ export interface HudActions {
   setLang(l: Lang): void;
   glow(): boolean;
   bedtime(): Bedtime;
-  /** 麥克風：開始錄音／停止（short 代表只是點一下） */
-  micStart(): void;
-  micStop(short: boolean): void;
-  /** 學會幾句話、全部忘掉 */
-  phrases(): number;
-  forgetPhrases(): void;
+  /** 設定頁錄的回應（目前語言 5 句）：哪幾格有錄、錄音、試聽、刪除 */
+  replies(): boolean[];
+  recordReply(i: number): Promise<{ stop: () => void; done: Promise<boolean> } | null>;
+  playReply(i: number): void;
+  deleteReply(i: number): void;
   biome(): Biome;
   setBiome(b: Biome): void;
   setBedtime(b: Bedtime): void;
@@ -153,30 +152,6 @@ export class Hud {
         this.shardBadge = el('img', 'badge', b);
         this.shardBadge.src = gridURL(ITEM_ICONS.amethyst.grid, ITEM_ICONS.amethyst.pal, 4);
         this.shardBadge.hidden = true;
-      }
-      if (s === 'mic') {
-        // 按住說話、放開讓悅靈學
-        let at = 0;
-        b.addEventListener('pointerdown', (e) => {
-          e.preventDefault();
-          at = performance.now();
-          b.classList.add('selected', 'rec');
-          this.showItem(`${label}　${t('listening')}`);
-          this.actions.micStart();
-        });
-        const up = () => {
-          if (!at) return;
-          b.classList.remove('selected', 'rec');
-          const short = performance.now() - at < 400;
-          at = 0;
-          this.actions.micStop(short);
-          if (short) this.showItem(`${label}　${t('hint.mic')}`);
-        };
-        b.addEventListener('pointerup', up);
-        b.addEventListener('pointercancel', up);
-        b.addEventListener('pointerleave', up);
-        b.addEventListener('contextmenu', (e) => e.preventDefault());
-        return;
       }
       b.addEventListener('click', () => {
         if (s !== 'call' && s !== 'food') this.actions.sfx('click');
@@ -409,6 +384,45 @@ export class Hud {
     });
   }
 
+  /** 設定頁：錄 5 句回應（目前語言）。按「錄音」開始，說完會自動停止 */
+  private replyEditor(box: HTMLElement): void {
+    el('label', '', box).textContent = t('replies', { l: LANGS[getLang()] });
+    el('div', 'info', box).textContent = t('repliesHelp');
+    const has = this.actions.replies();
+    for (let i = 0; i < has.length; i++) {
+      const row = el('div', 'btnrow reply', box);
+      const rec = el('button', 'btn', row);
+      const play = el('button', 'btn small', row);
+      const del = el('button', 'btn small', row);
+      play.textContent = '▶';
+      del.textContent = '✕';
+      const show = (on: boolean) => {
+        rec.textContent = `${i + 1}　${on ? t('replyRerecord') : t('replyRecord')}`;
+        play.disabled = del.disabled = !on;
+      };
+      show(has[i]);
+      let stop: (() => void) | null = null;
+      rec.addEventListener('click', async () => {
+        if (stop) return stop();
+        const r = await this.actions.recordReply(i);
+        if (!r) return;
+        stop = r.stop;
+        rec.textContent = `${i + 1}　■ ${t('replyRecording')}`;
+        rec.classList.add('on');
+        const ok = await r.done;
+        stop = null;
+        rec.classList.remove('on');
+        if (!ok) this.toast(t('micNothing'));
+        show(ok || !play.disabled);
+      });
+      play.addEventListener('click', () => this.actions.playReply(i));
+      del.addEventListener('click', () => {
+        this.actions.deleteReply(i);
+        show(false);
+      });
+    }
+  }
+
   openOnboarding(): void {
     const { box, close } = this.modal(t('onboardTitle'));
     this.langPicker(box);
@@ -497,18 +511,7 @@ export class Hud {
       });
     }
 
-    el('label', '', box).textContent = t('mic');
-    const vinfo = el('div', 'info', box);
-    vinfo.textContent = t('phrasesInfo', { n: this.actions.phrases() });
-    if (this.actions.phrases()) {
-      const vb = el('button', 'btn', box);
-      vb.textContent = t('phrasesForget');
-      vb.addEventListener('click', () => {
-        this.actions.forgetPhrases();
-        vinfo.textContent = t('phrasesInfo', { n: 0 });
-        vb.remove();
-      });
-    }
+    this.replyEditor(box);
 
     el('label', '', box).textContent = t('bedtime');
     const brow = el('div', 'btnrow', box);

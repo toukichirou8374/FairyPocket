@@ -11,11 +11,11 @@ import { BACKUP_KEY, decodeLink, encodeLink, exportFileName, linkKind, loadPet, 
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
 import { SFX, sfxPitch, type Sfx } from './sfx';
-import { forgetPhrases, learnPhrase, loadPhrases, phraseBuffer, Voice } from './voice';
+import { clipBuffer, Listener, loadReplies, recordClip, saveReplies, syllables, type Clip } from './voice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
 import { asciiGlyphs, buildFont } from './pixelFont';
-import { itemName, loadLang, saveLang, setLang, t } from './i18n';
+import { getLang, itemName, loadLang, saveLang, setLang, t } from './i18n';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const overlay = document.getElementById('overlay') as HTMLDivElement;
@@ -36,51 +36,57 @@ stage.scene.add(model.root);
 
 const sound = new Sound(localStorage);
 let lastSpoke = 0;
-/** 打招呼類的話：有學會的話時，偶爾改用玩家教的話來說 */
-const GREETINGS: LineKind[] = ['greet', 'welcomeBack', 'missed', 'longAway', 'greetMorning', 'greetAfternoon', 'greetEvening', 'call'];
 const say = (kind: LineKind, food?: Food | null, d: number | string = '') => {
   hud.say(pickLine(kind, pet.personality, pet.name, Math.random, food ? itemName(food) : '', undefined, d));
-  const ctx = sound.context;
-  if (ctx && phrases.length && GREETINGS.includes(kind) && Math.random() < 0.4) {
-    sound.speakRecording(pet.personality, phraseBuffer(ctx, phrases[Math.floor(Math.random() * phrases.length)]));
-  } else sound.speak(pet.personality);
+  sound.speak(pet.personality);
   lastSpoke = performance.now();
 };
 
-// ---------- 麥克風：聽玩家說話，用悅靈的聲音學 ----------
+// ---------- 麥克風：選起麥克風格後一直聽，說完就回應 ----------
 
-const voice = new Voice();
-let phrases: Awaited<ReturnType<typeof loadPhrases>> = [];
-void loadPhrases().then((p) => (phrases = p));
+const listener = new Listener();
+let replies: (Clip | null)[] = [];
+void loadReplies(getLang()).then((r) => (replies = r));
 
-async function micStart(): Promise<void> {
+async function micOn(): Promise<void> {
   sound.unlock();
   const ctx = sound.context;
-  if (!ctx) return;
-  ctrl.listen(true);
+  if (!ctx || listener.on) return;
   try {
-    await voice.start(ctx);
+    await listener.start(ctx, {
+      // 有人開始說話：悅靈飛過來歪頭聽
+      start: () => ctrl.listen(true),
+      end: (samples, rate) => void answer(samples, rate),
+    });
   } catch {
-    ctrl.listen(false);
     hud.showItem(t('micDenied'));
+    hud.setSelected(null);
   }
 }
 
-async function micStop(short: boolean): Promise<void> {
-  const ctx = sound.context;
-  const buf = ctx ? voice.stop(ctx) : null;
+function micOff(): void {
+  listener.stop();
   ctrl.listen(false);
-  if (short) return;
-  if (!buf) return hud.showItem(t('micNothing'));
-  // 切回一般音訊模式後再播放，iPhone 才會從喇叭出聲
-  await new Promise((r) => setTimeout(r, 150));
-  sound.speakRecording(pet.personality, buf);
+}
+
+/** 說完了：從這個語言錄好的回應隨機挑一句；沒有就用悅靈語回答 */
+async function answer(samples: Float32Array, rate: number): Promise<void> {
+  ctrl.listen(false);
+  const ctx = sound.context;
+  if (!ctx) return;
+  const ready = replies.filter((r): r is Clip => !!r);
+  let len: number;
+  if (ready.length) {
+    len = sound.playClip(clipBuffer(ctx, ready[Math.floor(Math.random() * ready.length)]));
+    hud.say('♪');
+  } else {
+    len = await sound.babble(pet.personality, syllables(samples, rate));
+    hud.say(pickLine('heard', pet.personality, pet.name));
+  }
+  // 悅靈說話時先不要聽（避免聽到自己的聲音）
+  listener.pausedUntil = performance.now() + (len + 0.4) * 1000;
   stage.spawn('note', ctrl.headTop(new THREE.Vector3()), 2);
-  stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), 1);
-  cheer(pet, 4);
-  const n = await learnPhrase(buf).catch(() => 0);
-  phrases = await loadPhrases();
-  if (n) hud.showItem(t('learned', { n }));
+  cheer(pet, 3);
   lastSpoke = performance.now();
 }
 
@@ -264,6 +270,8 @@ function useNoteBlock(ray: THREE.Ray, hitBlock: boolean): void {
 
 const hud = new Hud(overlay, {
   select: (slot) => {
+    if (slot === 'mic') void micOn();
+    else micOff();
     if (slot !== 'note') stage.removeNoteBlock();
   },
   call: () => {
@@ -289,12 +297,36 @@ const hud = new Hud(overlay, {
     location.reload();
   },
   bedtime: () => bedtime,
-  micStart: () => void micStart(),
-  micStop: (short) => void micStop(short),
-  phrases: () => phrases.length,
-  forgetPhrases: () => {
-    phrases = [];
-    void forgetPhrases();
+  replies: () => replies.map((r) => !!r),
+  recordReply: async (i) => {
+    sound.unlock();
+    const ctx = sound.context;
+    if (!ctx) return null;
+    try {
+      const rec = await recordClip(ctx);
+      return {
+        stop: rec.stop,
+        done: rec.done.then(async (clip) => {
+          if (!clip) return false;
+          replies[i] = clip;
+          await saveReplies(getLang(), replies);
+          return true;
+        }),
+      };
+    } catch {
+      hud.toast(t('micDenied'));
+      return null;
+    }
+  },
+  playReply: (i) => {
+    sound.unlock();
+    const ctx = sound.context;
+    const r = replies[i];
+    if (ctx && r) sound.playClip(clipBuffer(ctx, r));
+  },
+  deleteReply: (i) => {
+    replies[i] = null;
+    void saveReplies(getLang(), replies);
   },
   biome: () => biome,
   setBiome: (b) => {
@@ -540,6 +572,7 @@ setInterval(save, 5000);
 let hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    if (listener.on) hud.setSelected(null);
     hiddenAt = Date.now();
     save();
   } else if (hiddenAt && Date.now() - hiddenAt > 60_000) {
@@ -745,7 +778,7 @@ function frame(now: number): void {
   }
 
   if (chargeStart !== null) hud.setCharge(chargeLevel());
-  ctrl.hearing += (voice.level - ctrl.hearing) * Math.min(1, dt * 12);
+  ctrl.hearing += (listener.level - ctrl.hearing) * Math.min(1, dt * 12);
 
   // 生態域的環境音（沼澤的青蛙、地獄的低鳴…），偶爾響一次
   const amb = BIOME_STYLE[biome].ambient;

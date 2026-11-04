@@ -303,6 +303,9 @@ html, body {
 .modal { overflow-x: hidden; }
 .pcard, .btn { min-width: 0; overflow-wrap: anywhere; }
 .btnrow .btn { margin-top: 0; }
+.btnrow.reply { margin-top: 6px; }
+.btn.small { flex: 0 0 52px; padding-left: 0; padding-right: 0; }
+.btn:disabled { opacity: 0.4; }
 .info { font-size: 16px; margin-top: 12px; line-height: 1.5; color: #44557a; }
 .ver { text-align: center; font-size: 16px; color: #8090b0; margin-top: 10px; }
 

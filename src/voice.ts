@@ -1,10 +1,17 @@
-// 麥克風：按住快捷欄的麥克風格說話，悅靈會專心聽，放開後用悅靈的高音學你說一次。
-// 學到的話（最多 5 句、每句最長 5 秒）只存在這台裝置（IndexedDB），之後打招呼時偶爾會說。
-// 錄音直接收原始聲音資料，不經過任何網路服務。
+// 麥克風：選起麥克風格後悅靈會一直聽，自己判斷你什麼時候說完，然後回應你。
+// 回應用玩家在設定頁錄的話（每種語言 5 句，隨機挑一句）；沒錄的話就用原版悅靈的叫聲
+// 依你說話的音節與高低回答（悅靈語）。聽到的聲音只拿來判斷與分析，不會存起來。
+// 設定頁錄的回應只存在這台裝置（IndexedDB）。
 
-const MAX_SEC = 5;
-const MAX_PHRASES = 5;
-const SILENCE = 0.02;
+import type { Lang } from './i18n';
+
+/** 說話音量門檻（0–1） */
+const SPEAK = 0.12;
+/** 安靜多久算說完（秒） */
+const END_SILENCE = 0.7;
+/** 最短、最長的一段話（秒） */
+const MIN_SPEECH = 0.25;
+const MAX_SPEECH = 6;
 
 type AudioSessionNav = Navigator & { audioSession?: { type: string } };
 
@@ -13,21 +20,33 @@ function setSession(type: string): void {
   if (s) s.type = type;
 }
 
-export class Voice {
+export interface ListenEvents {
+  /** 開始說話 */
+  start(): void;
+  /** 說完了：這段話的聲音資料 */
+  end(samples: Float32Array, rate: number): void;
+}
+
+/** 持續聽麥克風，用音量判斷說話的開始與結束 */
+export class Listener {
   private stream: MediaStream | null = null;
   private node: ScriptProcessorNode | null = null;
   private src: MediaStreamAudioSourceNode | null = null;
-  private chunks: Float32Array[] = [];
-  private samples = 0;
+  private speech: Float32Array[] = [];
+  private speechLen = 0;
+  private quiet = 0;
+  private loud = 0;
+  private talking = false;
+  /** 悅靈自己說話時暫停聽（避免聽到自己的聲音） */
+  pausedUntil = 0;
   /** 目前音量 0–1（給動畫用） */
   level = 0;
 
-  get recording(): boolean {
+  get on(): boolean {
     return !!this.stream;
   }
 
-  /** 開始錄音；使用者拒絕麥克風權限時會丟出錯誤 */
-  async start(ctx: AudioContext): Promise<void> {
+  async start(ctx: AudioContext, ev: ListenEvents): Promise<void> {
     if (this.stream) return;
     // iPhone 錄音時要切到可錄音的音訊模式，結束後再切回來
     setSession('play-and-record');
@@ -37,19 +56,37 @@ export class Voice {
       setSession('ambient');
       throw e;
     }
-    this.chunks = [];
-    this.samples = 0;
     this.src = ctx.createMediaStreamSource(this.stream);
-    this.node = ctx.createScriptProcessor(4096, 1, 1);
-    const max = ctx.sampleRate * MAX_SEC;
+    this.node = ctx.createScriptProcessor(2048, 1, 1);
+    const rate = ctx.sampleRate;
     this.node.onaudioprocess = (e) => {
       const d = e.inputBuffer.getChannelData(0);
       let sum = 0;
       for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
       this.level = Math.min(1, Math.sqrt(sum / d.length) * 8);
-      if (this.samples < max) {
-        this.chunks.push(d.slice());
-        this.samples += d.length;
+      if (performance.now() < this.pausedUntil) {
+        this.reset();
+        return;
+      }
+      const sec = d.length / rate;
+      const loud = this.level > SPEAK;
+      if (loud) {
+        this.loud += sec;
+        this.quiet = 0;
+      } else this.quiet += sec;
+      if (!this.talking && this.loud > 0.12) {
+        this.talking = true;
+        ev.start();
+      }
+      if (this.talking || loud) {
+        this.speech.push(d.slice());
+        this.speechLen += d.length;
+      } else if (this.quiet > 0.3) this.reset();
+      const len = this.speechLen / rate;
+      if (this.talking && (this.quiet > END_SILENCE || len > MAX_SPEECH)) {
+        const all = join(this.speech, this.speechLen);
+        this.reset();
+        if (len > MIN_SPEECH) ev.end(all, rate);
       }
     };
     this.src.connect(this.node);
@@ -57,47 +94,124 @@ export class Voice {
     this.node.connect(ctx.destination);
   }
 
-  /** 停止錄音，回傳去掉前後靜音的聲音；沒錄到聲音時回傳 null */
-  stop(ctx: AudioContext): AudioBuffer | null {
-    if (!this.stream) return null;
+  private reset(): void {
+    this.speech = [];
+    this.speechLen = 0;
+    this.loud = 0;
+    this.talking = false;
+  }
+
+  stop(): void {
+    if (!this.stream) return;
     this.stream.getTracks().forEach((t) => t.stop());
     this.src?.disconnect();
     this.node?.disconnect();
     this.stream = null;
     this.level = 0;
+    this.reset();
     setSession('ambient');
-    const all = new Float32Array(this.samples);
-    let o = 0;
-    for (const c of this.chunks) {
-      all.set(c.subarray(0, Math.min(c.length, all.length - o)), o);
-      o += c.length;
-      if (o >= all.length) break;
-    }
-    const trimmed = trimSilence(all, ctx.sampleRate);
-    if (!trimmed) return null;
-    const buf = ctx.createBuffer(1, trimmed.length, ctx.sampleRate);
-    buf.copyToChannel(trimmed, 0);
-    return buf;
   }
 }
 
+function join(chunks: Float32Array[], len: number): Float32Array {
+  const all = new Float32Array(len);
+  let o = 0;
+  for (const c of chunks) {
+    all.set(c, o);
+    o += c.length;
+  }
+  return all;
+}
+
+// ---------- 分析音節（悅靈語用） ----------
+
+export interface Syllable {
+  /** 開始時間（秒） */
+  t: number;
+  dur: number;
+  /** 相對音高（1 = 這段話的平均） */
+  rel: number;
+}
+
+/** 依音量起伏切出音節，並估計每個音節的音高（自相關法） */
+export function syllables(d: Float32Array, rate: number, max = 12): Syllable[] {
+  const frame = Math.floor(rate * 0.01);
+  const rms: number[] = [];
+  for (let i = 0; i + frame <= d.length; i += frame) {
+    let s = 0;
+    for (let j = 0; j < frame; j++) s += d[i + j] * d[i + j];
+    rms.push(Math.sqrt(s / frame));
+  }
+  const peak = Math.max(...rms, 0);
+  if (peak < 0.01) return [];
+  const on = Math.max(0.015, peak * 0.35);
+  const off = on * 0.6;
+  const out: { t: number; dur: number; pitch: number }[] = [];
+  let i = 0;
+  while (i < rms.length && out.length < max) {
+    if (rms[i] < on) {
+      i++;
+      continue;
+    }
+    const a = i;
+    let top = a;
+    while (i < rms.length && rms[i] >= off && i - a < 35) {
+      if (rms[i] > rms[top]) top = i;
+      i++;
+    }
+    const dur = Math.max(0.06, (i - a) * 0.01);
+    out.push({ t: a * 0.01, dur, pitch: pitchAt(d, rate, top * frame) });
+    i += 6; // 音節之間至少隔 60ms
+  }
+  const voiced = out.map((s) => s.pitch).filter((p) => p > 0).sort((x, y) => x - y);
+  const mid = voiced.length ? voiced[Math.floor(voiced.length / 2)] : 0;
+  return out.map((s) => ({ t: s.t, dur: s.dur, rel: s.pitch > 0 && mid > 0 ? s.pitch / mid : 1 }));
+}
+
+/** 在某個位置附近估計音高（80–500Hz），估不出來回傳 0 */
+function pitchAt(d: Float32Array, rate: number, at: number): number {
+  const n = Math.floor(rate * 0.03);
+  const s = Math.max(0, Math.min(d.length - n * 2, at - n / 2));
+  if (s < 0) return 0;
+  let best = 0, bestLag = 0;
+  for (let lag = Math.floor(rate / 500); lag <= Math.floor(rate / 80); lag++) {
+    let c = 0, e1 = 0, e2 = 0;
+    for (let j = 0; j < n; j++) {
+      const x = d[s + j], y = d[s + j + lag];
+      c += x * y;
+      e1 += x * x;
+      e2 += y * y;
+    }
+    const r = c / Math.sqrt(e1 * e2 + 1e-9);
+    if (r > best) {
+      best = r;
+      bestLag = lag;
+    }
+  }
+  return best > 0.5 ? rate / bestLag : 0;
+}
+
 /** 去掉前後的靜音（前後各留 0.05 秒）；太短或幾乎沒聲音時回傳 null */
-export function trimSilence(d: Float32Array, rate: number): Float32Array<ArrayBuffer> | null {
+export function trimSilence(d: Float32Array, rate: number, silence = 0.02): Float32Array<ArrayBuffer> | null {
   let a = 0;
-  while (a < d.length && Math.abs(d[a]) < SILENCE) a++;
+  while (a < d.length && Math.abs(d[a]) < silence) a++;
   let b = d.length - 1;
-  while (b > a && Math.abs(d[b]) < SILENCE) b--;
+  while (b > a && Math.abs(d[b]) < silence) b--;
   if (b - a < rate * 0.15) return null;
   const pad = Math.floor(rate * 0.05);
   return d.slice(Math.max(0, a - pad), Math.min(d.length, b + 1 + pad));
 }
 
-// ---------- 學會的話（存在這台裝置） ----------
+// ---------- 設定頁錄的回應（每種語言 5 句，只存在這台裝置） ----------
 
-interface Phrase {
+export const REPLY_SLOTS = 5;
+const REPLY_MAX_SEC = 4;
+
+export interface Clip {
   rate: number;
   data: Float32Array;
 }
+type Replies = (Clip | null)[];
 
 const DB = 'fairypocket-voice';
 const STORE = 'phrases';
@@ -125,29 +239,75 @@ async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRe
   }
 }
 
-export async function loadPhrases(): Promise<Phrase[]> {
+export async function loadReplies(lang: Lang): Promise<Replies> {
   try {
-    return ((await run('readonly', (s) => s.get('list'))) as Phrase[] | undefined) ?? [];
+    // 舊版「學人說話」存的錄音不再使用，順便刪掉
+    void run('readwrite', (s) => s.delete('list')).catch(() => {});
+    const r = ((await run('readonly', (s) => s.get(`replies:${lang}`))) as Replies | undefined) ?? [];
+    return Array.from({ length: REPLY_SLOTS }, (_, i) => r[i] ?? null);
   } catch {
-    return [];
+    return Array(REPLY_SLOTS).fill(null);
   }
 }
 
-/** 記住一句話（超過 5 句時忘掉最舊的）；回傳現在學會幾句 */
-export async function learnPhrase(buf: AudioBuffer): Promise<number> {
-  const list = await loadPhrases();
-  list.push({ rate: buf.sampleRate, data: buf.getChannelData(0).slice() });
-  while (list.length > MAX_PHRASES) list.shift();
-  await run('readwrite', (s) => s.put(list, 'list'));
-  return list.length;
+export async function saveReplies(lang: Lang, r: Replies): Promise<void> {
+  await run('readwrite', (s) => s.put(r, `replies:${lang}`));
 }
 
-export async function forgetPhrases(): Promise<void> {
-  await run('readwrite', (s) => s.delete('list'));
-}
-
-export function phraseBuffer(ctx: AudioContext, p: Phrase): AudioBuffer {
-  const buf = ctx.createBuffer(1, p.data.length, p.rate);
-  buf.copyToChannel(new Float32Array(p.data), 0);
+export function clipBuffer(ctx: AudioContext, c: Clip): AudioBuffer {
+  const buf = ctx.createBuffer(1, c.data.length, c.rate);
+  buf.copyToChannel(new Float32Array(c.data), 0);
   return buf;
+}
+
+/**
+ * 錄一句回應：開始後一直錄到說完（安靜 0.7 秒）、按停止或滿 4 秒為止。
+ * 回傳 stop 函式與結果。
+ */
+export async function recordClip(ctx: AudioContext): Promise<{ stop: () => void; done: Promise<Clip | null> }> {
+  setSession('play-and-record');
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch (e) {
+    setSession('ambient');
+    throw e;
+  }
+  const src = ctx.createMediaStreamSource(stream);
+  const node = ctx.createScriptProcessor(2048, 1, 1);
+  const chunks: Float32Array[] = [];
+  let len = 0, quiet = 0, heard = false;
+  let finish!: () => void;
+  const done = new Promise<Clip | null>((resolve) => {
+    finish = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      src.disconnect();
+      node.disconnect();
+      setSession('ambient');
+      const t = trimSilence(join(chunks, len), ctx.sampleRate);
+      resolve(t ? { rate: ctx.sampleRate, data: t } : null);
+    };
+  });
+  let ended = false;
+  const stop = () => {
+    if (ended) return;
+    ended = true;
+    finish();
+  };
+  node.onaudioprocess = (e) => {
+    const d = e.inputBuffer.getChannelData(0);
+    let sum = 0;
+    for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
+    const loud = Math.sqrt(sum / d.length) * 8 > SPEAK;
+    chunks.push(d.slice());
+    len += d.length;
+    if (loud) {
+      heard = true;
+      quiet = 0;
+    } else quiet += d.length / ctx.sampleRate;
+    if ((heard && quiet > END_SILENCE) || len / ctx.sampleRate > REPLY_MAX_SEC) stop();
+  };
+  src.connect(node);
+  node.connect(ctx.destination);
+  return { stop, done };
 }

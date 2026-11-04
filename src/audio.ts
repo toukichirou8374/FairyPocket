@@ -4,6 +4,7 @@
 
 import type { Personality } from './game/state';
 import { packFile, type AssetPack } from './game/assets';
+import type { Syllable } from './voice';
 
 export type SoundMode = 'bright' | 'soft' | 'off';
 
@@ -178,22 +179,53 @@ export class Sound {
   }
 
   /**
-   * 用悅靈的聲音說一段錄音（玩家教的話）：音高與速度調高到悅靈的音高，再加上紫水晶鈴聲。
-   * 聲音模式關閉時不出聲。
+   * 悅靈語：用原版悅靈叫聲的短片段，照玩家說話的音節數、節奏與高低回答。
+   * 回傳大約要講多久（秒），聲音模式關閉時回傳 0。
    */
-  speakRecording(p: Personality, buf: AudioBuffer): void {
+  async babble(p: Personality, syl: Syllable[]): Promise<number> {
     const ctx = this.ctx;
     const m = SOUND_MODES[this.mode];
-    if (!ctx || ctx.state !== 'running' || m.allay <= 0) return;
+    if (!ctx || ctx.state !== 'running' || m.allay <= 0 || !syl.length) return 0;
+    const bufs = (await Promise.all(VOICES.map((v) => this.buffer(this.resolve(v))))).filter((x): x is AudioBuffer => !!x);
+    if (!bufs.length) return 0;
+    const t0 = ctx.currentTime + 0.05;
+    let end = 0;
+    for (const s of syl) {
+      const buf = bufs[Math.floor(Math.random() * bufs.length)];
+      const dur = Math.min(0.26, Math.max(0.09, s.dur));
+      const at = t0 + s.t * 0.9;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      // 跟著玩家這個音節的高低，在悅靈原本的音高上下調整
+      src.playbackRate.value = allayRate(p) * Math.min(1.25, Math.max(0.8, Math.pow(s.rel, 0.6)));
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, at);
+      g.gain.linearRampToValueAtTime(m.allay, at + 0.02);
+      g.gain.setValueAtTime(m.allay, at + dur - 0.04);
+      g.gain.linearRampToValueAtTime(0, at + dur);
+      src.connect(g).connect(ctx.destination);
+      const offset = Math.random() * Math.max(0, Math.min(0.35, buf.duration - dur * src.playbackRate.value - 0.05));
+      src.start(at, offset, dur * src.playbackRate.value + 0.02);
+      end = Math.max(end, s.t * 0.9 + dur);
+    }
+    // 講完再響一聲紫水晶
+    setTimeout(() => void this.play(CHIME, m.chime, m.chimePitch), (end + 0.05) * 1000);
+    return end + 0.3;
+  }
+
+  /** 播放設定頁錄的回應（保持原本的聲音，前面加一聲紫水晶）；回傳長度（秒） */
+  playClip(buf: AudioBuffer): number {
+    const ctx = this.ctx;
+    const m = SOUND_MODES[this.mode];
+    if (!ctx || ctx.state !== 'running' || m.allay <= 0) return 0;
+    void this.play(CHIME, m.chime, m.chimePitch);
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    // 錄音直接拉高音高會變很快，這裡比悅靈叫聲的倍率稍低一點
-    src.playbackRate.value = Math.min(1.75, Math.max(1.35, allayRate(p) * 0.95));
-    const gain = ctx.createGain();
-    gain.gain.value = m.allay * 1.4;
-    src.connect(gain).connect(ctx.destination);
-    src.start();
-    void this.play(CHIME, m.chime, m.chimePitch);
+    const g = ctx.createGain();
+    g.gain.value = Math.min(1.5, m.allay * 1.4);
+    src.connect(g).connect(ctx.destination);
+    src.start(ctx.currentTime + 0.15);
+    return buf.duration + 0.3;
   }
 
   /** 悅靈發言：悅靈叫聲 + 紫水晶鈴聲 */
