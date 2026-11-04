@@ -249,23 +249,50 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>, timeoutMs = 0): Promise<T> {
   const db = await openDb();
   try {
     return await new Promise<T>((resolve, reject) => {
       const t = db.transaction(STORE, mode);
       const req = fn(t.objectStore(STORE));
-      t.oncomplete = () => resolve(req.result);
-      t.onerror = t.onabort = () => reject(t.error ?? new Error('儲存失敗'));
+      // 有些裝置存檔會卡住不回應：超過時間就放棄這次交易並回報錯誤
+      const timer = timeoutMs ? window.setTimeout(() => {
+        try {
+          t.abort();
+        } catch {
+          // 已經結束
+        }
+        reject(new Error('timeout'));
+      }, timeoutMs) : 0;
+      t.oncomplete = () => {
+        clearTimeout(timer);
+        resolve(req.result);
+      };
+      t.onerror = t.onabort = () => {
+        clearTimeout(timer);
+        reject(t.error ?? new Error('儲存失敗'));
+      };
     });
   } finally {
     db.close();
   }
 }
 
-/** 每批最多存幾個檔案、幾 MB（分批存，避免一次交易太大讓 iPad 記憶體不足，也讓進度跑得比較細） */
-const PART_FILES = 200;
+/** 每批最多存幾 MB（分批存，避免一次交易太大讓 iPad 記憶體不足，也讓進度跑得比較細） */
 const PART_BYTES = 3_000_000;
+/** 每批最多等幾秒 */
+const PART_TIMEOUT = 45_000;
+
+/**
+ * 存在資料庫裡的一批檔案：把很多小檔案接成一整塊再存
+ * （iPhone 的 Safari 一次存幾百個小檔案會非常慢、甚至卡住；一整塊就很快）。
+ * data 平常是一個 Blob，那台裝置存 Blob 失敗時改存 ArrayBuffer。
+ */
+interface Part {
+  names: string[];
+  sizes: number[];
+  data: Blob | ArrayBuffer;
+}
 
 /**
  * 分批存入素材包。progress(at, next)：at = 已存好的比例（依檔案大小），next = 這一批存好後的比例。
@@ -275,7 +302,7 @@ export async function savePack(p: AssetPack, progress?: (at: number, next: numbe
   let cur: [string, Blob][] = [];
   let curBytes = 0;
   for (const e of p.files) {
-    if (cur.length && (cur.length >= PART_FILES || curBytes + e[1].size > PART_BYTES)) {
+    if (cur.length && curBytes + e[1].size > PART_BYTES) {
       chunks.push(cur);
       cur = [];
       curBytes = 0;
@@ -285,17 +312,39 @@ export async function savePack(p: AssetPack, progress?: (at: number, next: numbe
   }
   if (cur.length) chunks.push(cur);
   const sizes = chunks.map((c) => c.reduce((m, [, b]) => m + b.size, 0));
-  const total = Math.max(1, sizes.reduce((a, b) => a + b, 0));
+  const total = Math.max(1, sizes.reduce((x, y) => x + y, 0));
   const parts = chunks.length;
   let done = 0;
+  // 先清掉舊的素材包（反正會被覆蓋），空出儲存空間
+  await tx('readwrite', (s) => s.clear());
+  let useBuffer = false;
   for (let i = 0; i < parts; i++) {
-    progress?.(done / total, (done + sizes[i]) / total);
-    await tx('readwrite', (s) => s.put(Object.fromEntries(chunks[i]), `part:${i}`));
+    const at = done / total;
+    const next = (done + sizes[i]) / total;
+    progress?.(at, at + (next - at) * 0.5);
+    // 先把這一批讀進記憶體（只有幾 MB），再接成一整塊
+    const buf = await new Blob(chunks[i].map(([, blob]) => blob)).arrayBuffer();
+    progress?.(at + (next - at) * 0.5, next);
+    const part = (data: Blob | ArrayBuffer): Part => ({ names: chunks[i].map(([n]) => n), sizes: chunks[i].map(([, blob]) => blob.size), data });
+    if (!useBuffer) {
+      try {
+        await tx('readwrite', (s) => s.put(part(new Blob([buf])), `part:${i}`), PART_TIMEOUT);
+      } catch {
+        useBuffer = true;
+      }
+    }
+    if (useBuffer) {
+      try {
+        await tx('readwrite', (s) => s.put(part(buf), `part:${i}`), PART_TIMEOUT);
+      } catch (e) {
+        throw new Error((e as Error).message === 'timeout' ? '存入這台裝置太久沒有回應，請確認儲存空間足夠後再試一次' : `無法存入這台裝置（${(e as Error).message}）`);
+      }
+    }
     done += sizes[i];
   }
   progress?.(1, 1);
   // 最後才寫目錄，存到一半失敗時不會讀到不完整的素材包
-  await tx('readwrite', (s) => s.put({ source: p.source, id: p.id, parts }, 'current'));
+  await tx('readwrite', (s) => s.put({ source: p.source, id: p.id, parts, v: 3 }, 'current'));
 }
 
 export async function loadPack(): Promise<AssetPack | null> {
@@ -305,9 +354,17 @@ export async function loadPack(): Promise<AssetPack | null> {
     if (d?.parts) {
       const files = new Map<string, Blob>();
       for (let i = 0; i < d.parts; i++) {
-        const chunk = (await tx('readonly', (s) => s.get(`part:${i}`))) as Record<string, Blob> | undefined;
+        const chunk = (await tx('readonly', (s) => s.get(`part:${i}`))) as Part | Record<string, Blob> | undefined;
         if (!chunk) throw new Error('素材包不完整');
-        for (const [k, v] of Object.entries(chunk)) files.set(k, v);
+        if (Array.isArray(chunk.names)) {
+          const c = chunk as Part;
+          const blob = c.data instanceof Blob ? c.data : new Blob([c.data]);
+          let off = 0;
+          c.names.forEach((n, k) => {
+            files.set(n, blob.slice(off, off + c.sizes[k], mime(n)));
+            off += c.sizes[k];
+          });
+        } else for (const [k, v] of Object.entries(chunk as Record<string, Blob>)) files.set(k, v);
       }
       return { source: d.source, id: d.id, files };
     }
