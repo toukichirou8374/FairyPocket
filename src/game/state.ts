@@ -36,6 +36,10 @@ export interface PetState {
   createdAt: number;
   lastSeen: number;
   stats: { fed: number; petted: number; played: number };
+  /** 物品欄裡每種食物的數量（會隨時間慢慢補充） */
+  bag: Record<Food, number>;
+  /** 上次補充食物的時間 */
+  bagAt: number;
 }
 
 /** 跳舞時給紫水晶碎片會暫時複製出一隻夥伴，陪你 5 分鐘後飛走（不存檔、不會一直多一隻） */
@@ -60,6 +64,25 @@ export const FOODS = {
 } as const;
 export type Food = keyof typeof FOODS;
 export const FOOD_IDS = Object.keys(FOODS) as Food[];
+
+/** 每種食物最多幾個（金色的比較珍貴） */
+export function bagMax(f: Food): number {
+  return f === 'golden_apple' ? 4 : f === 'golden_carrot' ? 8 : 16;
+}
+
+export function fullBag(): Record<Food, number> {
+  return Object.fromEntries(FOOD_IDS.map((f) => [f, bagMax(f)])) as Record<Food, number>;
+}
+
+/** 每 10 分鐘每種食物補 1 個（App 關著時也會補） */
+export const BAG_REFILL_MS = 10 * 60_000;
+
+export function refillBag(s: PetState, now = Date.now()): void {
+  const n = Math.floor((now - s.bagAt) / BAG_REFILL_MS);
+  if (n <= 0) return;
+  for (const f of FOOD_IDS) s.bag[f] = Math.min(bagMax(f), s.bag[f] + n);
+  s.bagAt += n * BAG_REFILL_MS;
+}
 
 /** 每種個性最喜歡的食物（吃到時好感度加更多） */
 export const FAVORITE_FOOD: Record<Personality, Food> = {
@@ -98,6 +121,8 @@ export function createPet(now = Date.now()): PetState {
     createdAt: now,
     lastSeen: now,
     stats: { fed: 0, petted: 0, played: 0 },
+    bag: fullBag(),
+    bagAt: now,
   };
 }
 

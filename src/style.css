@@ -1,3 +1,11 @@
+/* 像素字型：GNU Unifont 精簡版（SIL OFL 1.1，見 /fonts/UNIFONT-LICENSE.txt）。
+   有原版素材包時，英數字改用素材包的原版字型「MC Ascii」（在裝置上即時產生）。 */
+@font-face {
+  font-family: 'FairyPocket Pixel';
+  src: url('/fonts/fairypocket-pixel.ttf') format('truetype');
+  font-display: swap;
+}
+
 :root {
   --sky-top: #8fd0ff;
   --sky-bottom: #e6f6ff;
@@ -8,7 +16,10 @@
   --accent: #5fb8f0;
   --modal-bg: #f4f9ff;
   --modal-text: #1d2b4a;
-  --pixel-font: ui-monospace, 'Menlo', 'Consolas', monospace;
+  --font: 'MC Ascii', 'FairyPocket Pixel', -apple-system, 'PingFang TC', 'Hiragino Sans', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+  --pixel-font: var(--font);
+  /* 原版文字陰影：往右下 1 個像素、顏色是字色的 1/4 亮度 */
+  --shadow: 2px 2px 0 #3f3f3f;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -19,7 +30,8 @@ html, body {
   overflow: hidden;
   overscroll-behavior: none;
   background: var(--sky-bottom);
-  font-family: -apple-system, 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+  font-family: var(--font);
+  font-size: 16px;
   color: var(--text);
   -webkit-user-select: none;
   user-select: none;
@@ -57,15 +69,16 @@ html, body {
 .nametag {
   background: rgba(0, 0, 0, 0.35);
   padding: 2px 8px;
-  font: 600 15px var(--pixel-font);
-  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
+  font: 16px var(--pixel-font);
+  text-shadow: var(--shadow);
 }
 .bubble {
   background: #fff;
   color: #1d2b4a;
   border: 3px solid #1d2b4a;
   padding: 6px 10px;
-  font-size: 15px;
+  font-size: 16px;
+  line-height: 1.5;
   max-width: 70vw;
   white-space: normal;
   width: max-content;
@@ -104,8 +117,8 @@ html, body {
 .hud > * { pointer-events: auto; }
 
 .itemname {
-  font: 600 15px var(--pixel-font);
-  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.45);
+  font: 16px var(--pixel-font);
+  text-shadow: var(--shadow);
   opacity: 0;
   transition: opacity 0.3s;
   min-height: 20px;
@@ -175,7 +188,7 @@ html, body {
 .charge > div { height: 100%; width: 0; background: linear-gradient(90deg, #7fe05a, #c4f5a8); }
 
 /* 背包 */
-.bagname { font-weight: 700; margin-bottom: 8px; min-height: 22px; }
+.bagname { margin-bottom: 8px; min-height: 24px; }
 .baggrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
@@ -197,6 +210,19 @@ html, body {
 }
 .bagslot img { width: 70%; height: 70%; image-rendering: pixelated; pointer-events: none; }
 .bagslot.on { background: #a8c8ff; }
+.bagslot { position: relative; }
+.bagslot.empty img { opacity: 0.35; }
+/* 原版風格的物品數量：右下角白字＋陰影 */
+.count {
+  position: absolute;
+  right: 3px;
+  bottom: 0;
+  font: 16px/1 var(--font);
+  color: #fff;
+  text-shadow: var(--shadow);
+  pointer-events: none;
+}
+.mc .slot .count { right: calc(var(--s) * 1); bottom: calc(var(--s) * 0.5); font-size: calc(var(--s) * 8); text-shadow: calc(var(--s)) calc(var(--s)) 0 #3f3f3f; }
 .bagslot:active { transform: scale(0.94); }
 
 .toast {
@@ -206,7 +232,8 @@ html, body {
   transform: translateX(-50%);
   background: var(--ui-dark);
   padding: 8px 14px;
-  font-size: 14px;
+  font-size: 16px;
+  text-shadow: var(--shadow);
   opacity: 0;
   transition: opacity 0.3s;
   pointer-events: none !important;
@@ -233,12 +260,12 @@ html, body {
   -webkit-user-select: text;
   user-select: text;
 }
-.modal h2 { margin: 0 0 8px; font-size: 20px; }
+.modal h2 { margin: 0 0 8px; font-size: 16px; font-weight: normal; text-align: center; }
 .modal p { margin: 0 0 10px; }
-.modal label { display: block; font-weight: 700; margin: 12px 0 6px; font-size: 14px; }
+.modal label { display: block; margin: 14px 0 6px; font-size: 16px; }
 .name-input {
   width: 100%;
-  font-size: 18px;
+  font: 16px var(--font);
   padding: 8px 10px;
   border: 3px solid #1d2b4a;
   background: #fff;
@@ -252,10 +279,9 @@ html, body {
   padding: 8px;
   color: var(--modal-text);
   cursor: pointer;
-  font-size: 12px;
-  line-height: 1.35;
+  font: 16px/1.4 var(--font);
 }
-.pcard b { display: block; font-size: 16px; margin-bottom: 2px; }
+.pcard b { display: block; font-weight: normal; margin-bottom: 2px; }
 /* 個性代表色（粒子與發光輪廓的顏色） */
 .pcard b::before {
   content: '';
@@ -272,19 +298,22 @@ html, body {
   border: 3px solid #1d2b4a;
   background: #fff;
   color: var(--modal-text);
-  font-size: 16px;
+  font: 16px var(--font);
   padding: 10px 12px;
   cursor: pointer;
   width: 100%;
   margin-top: 10px;
 }
-.btn.primary { background: var(--accent); color: #fff; font-weight: 700; }
-.btn.on { border-color: var(--accent); background: #e4f4ff; box-shadow: 0 0 0 2px var(--accent); font-weight: 700; }
-.btn.danger { border-color: #b03040; color: #b03040; font-size: 14px; }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.on { border-color: var(--accent); background: #e4f4ff; box-shadow: 0 0 0 2px var(--accent); }
+.btn.danger { border-color: #b03040; color: #b03040; }
 .btnrow { display: flex; gap: 8px; }
+/* 像素字比較寬：格子與按鈕可以縮、文字可以換行，避免出現左右捲軸 */
+.modal { overflow-x: hidden; }
+.pcard, .btn { min-width: 0; overflow-wrap: anywhere; }
 .btnrow .btn { margin-top: 0; }
-.info { font-size: 13px; margin-top: 12px; line-height: 1.6; color: #44557a; }
-.ver { text-align: center; font-size: 12px; color: #8090b0; margin-top: 10px; }
+.info { font-size: 16px; margin-top: 12px; line-height: 1.5; color: #44557a; }
+.ver { text-align: center; font-size: 16px; color: #8090b0; margin-top: 10px; }
 
 /* ---- 套用原版素材後的像素介面 ---- */
 .selframe { display: none; }
@@ -323,3 +352,46 @@ html, body {
   .slot img { width: 34px; height: 34px; }
   .icon { width: 15px; height: 13px; }
 }
+
+/* ---- 原版風格的設定畫面（有素材包時）：深色半透明底、白字陰影、原版九宮格按鈕 ---- */
+.mcgui .modal-back { background: rgba(0, 0, 0, 0.55); }
+.mcgui .modal {
+  background: rgba(16, 16, 16, 0.82);
+  color: #fff;
+  border: 2px solid #000;
+  box-shadow: inset 0 0 0 2px #555;
+  text-shadow: var(--shadow);
+}
+.mcgui .modal h2 { color: #fff; }
+.mcgui .modal label { color: #a0a0a0; }
+.mcgui .info { color: #e0e0e0; }
+.mcgui .ver { color: #a0a0a0; }
+.mcgui .btn, .mcgui .pcard {
+  color: #fff;
+  background: none;
+  border-style: solid;
+  border-width: 6px;
+  border-image: var(--btn) 3 fill / 6px stretch;
+  image-rendering: pixelated;
+  box-shadow: none;
+  text-shadow: var(--shadow);
+}
+.mcgui .btn.on, .mcgui .pcard.on, .mcgui .btn.primary {
+  border-image-source: var(--btn-on);
+  background: none;
+  box-shadow: none;
+  color: #ffffa0;
+}
+.mcgui .btn.danger { color: #ff8080; }
+.mcgui .pcard b::before { border-color: #000; }
+.mcgui .name-input {
+  color: #fff;
+  background: none;
+  border-style: solid;
+  border-width: 2px;
+  border-image: var(--field) 1 fill / 2px stretch;
+  image-rendering: pixelated;
+  text-shadow: var(--shadow);
+}
+.mcgui .name-input:focus { outline: none; border-image-source: var(--field-on); }
+.mcgui .bag .baggrid { text-shadow: none; }

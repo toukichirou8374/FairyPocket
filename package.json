@@ -1,7 +1,7 @@
 {
   "name": "fairypocket",
   "private": true,
-  "version": "0.9.0",
+  "version": "0.10.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "icons": "node scripts/gen-icons.mjs",
-    "pack": "node scripts/make-pack.mjs"
+    "pack": "node scripts/make-pack.mjs",
+    "font": "node scripts/make-font.mjs"
   },
   "dependencies": {
     "@wasm-audio-decoders/ogg-vorbis": "^0.1.20",

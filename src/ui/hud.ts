@@ -86,6 +86,7 @@ export class Hud {
   food: Food | null = null;
   private foodURL = {} as Record<Food, string>;
   private foodBadge!: HTMLImageElement;
+  private foodCount!: HTMLSpanElement;
   private shardBadge!: HTMLImageElement;
   private chargeEl!: HTMLDivElement;
   private lastStat = '';
@@ -132,6 +133,8 @@ export class Hud {
       if (s === 'food') {
         this.foodBadge = el('img', 'badge', b);
         this.foodBadge.hidden = true;
+        // 原版風格的數量（右下角白字＋陰影）
+        this.foodCount = el('span', 'count', b);
       }
       if (s === 'note') {
         // 悅靈跳舞時，音符盒格右下角出現紫水晶碎片
@@ -185,19 +188,23 @@ export class Hud {
     const name = el('div', 'bagname', box);
     name.textContent = this.food ? itemName(this.food) : t('bagEmpty');
     const grid = el('div', 'baggrid', box);
+    const bag = this.getPet().bag;
     for (const f of FOOD_IDS) {
-      const b = el('button', 'bagslot' + (f === this.food ? ' on' : ''), grid);
+      const b = el('button', 'bagslot' + (f === this.food ? ' on' : '') + (bag[f] ? '' : ' empty'), grid);
       b.dataset.food = f;
-      b.setAttribute('aria-label', itemName(f));
+      b.setAttribute('aria-label', `${itemName(f)} ${bag[f]}`);
       el('img', '', b).src = this.foodURL[f];
+      el('span', 'count', b).textContent = String(bag[f]);
       b.addEventListener('click', () => {
         this.food = f;
         this.foodBadge.src = this.foodURL[f];
         this.foodBadge.hidden = false;
+        this.foodCount.textContent = String(bag[f]);
         close();
         this.setSelected('food');
       });
     }
+    el('div', 'info', box).textContent = t('bagRefill');
     const cancel = el('button', 'btn', box);
     cancel.textContent = t('close');
     cancel.addEventListener('click', close);
@@ -246,6 +253,17 @@ export class Hud {
       if (src) b.querySelector('img')!.src = src;
     });
     if (img.amethyst_shard) this.shardBadge.src = img.amethyst_shard.src;
+    // 設定畫面的按鈕、輸入框用原版九宮格材質
+    const r = this.root.style;
+    if (img.button && img.button_highlighted) {
+      r.setProperty('--btn', `url(${img.button.src})`);
+      r.setProperty('--btn-on', `url(${img.button_highlighted.src})`);
+      this.root.classList.add('mcgui');
+    }
+    if (img.text_field && img.text_field_highlighted) {
+      r.setProperty('--field', `url(${img.text_field.src})`);
+      r.setProperty('--field-on', `url(${img.text_field_highlighted.src})`);
+    }
 
     if (img.hotbar && img.hotbar_selection) {
       // 原版快捷欄有 9 格，這裡裁成 5 格（左邊 5 格 + 最右側邊框）
@@ -265,8 +283,10 @@ export class Hud {
   /** 原版模式下依螢幕寬度以整數倍放大像素介面 */
   private layout(): void {
     if (!this.mc) return;
-    // 橫拿手機時畫面較矮，也依高度縮小，避免介面佔掉太多畫面
-    const s = Math.max(2, Math.floor(Math.min(window.innerWidth - 24, 420, window.innerHeight * 0.9) / this.mc.hotbarW));
+    // 橫拿手機時畫面較矮，也依高度縮小，避免介面佔掉太多畫面。
+    // 以 0.5 倍為單位，小螢幕的格子也至少有約 50px 好點（Retina 螢幕上仍是整數像素）
+    const raw = Math.min(window.innerWidth - 24, 420, window.innerHeight * 0.9) / this.mc.hotbarW;
+    const s = Math.max(2.5, Math.floor(raw * 2) / 2);
     const r = this.root.style;
     r.setProperty('--s', `${s}px`);
     r.setProperty('--u', `${(this.mc.hotbarW * s - 8) / 162}px`);
@@ -279,6 +299,7 @@ export class Hud {
   }
 
   updateStats(s: PetState): void {
+    this.foodCount.textContent = this.food ? String(s.bag[this.food]) : '';
     const h = toIcons(s.health);
     const f = toIcons(s.hunger);
     const key = h.join('') + f.join('');

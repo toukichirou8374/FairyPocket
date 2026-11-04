@@ -6,10 +6,11 @@ import { AllayModel } from './three/allayModel';
 import { AllayController, TRAITS } from './three/allayController';
 import { Hud } from './ui/hud';
 import { pickLine, type LineKind } from './game/dialogue';
-import { applyElapsed, BEDTIMES, cheer, createPet, moodLevel, reunionKind, type Bedtime, FAVORITE_FOOD, feed, FOOD_IDS, FRIEND_STAY_MS, isNight, MAX_FRIENDS, PERSONALITY_COLOR, PERSONALITY_IDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
+import { applyElapsed, BEDTIMES, refillBag, cheer, createPet, moodLevel, reunionKind, type Bedtime, FAVORITE_FOOD, feed, FOOD_IDS, FRIEND_STAY_MS, isNight, MAX_FRIENDS, PERSONALITY_COLOR, PERSONALITY_IDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
 import { BACKUP_KEY, decodeLink, encodeLink, exportFileName, linkKind, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
+import { asciiGlyphs, buildFont } from './pixelFont';
 import { itemName, loadLang, saveLang, setLang, t } from './i18n';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
@@ -22,6 +23,7 @@ const stage = new Stage(canvas);
 const pet = loadPet(localStorage) ?? createPet();
 const awayMs = Date.now() - pet.lastSeen;
 applyElapsed(pet, awayMs);
+refillBag(pet);
 
 const BEDTIME_KEY = 'fairypocket.bedtime.v1';
 let bedtime: Bedtime = (BEDTIMES as readonly number[]).includes(Number(localStorage.getItem(BEDTIME_KEY))) ? (Number(localStorage.getItem(BEDTIME_KEY)) as Bedtime) : 22;
@@ -49,6 +51,8 @@ function caught(): void {
   }
   // 食物：悅靈認得是什麼，接住後吃掉
   if (feed(pet, kind) === 'ok') {
+    pet.bag[kind] = Math.max(0, pet.bag[kind] - 1);
+    hud.updateStats(pet);
     ctrl.eat();
     model.holdItem(stage.itemTexture(kind));
     setTimeout(() => model.holdItem(null), 1400);
@@ -251,6 +255,18 @@ function applyGlow(): void {
 
 let pack: AssetPack | null = null;
 
+/** 用素材包裡的原版 ascii.png 當場做成英數字型（只存在這台裝置，網站不含原版字型） */
+async function useAsciiFont(img: HTMLImageElement): Promise<void> {
+  const c = document.createElement('canvas');
+  c.width = c.height = img.width;
+  const ctx = c.getContext('2d')!;
+  ctx.drawImage(img, 0, 0);
+  const ttf = buildFont('MC Ascii', asciiGlyphs(ctx.getImageData(0, 0, img.width, img.width).data, img.width));
+  const face = new FontFace('MC Ascii', ttf.buffer as ArrayBuffer);
+  await face.load();
+  document.fonts.add(face);
+}
+
 async function applyPack(p: AssetPack): Promise<void> {
   const img = await loadImages(p);
   const food = await loadImages(p, Object.fromEntries(FOOD_IDS.map((f) => [f, `textures/item/${f}.png`])) as Record<Food, string>);
@@ -265,6 +281,7 @@ async function applyPack(p: AssetPack): Promise<void> {
   stage.useImages(img);
   stage.useFoodImages(food);
   hud.useImages(img);
+  if (img.ascii) await useAsciiFont(img.ascii).catch(() => {});
   hud.useFoodImages(food);
 }
 
@@ -445,7 +462,8 @@ function tap(x: number, y: number): void {
     return useNoteBlock(ray, hitBlock);
   }
   if (sel === 'food' && hud.food) {
-    // 食物不蓄力，輕輕拋給悅靈接
+    // 食物不蓄力，輕輕拋給悅靈接；吃掉才會扣數量
+    if (pet.bag[hud.food] <= 0) return hud.showItem(t('bagOut', { f: itemName(hud.food) }));
     throwAt(hud.food, ray, 0);
     return;
   }
@@ -572,6 +590,7 @@ function frame(now: number): void {
   statTimer -= dt;
   if (statTimer <= 0) {
     statTimer = 0.25;
+    refillBag(pet);
     hud.updateStats(pet);
   }
   requestAnimationFrame(frame);

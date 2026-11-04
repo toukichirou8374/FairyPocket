@@ -23,6 +23,12 @@ export const IMAGE_PATHS = {
   chest: 'textures/entity/chest/normal.png',
   bell: 'textures/item/bell.png',
   amethyst_shard: 'textures/item/amethyst_shard.png',
+  // 原版英數字型與設定畫面的按鈕、輸入框（九宮格）
+  ascii: 'textures/font/ascii.png',
+  button: 'textures/gui/sprites/widget/button.png',
+  button_highlighted: 'textures/gui/sprites/widget/button_highlighted.png',
+  text_field: 'textures/gui/sprites/widget/text_field.png',
+  text_field_highlighted: 'textures/gui/sprites/widget/text_field_highlighted.png',
   // 彩色粉塵粒子（dust）的 8 張圖
   generic_0: 'textures/particle/generic_0.png',
   generic_1: 'textures/particle/generic_1.png',

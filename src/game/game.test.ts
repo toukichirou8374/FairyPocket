@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { applyElapsed, createPet, feed, isNight, moodLevel, play, reunionKind, tickPet, toIcons, MAX_HUNGER } from './state';
+import { applyElapsed, bagMax, createPet, feed, isNight, refillBag, moodLevel, play, reunionKind, tickPet, toIcons, MAX_HUNGER } from './state';
 import { decodeLink, encodeLink, linkKind, loadPet, parseSave, serialize, storePet, SAVE_KEY, BACKUP_KEY } from './save';
 import { pickLine } from './dialogue';
 import { loadLang, uiKeys } from '../i18n';
+import { buildFont, unifontGlyph } from '../pixelFont';
+import fontChars from '../../fonts/fairypocket-pixel.chars.txt?raw';
 import { packFile, parseLegacyPack, parseZipPack } from './assets';
 import { allayRate, loadSoundMode, SOUND_MODES } from '../audio';
 
@@ -233,6 +235,33 @@ describe('dialogue', () => {
   it('speaks every language', () => {
     expect(pickLine('greet', 'brave', 'Ally', () => 0, '', 'en_us')).toContain('Ally');
     expect(pickLine('fedFood', 'cautious', 'x', () => 0, 'パン', 'ja_jp')).toContain('パン');
+  });
+});
+
+describe('pixel font', () => {
+  it('has every character the game shows (run npm run font after changing text)', () => {
+    const sources = import.meta.glob(['../**/*.ts', '!../**/*.test.ts'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+    const have = new Set(fontChars);
+    const missing = new Set<string>();
+    for (const text of Object.values(sources)) for (const ch of text) if (ch > '\u007f' && !have.has(ch)) missing.add(ch);
+    expect([...missing].join('')).toBe('');
+  });
+  it('builds a valid-looking TrueType file', () => {
+    const ttf = buildFont('Test', [unifontGlyph(0x41, '0000000018242442427E424242420000')]);
+    expect(new DataView(ttf.buffer).getUint32(0)).toBe(0x10000);
+    expect(ttf.length % 4).toBe(0);
+  });
+});
+
+describe('food bag', () => {
+  it('refills one of each food every 10 minutes, up to the max', () => {
+    const s = createPet(0);
+    s.bag.apple = 0;
+    s.bag.golden_apple = 3;
+    refillBag(s, 25 * 60_000);
+    expect(s.bag.apple).toBe(2);
+    expect(s.bag.golden_apple).toBe(bagMax('golden_apple'));
+    expect(s.bagAt).toBe(20 * 60_000);
   });
 });
 

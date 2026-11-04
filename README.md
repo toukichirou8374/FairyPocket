@@ -32,3 +32,8 @@
 - `src/game/` 數值、存檔、台詞（純邏輯，有單元測試）
 - `src/three/` 3D 模型、行為與動畫、場景特效
 - `src/ui/` 介面
+
+
+## 字型
+
+介面的像素字型是 [GNU Unifont](https://unifoundry.com/unifont/)（SIL Open Font License 1.1，授權全文見 `fonts/UNIFONT-LICENSE.txt`）挑出遊戲用到的字做成的精簡版 `public/fonts/fairypocket-pixel.ttf`。改了介面文字或台詞後執行 `npm run font` 重新產生（測試會檢查有沒有漏字）。有原版素材包時，英數字會在裝置上用素材包的 `textures/font/ascii.png` 即時產生原版字型，網站本身不含原版字型。
