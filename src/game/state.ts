@@ -61,6 +61,18 @@ export const FOODS = {
   honey_bottle: { hunger: 6, health: 2, color: '#f8c030' },
   golden_carrot: { hunger: 6, health: 4, color: '#f8d848' },
   golden_apple: { hunger: 4, health: 10, color: '#f8d020' },
+  cooked_beef: { hunger: 8, health: 3, color: '#8a4a2a' },
+  cooked_porkchop: { hunger: 8, health: 3, color: '#d8a070' },
+  cooked_mutton: { hunger: 6, health: 2, color: '#b06040' },
+  cooked_cod: { hunger: 5, health: 2, color: '#d8c8a0' },
+  cooked_salmon: { hunger: 6, health: 2, color: '#e08060' },
+  cooked_rabbit: { hunger: 5, health: 2, color: '#c08050' },
+  mushroom_stew: { hunger: 6, health: 2, color: '#c09060' },
+  rabbit_stew: { hunger: 10, health: 3, color: '#b07040' },
+  beetroot_soup: { hunger: 6, health: 2, color: '#a02030' },
+  dried_kelp: { hunger: 1, health: 1, color: '#405828' },
+  // 蛋糕：放在地上，一次吃一片（原版共 7 片、每片 2 點飢餓度）
+  cake: { hunger: 2, health: 1, color: '#f8f0e0' },
 } as const;
 export type Food = keyof typeof FOODS;
 export const FOOD_IDS = Object.keys(FOODS) as Food[];

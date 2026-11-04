@@ -11,7 +11,7 @@ export type LineKind =
   // 時段問候與記憶話題（{d} 是天數或次數）
   | 'greetMorning' | 'greetAfternoon' | 'greetEvening'
   | 'remFood' | 'mostFood' | 'missPlay' | 'missDance' | 'streak' | 'together'
-  | 'mFed' | 'mPetted' | 'mPlayed' | 'mDays' | 'mStreak';
+  | 'mFed' | 'mPetted' | 'mPlayed' | 'mDays' | 'mStreak' | 'cakeDone' | 'cakeBite';
 
 type Table = Partial<Record<LineKind, string[]>>;
 
@@ -56,6 +56,8 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     mPlayed: ['我們一起玩了 {d} 次了！下一次也要玩喔！'],
     mDays: ['我們已經一起度過 {d} 天了！以後也請多指教！'],
     mStreak: ['連續 {d} 天都來看我！好感動…'],
+    cakeBite: ['啊嗚～蛋糕好甜！', '再吃一片就好…嘿嘿', '蛋糕軟綿綿的～', '還剩 {d} 片！'],
+    cakeDone: ['蛋糕全部吃完了！好幸福～', '最後一片也好好吃！謝謝你的蛋糕！'],
   },
   ja_jp: {
     greet: ['こんにちは！{n}だよ～', '今日もよろしくね！'],
@@ -97,6 +99,8 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     mPlayed: ['いっしょに遊んだの {d} 回目！次も遊ぼうね！'],
     mDays: ['いっしょに {d} 日すごしたよ！これからもよろしくね！'],
     mStreak: ['{d} 日連続で会いに来てくれた！感動…'],
+    cakeBite: ['あーん～ケーキあまい！', 'もうひと切れだけ…えへへ', 'ケーキふわふわ～', 'あと {d} 切れ！'],
+    cakeDone: ['ケーキ全部食べちゃった！しあわせ～', '最後のひと切れもおいしい！ケーキありがとう！'],
   },
   en_us: {
     greet: ["Hi there! I'm {n}~", 'Nice to see you today!'],
@@ -138,6 +142,8 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     mPlayed: ["We've played {d} times! Let's play next time too!"],
     mDays: ["We've spent {d} days together! Please keep being my friend!"],
     mStreak: ["You came to see me {d} days in a row! I'm so touched…"],
+    cakeBite: ['Nom~ the cake is so sweet!', 'Just one more slice… hehe', 'So soft and fluffy~', '{d} slices left!'],
+    cakeDone: ['I ate the whole cake! So happy~', 'The last slice was yummy too! Thanks for the cake!'],
   },
 };
 

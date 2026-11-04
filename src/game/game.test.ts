@@ -8,6 +8,7 @@ import fontChars from '../../fonts/fairypocket-pixel.chars.txt?raw';
 import { packFile, parseLegacyPack, parseZipPack } from './assets';
 import { allayRate, distanceGain, loadSoundMode, SOUND_MODES } from '../audio';
 import { SFX, sfxPitch } from '../sfx';
+import { trimSilence } from '../voice';
 import { emptyMemory, memoryTopic, mostEaten, rememberFood, takeMilestone, timeGreeting, visitDay } from './memory';
 
 function memStorage() {
@@ -266,6 +267,17 @@ describe('memory', () => {
     expect(['greetMorning', 'greetAfternoon', 'greetEvening']).toContain(timeGreeting(new Date(2026, 0, 1, 8).getTime()));
     expect(timeGreeting(new Date(2026, 0, 1, 8).getTime())).toBe('greetMorning');
     expect(timeGreeting(new Date(2026, 0, 1, 21).getTime())).toBe('greetEvening');
+  });
+});
+
+describe('voice', () => {
+  it('trims silence and ignores near-silent recordings', () => {
+    const rate = 1000;
+    const d = new Float32Array(2000);
+    for (let i = 800; i < 1200; i++) d[i] = 0.5;
+    const out = trimSilence(d, rate)!;
+    expect(out.length).toBe(400 + 2 * 50);
+    expect(trimSilence(new Float32Array(2000), rate)).toBeNull();
   });
 });
 

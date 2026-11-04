@@ -29,6 +29,11 @@ export const IMAGE_PATHS = {
   button_highlighted: 'textures/gui/sprites/widget/button_highlighted.png',
   text_field: 'textures/gui/sprites/widget/text_field.png',
   text_field_highlighted: 'textures/gui/sprites/widget/text_field_highlighted.png',
+  // 放在地上的蛋糕方塊
+  cake_top: 'textures/block/cake_top.png',
+  cake_side: 'textures/block/cake_side.png',
+  cake_bottom: 'textures/block/cake_bottom.png',
+  cake_inner: 'textures/block/cake_inner.png',
   // 彩色粉塵粒子（dust）的 8 張圖
   generic_0: 'textures/particle/generic_0.png',
   generic_1: 'textures/particle/generic_1.png',

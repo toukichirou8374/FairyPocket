@@ -4,7 +4,7 @@
 
 export type Sfx =
   | 'flap' | 'dash' | 'snore' | 'bite' | 'burp' | 'wake' | 'startle'
-  | 'pickup' | 'slime' | 'throw' | 'tickle' | 'click' | 'open' | 'close' | 'bell' | 'levelup';
+  | 'place' | 'pickup' | 'slime' | 'throw' | 'tickle' | 'click' | 'open' | 'close' | 'bell' | 'levelup';
 
 export const SFX: Record<Sfx, { path: string; vol: number; pitch: [number, number] }> = {
   flap: { path: 'sounds/mob/parrot/fly', vol: 0.3, pitch: [1.3, 1.6] }, // 起飛、遊蕩時拍翅膀
@@ -14,6 +14,7 @@ export const SFX: Record<Sfx, { path: string; vol: number; pitch: [number, numbe
   burp: { path: 'sounds/random/burp', vol: 0.35, pitch: [1.2, 1.4] }, // 吃完
   wake: { path: 'sounds/mob/allay/item_taken', vol: 0.5, pitch: [1.1, 1.3] }, // 醒來
   startle: { path: 'sounds/mob/allay/hurt', vol: 0.45, pitch: [1.2, 1.4] }, // 被嚇醒
+  place: { path: 'sounds/dig/cloth', vol: 0.5, pitch: [0.9, 1.1] }, // 把蛋糕放到地上（原版蛋糕是羊毛類的聲音）
   pickup: { path: 'sounds/random/pop', vol: 0.4, pitch: [1.2, 2.0] }, // 接住東西（原版撿東西的聲音）
   slime: { path: 'sounds/mob/slime/small', vol: 0.45, pitch: [1.0, 1.3] }, // 接住史萊姆球
   throw: { path: 'sounds/random/bow', vol: 0.35, pitch: [0.45, 0.6] }, // 丟出去（原版丟雪球的聲音）

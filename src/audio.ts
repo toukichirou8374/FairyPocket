@@ -173,6 +173,29 @@ export class Sound {
     this.effect(path, volume * distanceGain(dist), rate, Math.max(-0.8, Math.min(0.8, x / 2.5)));
   }
 
+  get context(): AudioContext | null {
+    return this.ctx;
+  }
+
+  /**
+   * 用悅靈的聲音說一段錄音（玩家教的話）：音高與速度調高到悅靈的音高，再加上紫水晶鈴聲。
+   * 聲音模式關閉時不出聲。
+   */
+  speakRecording(p: Personality, buf: AudioBuffer): void {
+    const ctx = this.ctx;
+    const m = SOUND_MODES[this.mode];
+    if (!ctx || ctx.state !== 'running' || m.allay <= 0) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    // 錄音直接拉高音高會變很快，這裡比悅靈叫聲的倍率稍低一點
+    src.playbackRate.value = Math.min(1.75, Math.max(1.35, allayRate(p) * 0.95));
+    const gain = ctx.createGain();
+    gain.gain.value = m.allay * 1.4;
+    src.connect(gain).connect(ctx.destination);
+    src.start();
+    void this.play(CHIME, m.chime, m.chimePitch);
+  }
+
   /** 悅靈發言：悅靈叫聲 + 紫水晶鈴聲 */
   speak(p: Personality): void {
     const m = SOUND_MODES[this.mode];

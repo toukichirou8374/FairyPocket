@@ -159,6 +159,9 @@ html, body {
   touch-action: manipulation;
 }
 .slot img { width: 40px; height: 40px; image-rendering: pixelated; pointer-events: none; }
+/* 錄音中：麥克風格輕輕閃紅光 */
+.slot.rec img { animation: rec 0.8s ease-in-out infinite alternate; }
+@keyframes rec { to { filter: drop-shadow(0 0 4px #ff4040); } }
 .slot.selected { border-color: #ffffff; box-shadow: inset 0 0 0 2px #1c1c1c, 0 0 0 2px #fff; }
 .slot:active { transform: scale(0.94); }
 .slot { position: relative; }

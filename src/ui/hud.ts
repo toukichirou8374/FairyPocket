@@ -4,13 +4,14 @@ import { foodIcon, gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, stat
 import { affectionLevel, BEDTIMES, FOOD_IDS, moodLevel, NAME_MAX, wakeHour, type Bedtime, PERSONALITY_COLOR, PERSONALITY_IDS, toIcons, type Food, type Personality, type PetState } from '../game/state';
 import type { AssetImages } from '../game/assets';
 import { SOUND_MODES, type SoundMode } from '../audio';
+import { BIOMES, type Biome } from '../three/biome';
 import { getLang, itemName, LANGS, personalityText, t, type Lang } from '../i18n';
 
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
 
-export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'call';
-export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'call'];
+export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'mic' | 'call';
+export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'mic', 'call'];
 
 /** 快捷欄名稱（Java 版譯名）與操作提示 */
 function slotText(s: Slot): { label: string; hint: string } {
@@ -19,6 +20,7 @@ function slotText(s: Slot): { label: string; hint: string } {
     case 'feather': return { label: itemName('feather'), hint: t('hint.feather') };
     case 'slime': return { label: itemName('slime_ball'), hint: t('hint.slime') };
     case 'note': return { label: itemName('note_block'), hint: t('hint.note') };
+    case 'mic': return { label: t('mic'), hint: t('hint.mic') };
     case 'call': return { label: t('call'), hint: '' };
   }
 }
@@ -51,6 +53,14 @@ export interface HudActions {
   setLang(l: Lang): void;
   glow(): boolean;
   bedtime(): Bedtime;
+  /** 麥克風：開始錄音／停止（short 代表只是點一下） */
+  micStart(): void;
+  micStop(short: boolean): void;
+  /** 學會幾句話、全部忘掉 */
+  phrases(): number;
+  forgetPhrases(): void;
+  biome(): Biome;
+  setBiome(b: Biome): void;
   setBedtime(b: Bedtime): void;
   setGlow(on: boolean): void;
   exportSave(): void;
@@ -130,7 +140,7 @@ export class Hud {
       this.slots.push(b);
       const label = slotText(s).label;
       b.setAttribute('aria-label', label);
-      const icon = ITEM_ICONS[{ food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', call: 'bell' }[s]];
+      const icon = ITEM_ICONS[{ food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', mic: 'mic', call: 'bell' }[s]];
       const img = el('img', '', b);
       img.src = gridURL(icon.grid, icon.pal, 4);
       img.alt = label;
@@ -143,6 +153,30 @@ export class Hud {
         this.shardBadge = el('img', 'badge', b);
         this.shardBadge.src = gridURL(ITEM_ICONS.amethyst.grid, ITEM_ICONS.amethyst.pal, 4);
         this.shardBadge.hidden = true;
+      }
+      if (s === 'mic') {
+        // 按住說話、放開讓悅靈學
+        let at = 0;
+        b.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          at = performance.now();
+          b.classList.add('selected', 'rec');
+          this.showItem(`${label}　${t('listening')}`);
+          this.actions.micStart();
+        });
+        const up = () => {
+          if (!at) return;
+          b.classList.remove('selected', 'rec');
+          const short = performance.now() - at < 400;
+          at = 0;
+          this.actions.micStop(short);
+          if (short) this.showItem(`${label}　${t('hint.mic')}`);
+        };
+        b.addEventListener('pointerup', up);
+        b.addEventListener('pointercancel', up);
+        b.addEventListener('pointerleave', up);
+        b.addEventListener('contextmenu', (e) => e.preventDefault());
+        return;
       }
       b.addEventListener('click', () => {
         if (s !== 'call' && s !== 'food') this.actions.sfx('click');
@@ -166,7 +200,7 @@ export class Hud {
     this.layout();
     if (slot) {
       const s = slotText(slot);
-      this.showItem(`${slot === 'food' && this.food ? itemName(this.food) : s.label}　${s.hint}`);
+      this.showItem(`${slot === 'food' && this.food ? itemName(this.food) : s.label}　${slot === 'food' && this.food === 'cake' ? t('hint.cake') : s.hint}`);
     }
     this.actions.select(slot);
   }
@@ -250,7 +284,7 @@ export class Hud {
     this.lastStat = '';
 
     const items: Record<Slot, string | undefined> = {
-      food: img.chest && chestIcon(img.chest), feather: img.feather?.src, slime: img.slime_ball?.src, note: img.note_block?.src, call: img.bell?.src,
+      food: img.chest && chestIcon(img.chest), feather: img.feather?.src, slime: img.slime_ball?.src, note: img.note_block?.src, mic: undefined, call: img.bell?.src,
     };
     this.slots.forEach((b) => {
       const src = items[b.dataset.slot as Slot];
@@ -448,6 +482,31 @@ export class Hud {
       b.addEventListener('click', () => {
         grow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
         this.actions.setGlow(on);
+      });
+    }
+
+    el('label', '', box).textContent = t('biome');
+    const bgrid = el('div', 'pgrid', box);
+    for (const b of BIOMES) {
+      const btn = el('button', 'btn' + (b === this.actions.biome() ? ' on' : ''), bgrid);
+      btn.dataset.biome = b;
+      btn.textContent = t(`biome.${b}`);
+      btn.addEventListener('click', () => {
+        bgrid.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === btn));
+        this.actions.setBiome(b);
+      });
+    }
+
+    el('label', '', box).textContent = t('mic');
+    const vinfo = el('div', 'info', box);
+    vinfo.textContent = t('phrasesInfo', { n: this.actions.phrases() });
+    if (this.actions.phrases()) {
+      const vb = el('button', 'btn', box);
+      vb.textContent = t('phrasesForget');
+      vb.addEventListener('click', () => {
+        this.actions.forgetPhrases();
+        vinfo.textContent = t('phrasesInfo', { n: 0 });
+        vb.remove();
       });
     }
 

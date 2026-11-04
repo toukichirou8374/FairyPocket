@@ -6,11 +6,13 @@ import { AllayModel } from './three/allayModel';
 import { AllayController, TRAITS } from './three/allayController';
 import { Hud } from './ui/hud';
 import { pickLine, type LineKind } from './game/dialogue';
-import { applyElapsed, BEDTIMES, cheer, createPet, moodLevel, reunionKind, type Bedtime, FAVORITE_FOOD, feed, FOOD_IDS, FRIEND_STAY_MS, isNight, MAX_FRIENDS, PERSONALITY_COLOR, PERSONALITY_IDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
+import { applyElapsed, BEDTIMES, cheer, MAX_HUNGER, createPet, moodLevel, reunionKind, type Bedtime, FAVORITE_FOOD, feed, FOOD_IDS, FRIEND_STAY_MS, isNight, MAX_FRIENDS, PERSONALITY_COLOR, PERSONALITY_IDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
 import { BACKUP_KEY, decodeLink, encodeLink, exportFileName, linkKind, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
 import { SFX, sfxPitch, type Sfx } from './sfx';
+import { forgetPhrases, learnPhrase, loadPhrases, phraseBuffer, Voice } from './voice';
+import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
 import { asciiGlyphs, buildFont } from './pixelFont';
 import { itemName, loadLang, saveLang, setLang, t } from './i18n';
@@ -34,11 +36,53 @@ stage.scene.add(model.root);
 
 const sound = new Sound(localStorage);
 let lastSpoke = 0;
+/** 打招呼類的話：有學會的話時，偶爾改用玩家教的話來說 */
+const GREETINGS: LineKind[] = ['greet', 'welcomeBack', 'missed', 'longAway', 'greetMorning', 'greetAfternoon', 'greetEvening', 'call'];
 const say = (kind: LineKind, food?: Food | null, d: number | string = '') => {
   hud.say(pickLine(kind, pet.personality, pet.name, Math.random, food ? itemName(food) : '', undefined, d));
-  sound.speak(pet.personality);
+  const ctx = sound.context;
+  if (ctx && phrases.length && GREETINGS.includes(kind) && Math.random() < 0.4) {
+    sound.speakRecording(pet.personality, phraseBuffer(ctx, phrases[Math.floor(Math.random() * phrases.length)]));
+  } else sound.speak(pet.personality);
   lastSpoke = performance.now();
 };
+
+// ---------- 麥克風：聽玩家說話，用悅靈的聲音學 ----------
+
+const voice = new Voice();
+let phrases: Awaited<ReturnType<typeof loadPhrases>> = [];
+void loadPhrases().then((p) => (phrases = p));
+
+async function micStart(): Promise<void> {
+  sound.unlock();
+  const ctx = sound.context;
+  if (!ctx) return;
+  ctrl.listen(true);
+  try {
+    await voice.start(ctx);
+  } catch {
+    ctrl.listen(false);
+    hud.showItem(t('micDenied'));
+  }
+}
+
+async function micStop(short: boolean): Promise<void> {
+  const ctx = sound.context;
+  const buf = ctx ? voice.stop(ctx) : null;
+  ctrl.listen(false);
+  if (short) return;
+  if (!buf) return hud.showItem(t('micNothing'));
+  // 切回一般音訊模式後再播放，iPhone 才會從喇叭出聲
+  await new Promise((r) => setTimeout(r, 150));
+  sound.speakRecording(pet.personality, buf);
+  stage.spawn('note', ctrl.headTop(new THREE.Vector3()), 2);
+  stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), 1);
+  cheer(pet, 4);
+  const n = await learnPhrase(buf).catch(() => 0);
+  phrases = await loadPhrases();
+  if (n) hud.showItem(t('learned', { n }));
+  lastSpoke = performance.now();
+}
 
 /** 達成紀念次數時（第 100 次摸摸…），過一下再開心地說出來 */
 function celebrate(only: MilestoneLine[]): void {
@@ -64,6 +108,33 @@ function playSfx(e: Sfx, at?: THREE.Vector3): void {
   const { path, vol } = SFX[e];
   if (at) sound.effectAt(path, at.distanceTo(stage.camera.position), at.x, vol, sfxPitch(e));
   else sound.effect(path, vol, sfxPitch(e));
+}
+
+/** 從畫面點到的地面位置（限制在悅靈活動範圍內） */
+function groundPoint(ray: THREE.Ray): THREE.Vector3 | null {
+  const t = -ray.origin.y / ray.direction.y;
+  if (!(t > 0)) return null;
+  const p = ray.at(t, new THREE.Vector3());
+  const b = stage.bounds();
+  p.x = THREE.MathUtils.clamp(p.x, b.minX, b.maxX);
+  p.z = THREE.MathUtils.clamp(p.z, b.minZ, b.maxZ);
+  return p;
+}
+
+/** 飛到蛋糕旁邊：吃一片（原版每片 2 點飢餓度） */
+let cakeWait = 0;
+function atCake(): void {
+  if (!stage.cake || feed(pet, 'cake') !== 'ok') {
+    ctrl.setMode('happy', 0.9);
+    cakeWait = 6;
+    return;
+  }
+  const left = stage.biteCake();
+  ctrl.eat();
+  rememberFood(pet.memory, 'cake');
+  say(left ? 'cakeBite' : 'cakeDone', 'cake', left);
+  celebrate(['mFed']);
+  cakeWait = 5;
 }
 
 /** 悅靈接住丟過來的東西 */
@@ -99,6 +170,7 @@ const ctrl = new AllayController(
     say,
     particle: (kind, at, count, color, spread) => stage.spawn(kind, at, count, color, spread),
     caught,
+    atCake,
     sfx: playSfx,
   },
 );
@@ -217,6 +289,19 @@ const hud = new Hud(overlay, {
     location.reload();
   },
   bedtime: () => bedtime,
+  micStart: () => void micStart(),
+  micStop: (short) => void micStop(short),
+  phrases: () => phrases.length,
+  forgetPhrases: () => {
+    phrases = [];
+    void forgetPhrases();
+  },
+  biome: () => biome,
+  setBiome: (b) => {
+    biome = b;
+    saveBiome(localStorage, b);
+    void applyBiome();
+  },
   setBedtime: (b) => {
     bedtime = b;
     localStorage.setItem(BEDTIME_KEY, String(b));
@@ -316,8 +401,10 @@ async function applyPack(p: AssetPack): Promise<void> {
     friends.forEach((f) => f.model.setSkin(img.allay!));
   }
   if (img.note_block) stage.useNoteBlockImage(img.note_block);
+  await applyBiome();
   stage.useImages(img);
   stage.useFoodImages(food);
+  stage.useCakeImages(img);
   hud.useImages(img);
   if (img.ascii) await useAsciiFont(img.ascii).catch(() => {});
   hud.useFoodImages(food);
@@ -506,6 +593,15 @@ function tap(x: number, y: number): void {
     const hitBlock = !!stage.noteBlock && raycaster.intersectObject(stage.noteBlock, false).length > 0;
     return useNoteBlock(ray, hitBlock);
   }
+  if (sel === 'food' && hud.food === 'cake') {
+    // 蛋糕像原版一樣放在地上，悅靈肚子餓時會飛過去一片一片吃
+    const p = groundPoint(ray);
+    if (!p) return;
+    stage.placeCake(p);
+    playSfx('place', p);
+    cakeWait = 0;
+    return;
+  }
   if (sel === 'food' && hud.food) {
     // 食物不蓄力，輕輕拋給悅靈接（無限使用）
     throwAt(hud.food, ray, 0);
@@ -586,8 +682,24 @@ resize();
 function updateSky(): void {
   night = isNight(new Date(), bedtime);
   sky.classList.toggle('night', night);
+  // 天空顏色跟著生態域與日夜
+  const [top, bottom] = BIOME_STYLE[biome][night ? 'night' : 'day'];
+  sky.style.background = `linear-gradient(180deg, ${top} 0%, ${bottom} 75%)`;
 }
-updateSky();
+
+// ---------- 生態域背景 ----------
+
+let biome: Biome = loadBiome(localStorage);
+let ambientIn = 20;
+
+/** 換背景：從素材包讀這個生態域的材質（沒有素材包就用純色） */
+async function applyBiome(): Promise<void> {
+  const paths = biomeTextures(biome);
+  const img = pack ? await loadImages(pack, Object.fromEntries(paths.map((p) => [p, p]))) : {};
+  stage.setBiome(BIOME_STYLE[biome], img);
+  updateSky();
+}
+void applyBiome();
 setInterval(updateSky, 60_000);
 
 let talkIn = 15;
@@ -633,6 +745,22 @@ function frame(now: number): void {
   }
 
   if (chargeStart !== null) hud.setCharge(chargeLevel());
+  ctrl.hearing += (voice.level - ctrl.hearing) * Math.min(1, dt * 12);
+
+  // 生態域的環境音（沼澤的青蛙、地獄的低鳴…），偶爾響一次
+  const amb = BIOME_STYLE[biome].ambient;
+  ambientIn -= dt;
+  if (ambientIn <= 0) {
+    ambientIn = amb ? amb.every[0] + Math.random() * (amb.every[1] - amb.every[0]) : 20;
+    if (amb) sound.effect(amb.path, amb.vol, 0.9 + Math.random() * 0.2, (Math.random() - 0.5) * 1.2);
+  }
+
+  // 地上有蛋糕、肚子還沒飽：過一會兒就飛過去吃一片
+  cakeWait -= dt;
+  if (stage.cake && cakeWait <= 0 && pet.hunger < MAX_HUNGER - 0.5 && ['idle', 'wander', 'approach', 'observe', 'curious'].includes(ctrl.mode)) {
+    cakeWait = 2;
+    ctrl.seekCake(stage.cake.position);
+  }
 
   ctrl.headTop(tmpV).project(stage.camera);
   hud.place(((tmpV.x + 1) / 2) * window.innerWidth, ((1 - tmpV.y) / 2) * window.innerHeight, tmpV.z < 1);

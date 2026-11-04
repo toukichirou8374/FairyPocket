@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { drawGrid, foodIcon, HEART, HEART_PAL, ITEM_ICONS } from '../pixel';
 import { FOOD_IDS, type Food } from '../game/state';
+import type { BiomeStyle } from './biome';
 
 function spriteTex(c: HTMLCanvasElement): THREE.Texture {
   const t = new THREE.CanvasTexture(c);
@@ -46,6 +47,44 @@ function dustFrames(): THREE.Texture[] {
 /** 可以丟出去的東西：史萊姆球或背包裡的食物 */
 export type Throwable = 'slime' | Food;
 
+/** 把原版灰階材質（草地、睡蓮葉…）染上顏色，保留透明度 */
+function tinted(src: HTMLImageElement, tint?: string): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = src.width;
+  c.height = src.height;
+  const ctx = c.getContext('2d')!;
+  ctx.drawImage(src, 0, 0);
+  if (tint) {
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = tint;
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.drawImage(src, 0, 0);
+  }
+  return c;
+}
+
+/** 蛋糕方塊的邊長（世界單位） */
+const CAKE = 0.5;
+
+/** 暫用材質：上半部一種顏色、下半部另一種（rows 為下半部從第幾列開始） */
+function solid(top: string, bottom = top, rows = 0): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = c.height = 16;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = top;
+  ctx.fillRect(0, 0, 16, 16);
+  if (rows) {
+    ctx.fillStyle = bottom;
+    ctx.fillRect(0, rows + 2, 16, 16 - rows - 2);
+  } else if (bottom !== top) {
+    // 頂面的紅色小點（像原版的櫻桃糖霜）
+    ctx.fillStyle = bottom;
+    for (const [x, y] of [[4, 4], [10, 6], [6, 11], [12, 12]]) ctx.fillRect(x, y, 1, 1);
+  }
+  return c;
+}
+
 /** 丟出去的東西能飛到的最遠深度 */
 const FAR_Z = -9;
 
@@ -69,6 +108,7 @@ export class Stage {
   private tex: Record<ParticleKind, THREE.Texture[]>;
   private shadow: THREE.Mesh;
   private motes: THREE.Points;
+  private softFloor!: THREE.Mesh;
   ball: { kind: Throwable; mesh: THREE.Sprite; shadow: THREE.Mesh; vel: THREE.Vector3; life: number } | null = null;
   private ballTex: THREE.Texture;
   private foodTex = {} as Record<Food, THREE.Texture>;
@@ -101,6 +141,7 @@ export class Stage {
     );
     floor.rotation.x = -Math.PI / 2;
     this.scene.add(floor);
+    this.softFloor = floor;
 
     // 影子
     const shC = document.createElement('canvas');
@@ -339,6 +380,211 @@ export class Stage {
     if (this.noteBlock) (this.noteBlock.material as THREE.MeshLambertMaterial).map = this.noteTex;
   }
 
+  // ---------- 蛋糕（原版方塊：寬 14、高 8 像素，共 7 片，從一側一片一片吃掉） ----------
+
+  cake: THREE.Mesh | null = null;
+  /** 已經吃掉幾片（0–6） */
+  cakeBites = 0;
+  private cakeTex: Record<'top' | 'side' | 'bottom' | 'inner', THREE.Texture> = {
+    top: spriteTex(solid('#f4f0ea', '#d83838')),
+    side: spriteTex(solid('#f4f0ea', '#a8582c', 8)),
+    bottom: spriteTex(solid('#a8582c')),
+    inner: spriteTex(solid('#f4f0ea', '#c87a3a', 8)),
+  };
+
+  /** 在地上放一個完整的蛋糕（已經有就換成新的） */
+  placeCake(at: THREE.Vector3): void {
+    this.removeCake();
+    this.cakeBites = 0;
+    this.cake = new THREE.Mesh(this.cakeGeometry(0), this.cakeMaterials());
+    this.cake.position.set(at.x, 0, at.z);
+    this.cake.rotation.y = 0.35;
+    this.scene.add(this.cake);
+  }
+
+  /** 吃一片；回傳還剩幾片（0 代表吃完、蛋糕消失） */
+  biteCake(): number {
+    if (!this.cake) return 0;
+    this.cakeBites++;
+    this.spawn('crumb', this.cake.position.clone().add(new THREE.Vector3(0, CAKE * 0.5, 0)), 4);
+    if (this.cakeBites >= 7) {
+      this.removeCake();
+      return 0;
+    }
+    this.cake.geometry.dispose();
+    this.cake.geometry = this.cakeGeometry(this.cakeBites);
+    this.cake.material = this.cakeMaterials();
+    return 7 - this.cakeBites;
+  }
+
+  removeCake(): void {
+    if (!this.cake) return;
+    this.scene.remove(this.cake);
+    this.cake.geometry.dispose();
+    this.cake = null;
+  }
+
+  useCakeImages(img: { cake_top?: CanvasImageSource; cake_side?: CanvasImageSource; cake_bottom?: CanvasImageSource; cake_inner?: CanvasImageSource }): void {
+    const t = (src?: CanvasImageSource) => {
+      if (!src) return null;
+      const s = src as HTMLImageElement;
+      const c = document.createElement('canvas');
+      c.width = s.width;
+      c.height = s.height;
+      c.getContext('2d')!.drawImage(src, 0, 0);
+      return spriteTex(c);
+    };
+    this.cakeTex = {
+      top: t(img.cake_top) ?? this.cakeTex.top,
+      side: t(img.cake_side) ?? this.cakeTex.side,
+      bottom: t(img.cake_bottom) ?? this.cakeTex.bottom,
+      inner: t(img.cake_inner) ?? this.cakeTex.inner,
+    };
+    if (this.cake) this.cake.material = this.cakeMaterials();
+  }
+
+  private cakeMaterials(): THREE.Material[] {
+    const m = (map: THREE.Texture) => new THREE.MeshLambertMaterial({ map, transparent: true, alphaTest: 0.1 });
+    const side = m(this.cakeTex.side);
+    // 面的順序：+x, -x（被吃掉的切面）, 頂, 底, +z, -z
+    return [side, this.cakeBites ? m(this.cakeTex.inner) : side, m(this.cakeTex.top), m(this.cakeTex.bottom), side, side];
+  }
+
+  /** 原版蛋糕模型：x 從 1+2×已吃片數 到 15、高 0–8、z 1–15（像素） */
+  private cakeGeometry(bites: number): THREE.BoxGeometry {
+    const x0 = 1 + 2 * bites, x1 = 15;
+    const g = new THREE.BoxGeometry(((x1 - x0) / 16) * CAKE, (8 / 16) * CAKE, (14 / 16) * CAKE);
+    g.translate(((x0 + x1) / 32 - 0.5) * CAKE, (4 / 16) * CAKE, 0);
+    const uv = g.attributes.uv as THREE.BufferAttribute;
+    const face = (f: number, u0: number, u1: number, v0: number, v1: number) => {
+      const i = f * 4;
+      uv.setXY(i, u0 / 16, 1 - v0 / 16);
+      uv.setXY(i + 1, u1 / 16, 1 - v0 / 16);
+      uv.setXY(i + 2, u0 / 16, 1 - v1 / 16);
+      uv.setXY(i + 3, u1 / 16, 1 - v1 / 16);
+    };
+    face(0, 1, 15, 8, 16);
+    face(1, 1, 15, 8, 16);
+    face(2, x0, x1, 1, 15);
+    face(3, x0, x1, 1, 15);
+    face(4, x0, x1, 8, 16);
+    face(5, 16 - x1, 16 - x0, 8, 16);
+    uv.needsUpdate = true;
+    return g;
+  }
+
+  // ---------- 生態域背景：地面方塊、植物、天氣 ----------
+
+  private ground: THREE.Mesh | null = null;
+  private plants = new THREE.Group();
+  private weather: BiomeStyle['weather'] = null;
+  private weatherIn = 0;
+
+  /** 換生態域；img 是素材包裡讀到的材質（原版路徑 → 圖片），沒有就用純色 */
+  setBiome(style: BiomeStyle, img: Record<string, HTMLImageElement | undefined>): void {
+    if (this.ground) {
+      this.scene.remove(this.ground);
+      this.ground.geometry.dispose();
+    }
+    this.scene.remove(this.plants);
+    this.plants = new THREE.Group();
+    // 地面：一大片重複的方塊材質，邊緣慢慢淡出
+    const SIZE = 10;
+    const fade = document.createElement('canvas');
+    fade.width = fade.height = 128;
+    const fc = fade.getContext('2d')!;
+    const g = fc.createRadialGradient(64, 64, 10, 64, 64, 64);
+    g.addColorStop(0, '#fff');
+    g.addColorStop(0.55, '#fff');
+    g.addColorStop(1, '#000');
+    fc.fillStyle = g;
+    fc.fillRect(0, 0, 128, 128);
+    const groundImg = img[style.ground];
+    const mat = new THREE.MeshBasicMaterial({ alphaMap: new THREE.CanvasTexture(fade), transparent: true, depthWrite: false });
+    if (groundImg) {
+      const t = spriteTex(tinted(groundImg, style.groundTint));
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(SIZE / 0.75, SIZE / 0.75);
+      mat.map = t;
+      mat.color.setScalar(0.92);
+    } else mat.color.set(style.groundColor);
+    this.ground = new THREE.Mesh(new THREE.PlaneGeometry(SIZE, SIZE), mat);
+    this.ground.rotation.x = -Math.PI / 2;
+    this.ground.position.y = -0.002;
+    this.ground.renderOrder = -1;
+    this.scene.add(this.ground);
+    this.softFloor.visible = false;
+
+    // 植物：固定的位置（每次換回同一個生態域看起來都一樣），避開中間悅靈活動的地方
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (const p of style.plants) {
+      const src = img[p.tex];
+      if (!src) continue;
+      const tex = spriteTex(tinted(src, p.tint));
+      for (let i = 0; i < p.count; i++) {
+        let x = 0, z = 0;
+        do {
+          x = (rnd() - 0.5) * 6.4;
+          z = -2.8 + rnd() * 4;
+        } while (Math.hypot(x, z) < 1);
+        const m = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide });
+        const size = 0.5;
+        if (p.flat) {
+          const pad = new THREE.Mesh(new THREE.PlaneGeometry(size, size), m);
+          pad.rotation.set(-Math.PI / 2, 0, rnd() * Math.PI * 2);
+          pad.position.set(x, 0.004, z);
+          this.plants.add(pad);
+        } else {
+          // 像原版的花草：兩片交叉的平面
+          const plant = new THREE.Group();
+          for (const r of [Math.PI / 4, -Math.PI / 4]) {
+            const q = new THREE.Mesh(new THREE.PlaneGeometry(size, size), m);
+            q.rotation.y = r;
+            plant.add(q);
+          }
+          plant.position.set(x, size / 2, z);
+          plant.rotation.y = rnd() * Math.PI;
+          this.plants.add(plant);
+        }
+      }
+    }
+    this.scene.add(this.plants);
+    this.weather = style.weather;
+    // 有天氣粒子時就不用原本的白色光點
+    this.motes.visible = !style.weather;
+  }
+
+  private spawnWeather(): void {
+    const w = this.weather!;
+    const frame = this.tex.dust[w.kind === 'snow' ? 2 : 4];
+    const mat = new THREE.SpriteMaterial({ map: frame, transparent: true, depthWrite: false });
+    mat.color.set(w.color).multiplyScalar(0.85 + Math.random() * 0.15);
+    const s = new THREE.Sprite(mat);
+    s.scale.setScalar(w.kind === 'snow' ? 0.07 + Math.random() * 0.05 : 0.06 + Math.random() * 0.04);
+    const x = (Math.random() - 0.5) * 7, z = -2.8 + Math.random() * 4.5;
+    let vel: THREE.Vector3, life: number;
+    if (w.kind === 'snow') {
+      s.position.set(x, 3.4, z);
+      vel = new THREE.Vector3((Math.random() - 0.5) * 0.1, -(0.45 + Math.random() * 0.25), 0);
+      life = 8;
+    } else if (w.kind === 'spore') {
+      s.position.set(x, 0.05 + Math.random() * 0.5, z);
+      vel = new THREE.Vector3((Math.random() - 0.5) * 0.08, 0.12 + Math.random() * 0.1, 0);
+      life = 6;
+    } else if (w.kind === 'ash') {
+      s.position.set(x, Math.random() * 2.8, z);
+      vel = new THREE.Vector3((Math.random() - 0.5) * 0.15, 0.05 + Math.random() * 0.1, (Math.random() - 0.5) * 0.05);
+      life = 4;
+    } else {
+      s.position.set(x, 0.3 + Math.random() * 2.4, z);
+      vel = new THREE.Vector3((Math.random() - 0.5) * 0.06, (Math.random() - 0.5) * 0.04, 0);
+      life = 5;
+    }
+    this.particles.push({ sprite: s, vel, life, max: life, gravity: 0, sway: Math.random() * Math.PI * 2 });
+    this.scene.add(s);
+  }
+
   itemTexture(kind: Throwable): THREE.Texture {
     return kind === 'slime' ? this.ballTex : this.foodTex[kind];
   }
@@ -375,6 +621,13 @@ export class Stage {
     }
     if (this.noteBlock) this.noteBlock.scale.lerp(new THREE.Vector3(1, 1, 1), 1 - Math.exp(-10 * dt));
     this.motes.position.y = Math.sin(t * 0.2) * 0.1;
+    if (this.weather) {
+      this.weatherIn -= dt;
+      while (this.weatherIn <= 0) {
+        this.weatherIn += this.weather.every;
+        this.spawnWeather();
+      }
+    }
     this.motes.rotation.y = t * 0.02;
 
     const b = this.ball;

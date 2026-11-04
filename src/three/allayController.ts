@@ -13,7 +13,7 @@ const SPARSE_CHANCE = 0.4;
 export type Mode =
   | 'idle' | 'wander' | 'approach' | 'called' | 'rest' | 'sleep'
   | 'play' | 'eat' | 'happy' | 'tickled' | 'startled' | 'curious' | 'waking' | 'dance'
-  | 'observe' | 'flourish';
+  | 'observe' | 'flourish' | 'cake' | 'listen';
 
 /** 聽到音符後跳舞的秒數（每次彈奏都會重新計時） */
 const DANCE_TIME = 10;
@@ -57,6 +57,8 @@ export interface Hooks {
   say(kind: LineKind): void;
   particle(kind: 'heart' | 'zzz' | 'crumb' | 'note' | 'sparkle' | 'dust', at: THREE.Vector3, count?: number, color?: string, spread?: number): void;
   caught(): void;
+  /** 飛到蛋糕旁邊了（可以吃一片） */
+  atCake?(): void;
   /** 情境音效（拍翅、衝刺、打呼、吃東西、醒來…） */
   sfx?(e: 'flap' | 'dash' | 'snore' | 'bite' | 'burp' | 'wake' | 'startle', at: THREE.Vector3): void;
 }
@@ -198,6 +200,24 @@ export class AllayController {
   }
 
   private readonly danceAt = new THREE.Vector3();
+  private readonly cakeAt = new THREE.Vector3();
+
+  /** 肚子餓時飛到地上的蛋糕旁邊吃一片 */
+  seekCake(at: THREE.Vector3): void {
+    if (!this.awake) return;
+    this.cakeAt.copy(at).add(tmp.set(0.05, 0.55, 0.2));
+    this.setMode('cake', 8);
+  }
+
+  /** 玩家對著麥克風說話：飛到面前歪著頭專心聽 */
+  listen(on: boolean): void {
+    if (on) {
+      this.wake();
+      this.setMode('listen', 30);
+    } else if (this.mode === 'listen') this.setMode('happy', 0.9);
+  }
+  /** 聽到的音量 0–1（說話時頭會跟著點） */
+  hearing = 0;
 
   get dancing(): boolean {
     return this.mode === 'dance';
@@ -319,6 +339,18 @@ export class AllayController {
         // 往後退一點
         this.target.set(this.pos.x, this.pos.y + 0.4, this.pos.z - 0.6);
         speed *= 1.8;
+        if (this.modeTime > this.modeDur) this.toIdle();
+        break;
+      }
+      case 'cake':
+        this.target.copy(this.cakeAt);
+        if (this.pos.distanceTo(this.target) < 0.25) this.hooks.atCake?.();
+        else if (this.modeTime > this.modeDur) this.toIdle();
+        break;
+      case 'listen': {
+        const cam = this.world.camera.position;
+        this.target.set(0, cam.y - 0.5, cam.z - 2.6);
+        speed *= 1.2;
         if (this.modeTime > this.modeDur) this.toIdle();
         break;
       }
@@ -535,11 +567,12 @@ export class AllayController {
     // 心情低落：垂著頭
     else if (moodLevel(this.pet.mood) === 0 && (this.mode === 'idle' || this.mode === 'approach' || this.mode === 'wander')) headX += 0.2;
     if (dancing) { headY = sway * 0.244; headX = 0; } // 頭左右轉 14°
+    if (this.mode === 'listen') { headX = -0.1 + this.hearing * 0.35; headY = 0; }
     // 觀察：左右慢慢（或快速）張望，微微低頭
     if (this.mode === 'observe') { headY = this.lookDir * Math.sin(this.modeTime * this.tr.sweep) * 0.9; headX = 0.12; }
     m.head.rotation.x = THREE.MathUtils.lerp(m.head.rotation.x, headX, k(6));
     m.head.rotation.y = dancing ? headY : THREE.MathUtils.lerp(m.head.rotation.y, headY, k(6));
-    m.head.rotation.z = dancing ? sway * 0.524 : this.mode === 'curious' || this.mode === 'observe' ? Math.sin(this.t * 2) * 0.2 : 0; // 頭歪 30°
+    m.head.rotation.z = dancing ? sway * 0.524 : this.mode === 'curious' || this.mode === 'observe' ? Math.sin(this.t * 2) * 0.2 : this.mode === 'listen' ? 0.35 : 0; // 頭歪 30°
 
     // 眼睛：眨眼 / 睡覺 / 開心
     this.blinkIn -= dt;

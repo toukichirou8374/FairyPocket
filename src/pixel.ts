@@ -159,6 +159,23 @@ export const ITEM_ICONS: Record<string, { grid: string[]; pal: Palette }> = {
     ],
     pal: { k: '#3a2410', b: '#7a4a24', B: '#9a6234', n: '#2a1608' },
   },
+  // 原創的像素麥克風（原版沒有麥克風）
+  mic: {
+    grid: [
+      '....kkkk....',
+      '...kwggwk...',
+      '...kgggGk...',
+      '...kwggwk...',
+      '...kgggGk...',
+      '.k.kwggwk.k.',
+      '.k..kkkk..k.',
+      '..k......k..',
+      '...kkkkkk...',
+      '.....kk.....',
+      '....kkkk....',
+    ],
+    pal: { k: '#2a2a32', w: '#e8e8f0', g: '#a8a8b8', G: '#787888' },
+  },
   bell: {
     grid: [
       '.....kk.....',
