@@ -34,6 +34,33 @@ export const IMAGE_PATHS = {
   cake_side: 'textures/block/cake_side.png',
   cake_bottom: 'textures/block/cake_bottom.png',
   cake_inner: 'textures/block/cake_inner.png',
+  // 快捷欄：煙火、水桶
+  firework_rocket: 'textures/item/firework_rocket.png',
+  water_bucket: 'textures/item/water_bucket.png',
+  // 床（原版紅色床的各面）
+  bed_head_up: 'textures/block/red_bed_head_up.png',
+  bed_foot_up: 'textures/block/red_bed_foot_up.png',
+  bed_head_east: 'textures/block/red_bed_head_east.png',
+  bed_head_west: 'textures/block/red_bed_head_west.png',
+  bed_foot_east: 'textures/block/red_bed_foot_east.png',
+  bed_foot_west: 'textures/block/red_bed_foot_west.png',
+  bed_foot_south: 'textures/block/red_bed_foot_south.png',
+  bed_head_north: 'textures/block/bed_head_north.png',
+  bed_down: 'textures/block/bed_down.png',
+  // 煙火火花、水花與泡泡粒子
+  spark_0: 'textures/particle/spark_0.png',
+  spark_1: 'textures/particle/spark_1.png',
+  spark_2: 'textures/particle/spark_2.png',
+  spark_3: 'textures/particle/spark_3.png',
+  spark_4: 'textures/particle/spark_4.png',
+  spark_5: 'textures/particle/spark_5.png',
+  spark_6: 'textures/particle/spark_6.png',
+  spark_7: 'textures/particle/spark_7.png',
+  splash_0: 'textures/particle/splash_0.png',
+  splash_1: 'textures/particle/splash_1.png',
+  splash_2: 'textures/particle/splash_2.png',
+  splash_3: 'textures/particle/splash_3.png',
+  bubble: 'textures/particle/bubble.png',
   // 彩色粉塵粒子（dust）的 8 張圖
   generic_0: 'textures/particle/generic_0.png',
   generic_1: 'textures/particle/generic_1.png',
@@ -144,10 +171,60 @@ export async function parseZipPack(buf: ArrayBuffer): Promise<AssetPack> {
   return { source, id: String(meta.id ?? source), files };
 }
 
+/**
+ * 直接從檔案讀 zip 素材包，不把整包讀進記憶體：只讀目錄，每個檔案用 slice 切出來
+ * （iPad 上整包讀進來再複製會因為記憶體不足而閃退）。
+ * 我們自己產生的素材包是不壓縮、沒有額外欄位的 zip；其他 zip 改用一般讀法。
+ */
+export async function parseZipBlob(file: Blob): Promise<AssetPack> {
+  const tailLen = Math.min(file.size, 65557);
+  const tail = new DataView(await file.slice(file.size - tailLen).arrayBuffer());
+  let eocd = -1;
+  for (let i = tailLen - 22; i >= 0; i--) {
+    if (tail.getUint32(i, true) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw invalid();
+  const count = tail.getUint16(eocd + 10, true);
+  const dirSize = tail.getUint32(eocd + 12, true);
+  const dirOff = tail.getUint32(eocd + 16, true);
+  const dir = new DataView(await file.slice(dirOff, dirOff + dirSize).arrayBuffer());
+  const u8 = new Uint8Array(dir.buffer);
+  const dec = new TextDecoder();
+  const files = new Map<string, Blob>();
+  let meta: { app?: string; kind?: string; source?: unknown; id?: unknown } | null = null;
+  let p = 0;
+  for (let i = 0; i < count; i++) {
+    if (dir.getUint32(p, true) !== 0x02014b50) throw invalid();
+    const method = dir.getUint16(p + 10, true);
+    const size = dir.getUint32(p + 20, true);
+    const nameLen = dir.getUint16(p + 28, true);
+    const skip = dir.getUint16(p + 30, true) + dir.getUint16(p + 32, true);
+    const local = dir.getUint32(p + 42, true);
+    const name = dec.decode(u8.subarray(p + 46, p + 46 + nameLen));
+    p += 46 + nameLen + skip;
+    if (name.endsWith('/')) continue;
+    // 第一個檔案確認本地標頭沒有額外欄位，之後就直接算位置
+    if (method !== 0 || (i === 0 && new DataView(await file.slice(local + 26, local + 30).arrayBuffer()).getUint16(2, true) !== 0)) {
+      return parseZipPack(await file.arrayBuffer());
+    }
+    const start = local + 30 + nameLen;
+    const blob = file.slice(start, start + size, mime(name));
+    if (name === 'pack.json') meta = JSON.parse(await blob.text());
+    else files.set(name, blob);
+  }
+  if (!meta || meta.app !== 'FairyPocket' || meta.kind !== 'mc-assets') throw invalid();
+  checkAllay(files);
+  const source = String(meta.source ?? '未知版本').slice(0, 40);
+  return { source, id: String(meta.id ?? source), files };
+}
+
 /** 匯入檔案：自動判斷 zip 或舊版 JSON */
 export async function readPackFile(file: Blob): Promise<AssetPack> {
   const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
-  if (head[0] === 0x50 && head[1] === 0x4b) return parseZipPack(await file.arrayBuffer());
+  if (head[0] === 0x50 && head[1] === 0x4b) return parseZipBlob(file);
   return parseLegacyPack(await file.text());
 }
 
@@ -181,14 +258,33 @@ async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
   }
 }
 
+/** 每批存幾個檔案（分批存，避免一次交易太大讓 iPad 記憶體不足） */
+const PART = 400;
+
 export async function savePack(p: AssetPack): Promise<void> {
-  await tx('readwrite', (s) => s.put({ source: p.source, id: p.id, files: Object.fromEntries(p.files) }, 'current'));
+  const entries = [...p.files];
+  const parts = Math.ceil(entries.length / PART);
+  for (let i = 0; i < parts; i++) {
+    const chunk = Object.fromEntries(entries.slice(i * PART, (i + 1) * PART));
+    await tx('readwrite', (s) => s.put(chunk, `part:${i}`));
+  }
+  // 最後才寫目錄，存到一半失敗時不會讀到不完整的素材包
+  await tx('readwrite', (s) => s.put({ source: p.source, id: p.id, parts }, 'current'));
 }
 
 export async function loadPack(): Promise<AssetPack | null> {
   try {
-    const d = (await tx('readonly', (s) => s.get('current'))) as { source: string; id: string; files: Record<string, Blob> } | undefined;
+    const d = (await tx('readonly', (s) => s.get('current'))) as { source: string; id: string; files?: Record<string, Blob>; parts?: number } | undefined;
     if (d?.files) return { source: d.source, id: d.id, files: new Map(Object.entries(d.files)) };
+    if (d?.parts) {
+      const files = new Map<string, Blob>();
+      for (let i = 0; i < d.parts; i++) {
+        const chunk = (await tx('readonly', (s) => s.get(`part:${i}`))) as Record<string, Blob> | undefined;
+        if (!chunk) throw new Error('素材包不完整');
+        for (const [k, v] of Object.entries(chunk)) files.set(k, v);
+      }
+      return { source: d.source, id: d.id, files };
+    }
   } catch {
     // 讀不到就當作沒有素材包
   }
@@ -207,7 +303,7 @@ export async function loadPack(): Promise<AssetPack | null> {
 
 export async function deletePack(): Promise<void> {
   localStorage.removeItem(LEGACY_ASSETS_KEY);
-  await tx('readwrite', (s) => s.delete('current'));
+  await tx('readwrite', (s) => s.clear());
 }
 
 // ---------- 使用 ----------

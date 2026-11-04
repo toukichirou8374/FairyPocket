@@ -5,7 +5,7 @@ import { pickLine } from './dialogue';
 import { loadLang, uiKeys } from '../i18n';
 import { buildFont, unifontGlyph } from '../pixelFont';
 import fontChars from '../../fonts/fairypocket-pixel.chars.txt?raw';
-import { packFile, parseLegacyPack, parseZipPack } from './assets';
+import { packFile, parseLegacyPack, parseZipBlob, parseZipPack } from './assets';
 import { allayRate, distanceGain, loadSoundMode, SOUND_MODES } from '../audio';
 import { SFX, sfxPitch } from '../sfx';
 import { syllables, trimSilence } from '../voice';
@@ -204,6 +204,17 @@ describe('asset pack', () => {
     expect(p.id).toBe('x1');
     expect(await packFile(p, 'sounds/mob/allay/idle_with_item1')?.text()).toBe('ogg');
     await expect(parseZipPack(await makeZip({ 'textures/entity/allay/allay.png': 'img' }))).rejects.toThrow('素材包');
+  });
+  it('reads a zip pack straight from the file without copying it (iPad)', async () => {
+    const buf = await makeZip({
+      'pack.json': JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', format: 2, source: '26.3', id: 'x2' }),
+      'textures/entity/allay/allay.png': 'img',
+      'sounds/random/pop.ogg': 'pop',
+    });
+    const p = await parseZipBlob(new Blob([buf]));
+    expect(p.id).toBe('x2');
+    expect(await packFile(p, 'sounds/random/pop')?.text()).toBe('pop');
+    expect(await p.files.get('textures/entity/allay/allay.png')?.text()).toBe('img');
   });
   it('converts a legacy json pack and drops unknown or non-png entries', () => {
     const p = parseLegacyPack(JSON.stringify({ app: 'FairyPocket', kind: 'mc-assets', format: 1, source: '26.3', files: { allay: png, apple: 'http://evil', junk: png, amethyst_chime: 'data:audio/wav;base64,AA' } }));

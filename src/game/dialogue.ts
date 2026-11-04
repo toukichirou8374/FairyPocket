@@ -11,7 +11,7 @@ export type LineKind =
   // 時段問候與記憶話題（{d} 是天數或次數）
   | 'greetMorning' | 'greetAfternoon' | 'greetEvening'
   | 'remFood' | 'mostFood' | 'missPlay' | 'missDance' | 'streak' | 'together'
-  | 'mFed' | 'mPetted' | 'mPlayed' | 'mDays' | 'mStreak' | 'cakeDone' | 'cakeBite' | 'heard' | 'waveBack';
+  | 'mFed' | 'mPetted' | 'mPlayed' | 'mDays' | 'mStreak' | 'cakeDone' | 'cakeBite' | 'heard' | 'waveBack' | 'bath' | 'firework';
 
 type Table = Partial<Record<LineKind, string[]>>;
 
@@ -56,6 +56,8 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     mPlayed: ['我們一起玩了 {d} 次了！下一次也要玩喔！'],
     mDays: ['我們已經一起度過 {d} 天了！以後也請多指教！'],
     mStreak: ['連續 {d} 天都來看我！好感動…'],
+    bath: ['哇！好涼喔～', '洗得香香的！', '甩甩甩～嘿嘿，濺到你了嗎？', '泡泡好好玩！'],
+    firework: ['哇～好漂亮！', '再放一個！再放一個！', '天空開花了！'],
     waveBack: ['嗨嗨～我看到你了！', '揮揮手～你好呀！', '你在跟我打招呼嗎？我也揮揮！'],
     heard: ['嗯嗯！我聽到了～', '♪～你說的我都懂喔！', '嘿嘿，再多說一點！', '{n}聽得好開心！'],
     cakeBite: ['啊嗚～蛋糕好甜！', '再吃一片就好…嘿嘿', '蛋糕軟綿綿的～', '還剩 {d} 片！'],
@@ -101,6 +103,8 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     mPlayed: ['いっしょに遊んだの {d} 回目！次も遊ぼうね！'],
     mDays: ['いっしょに {d} 日すごしたよ！これからもよろしくね！'],
     mStreak: ['{d} 日連続で会いに来てくれた！感動…'],
+    bath: ['わぁ！つめたい～', 'いいにおいになった！', 'ぶるぶる～えへへ、かかった？', 'あわあわ楽しい！'],
+    firework: ['わぁ～きれい！', 'もう一回！もう一回！', '空に花がさいた！'],
     waveBack: ['やっほ～見えてるよ！', 'ふりふり～こんにちは！', 'あいさつしてくれたの？わたしもふりふり！'],
     heard: ['うんうん！聞こえたよ～', '♪～ちゃんとわかってるよ！', 'えへへ、もっと話して！', '{n}、聞けてうれしい！'],
     cakeBite: ['あーん～ケーキあまい！', 'もうひと切れだけ…えへへ', 'ケーキふわふわ～', 'あと {d} 切れ！'],
@@ -146,6 +150,8 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     mPlayed: ["We've played {d} times! Let's play next time too!"],
     mDays: ["We've spent {d} days together! Please keep being my friend!"],
     mStreak: ["You came to see me {d} days in a row! I'm so touched…"],
+    bath: ['Whoa! So cool~', 'All clean and fresh!', 'Shake shake~ hehe, did I splash you?', 'Bubbles are fun!'],
+    firework: ['Wow~ so pretty!', 'Another one! Another one!', 'The sky is blooming!'],
     waveBack: ['Hi hi~ I can see you!', 'Wave wave~ hello!', 'Are you saying hi? I wave back!'],
     heard: ['Mm-hm! I heard you~', '♪~ I understand everything you say!', 'Hehe, tell me more!', '{n} loves listening to you!'],
     cakeBite: ['Nom~ the cake is so sweet!', 'Just one more slice… hehe', 'So soft and fluffy~', '{d} slices left!'],

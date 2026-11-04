@@ -29,7 +29,7 @@ export function getLang(): Lang {
   return lang;
 }
 
-type Item = Food | 'feather' | 'slime_ball' | 'note_block' | 'bell' | 'amethyst_shard' | 'allay' | 'inventory';
+type Item = Food | 'feather' | 'slime_ball' | 'note_block' | 'bell' | 'amethyst_shard' | 'allay' | 'inventory' | 'bed' | 'firework' | 'water_bucket';
 
 /** Java 版語言檔中的名稱（item.minecraft.* / block.minecraft.* / entity.minecraft.allay / container.inventory） */
 const ITEMS: Record<Lang, Record<Item, string>> = {
@@ -39,7 +39,7 @@ const ITEMS: Record<Lang, Record<Item, string>> = {
     golden_carrot: '金胡蘿蔔', golden_apple: '金蘋果', cooked_beef: '牛排', cooked_porkchop: '烤豬肉', cooked_mutton: '烤羊肉',
     cooked_cod: '烤鱈魚', cooked_salmon: '烤鮭魚', cooked_rabbit: '烤兔肉', mushroom_stew: '蘑菇湯', rabbit_stew: '兔肉湯',
     beetroot_soup: '甜菜湯', dried_kelp: '海帶乾', cake: '蛋糕', feather: '羽毛', slime_ball: '史萊姆球', note_block: '音階盒',
-    bell: '鐘', amethyst_shard: '紫水晶碎片', allay: '悅靈', inventory: '物品欄',
+    bell: '鐘', amethyst_shard: '紫水晶碎片', bed: '紅色床', firework: '煙火', water_bucket: '水桶', allay: '悅靈', inventory: '物品欄',
   },
   ja_jp: {
     apple: 'リンゴ', bread: 'パン', cookie: 'クッキー', carrot: 'ニンジン', baked_potato: 'ベイクドポテト', sweet_berries: 'スイートベリー',
@@ -47,7 +47,7 @@ const ITEMS: Record<Lang, Record<Item, string>> = {
     honey_bottle: 'ハチミツ入りの瓶', golden_carrot: '金のニンジン', golden_apple: '金のリンゴ', cooked_beef: 'ステーキ', cooked_porkchop: '焼き豚',
     cooked_mutton: '焼き羊肉', cooked_cod: '焼き鱈', cooked_salmon: '焼き鮭', cooked_rabbit: '焼き兎肉', mushroom_stew: 'キノコシチュー',
     rabbit_stew: 'ウサギシチュー', beetroot_soup: 'ビートルートスープ', dried_kelp: '乾燥した昆布', cake: 'ケーキ', feather: '羽根',
-    slime_ball: 'スライムボール', note_block: '音符ブロック', bell: '鐘', amethyst_shard: 'アメジストの欠片', allay: 'アレイ',
+    slime_ball: 'スライムボール', note_block: '音符ブロック', bell: '鐘', amethyst_shard: 'アメジストの欠片', bed: '赤色のベッド', firework: 'ロケット花火', water_bucket: '水入りバケツ', allay: 'アレイ',
     inventory: 'インベントリ',
   },
   en_us: {
@@ -56,7 +56,7 @@ const ITEMS: Record<Lang, Record<Item, string>> = {
     honey_bottle: 'Honey Bottle', golden_carrot: 'Golden Carrot', golden_apple: 'Golden Apple', cooked_beef: 'Steak', cooked_porkchop: 'Cooked Porkchop',
     cooked_mutton: 'Cooked Mutton', cooked_cod: 'Cooked Cod', cooked_salmon: 'Cooked Salmon', cooked_rabbit: 'Cooked Rabbit',
     mushroom_stew: 'Mushroom Stew', rabbit_stew: 'Rabbit Stew', beetroot_soup: 'Beetroot Soup', dried_kelp: 'Dried Kelp', cake: 'Cake', feather: 'Feather',
-    slime_ball: 'Slimeball', note_block: 'Note Block', bell: 'Bell', amethyst_shard: 'Amethyst Shard', allay: 'Allay',
+    slime_ball: 'Slimeball', note_block: 'Note Block', bell: 'Bell', amethyst_shard: 'Amethyst Shard', bed: 'Red Bed', firework: 'Firework Rocket', water_bucket: 'Water Bucket', allay: 'Allay',
     inventory: 'Inventory',
   },
 };
@@ -99,10 +99,16 @@ const UI = {
     'hint.note': '點地面放下，點它彈奏',
     call: '呼喚',
     mic: '麥克風',
+    waveSlot: '揮手感應',
+    'hint.wave': '開啟前鏡頭，對著鏡頭揮手{a}會回應',
+    'hint.bed': '點地面放床，點床讓{a}去睡、再點一次叫醒',
+    'hint.firework': '點地面放煙火',
+    'hint.bath': '點{a}幫牠洗澡',
     ar: '相機 AR',
     arPhoto: '拍照',
     arRecord: '錄影',
     arFlip: '切換前後鏡頭',
+    arUi: '顯示／隱藏介面',
     arSaved: '已存好！',
     arRecording: '錄影中…再按一次停止',
     arFront: '前鏡頭：對著鏡頭揮手，{a}會回應你',
@@ -197,10 +203,16 @@ const UI = {
     'hint.note': '地面をタップで置く、タップで鳴らす',
     call: '呼ぶ',
     mic: 'マイク',
+    waveSlot: '手ふりセンサー',
+    'hint.wave': 'インカメラで、手をふると{a}が返事するよ',
+    'hint.bed': '地面にベッドを置いて、タップで{a}を寝かせる／もう一度で起こす',
+    'hint.firework': '地面をタップで花火を打ち上げ',
+    'hint.bath': '{a}をタップしてお風呂',
     ar: 'カメラ AR',
     arPhoto: '写真',
     arRecord: '動画',
     arFlip: 'カメラ切り替え',
+    arUi: '画面表示のオン／オフ',
     arSaved: '保存しました！',
     arRecording: '録画中…もう一度押すと止まります',
     arFront: 'インカメラ：手をふると{a}が返事するよ',
@@ -295,10 +307,16 @@ const UI = {
     'hint.note': 'Tap the ground to place, tap it to play',
     call: 'Call',
     mic: 'Microphone',
+    waveSlot: 'Wave sensor',
+    'hint.wave': 'Uses the front camera; wave and the {a} waves back',
+    'hint.bed': 'Tap the ground to place the bed; tap the bed to put the {a} to sleep, again to wake it',
+    'hint.firework': 'Tap the ground to launch a firework',
+    'hint.bath': 'Tap the {a} to give it a bath',
     ar: 'Camera AR',
     arPhoto: 'Photo',
     arRecord: 'Video',
     arFlip: 'Switch camera',
+    arUi: 'Show / hide interface',
     arSaved: 'Saved!',
     arRecording: 'Recording… tap again to stop',
     arFront: 'Front camera: wave and the {a} waves back',

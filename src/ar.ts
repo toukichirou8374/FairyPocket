@@ -49,9 +49,9 @@ export class ArCamera {
   private motionTimer = 0;
   private waves = new WaveDetector();
 
-  constructor(parent: HTMLElement, private ev: ArEvents) {
+  constructor(parent: HTMLElement, private ev: ArEvents, id = 'cam') {
     this.video = document.createElement('video');
-    this.video.id = 'cam';
+    this.video.id = id;
     this.video.playsInline = true;
     this.video.muted = true;
     this.video.autoplay = true;

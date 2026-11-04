@@ -11,7 +11,7 @@ import { BACKUP_KEY, decodeLink, encodeLink, exportFileName, linkKind, loadPet, 
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
 import { SFX, sfxPitch, type Sfx } from './sfx';
-import { ArCamera, Composer, saveMedia, type Facing } from './ar';
+import { ArCamera, Composer, saveMedia, type ArEvents, type Facing } from './ar';
 import { clipBuffer, Listener, loadReplies, recordClip, saveReplies, syllables, type Clip } from './voice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
@@ -94,7 +94,7 @@ async function answer(samples: Float32Array, rate: number): Promise<void> {
 // ---------- 相機 AR 模式（拍照、錄影、前鏡頭揮手） ----------
 
 let lastGlance = 0;
-const arCam = new ArCamera(document.body, {
+const cameraEvents: ArEvents = {
   wave: () => {
     ctrl.waveBack();
     say('waveBack');
@@ -108,7 +108,30 @@ const arCam = new ArCamera(document.body, {
     lastGlance = now;
     ctrl.lookAt(new THREE.Vector3(x * 1.6, 1.2, 0.4));
   },
-});
+};
+const arCam = new ArCamera(document.body, cameraEvents);
+
+// 揮手感應（快捷欄）：不開 AR，背景照舊，左上角顯示小小的前鏡頭畫面
+const sensorBox = document.createElement('div');
+sensorBox.className = 'sensor';
+overlay.appendChild(sensorBox);
+const sensor = new ArCamera(sensorBox, cameraEvents, 'sensor-cam');
+
+async function sensorOn(): Promise<void> {
+  if (sensor.on) return;
+  try {
+    await sensor.start('user');
+    sensorBox.classList.add('on');
+  } catch {
+    hud.showItem(t('camDenied'));
+    hud.setSelected(null);
+  }
+}
+
+function sensorOff(): void {
+  sensor.stop();
+  sensorBox.classList.remove('on');
+}
 const composer = new Composer(arCam, canvas);
 let wantPhoto = false;
 
@@ -119,6 +142,7 @@ function mediaName(ext: string): string {
 }
 
 async function arOpen(facing: Facing = 'environment'): Promise<void> {
+  if (sensor.on) hud.setSelected(null);
   try {
     await arCam.start(facing);
   } catch {
@@ -180,6 +204,15 @@ function playSfx(e: Sfx, at?: THREE.Vector3): void {
   else sound.effect(path, vol, sfxPitch(e));
 }
 
+stage.onBurst = (at) => {
+  playSfx('blast', at);
+  setTimeout(() => playSfx('twinkle', at), 450);
+  if (ctrl.mode === 'watch') {
+    ctrl.setMode('happy', 0.9);
+    if (performance.now() - lastSpoke > 6000) say('firework');
+  }
+};
+
 /** 從畫面點到的地面位置（限制在悅靈活動範圍內） */
 function groundPoint(ray: THREE.Ray): THREE.Vector3 | null {
   const t = -ray.origin.y / ray.direction.y;
@@ -234,7 +267,7 @@ function caught(): void {
 
 const ctrl = new AllayController(
   model,
-  { camera: stage.camera, bounds: () => stage.bounds(), night: () => night },
+  { camera: stage.camera, bounds: () => stage.bounds(), night: () => night, bed: () => (stage.bed ? stage.bedSpot(new THREE.Vector3()) : null) },
   pet,
   {
     say,
@@ -264,7 +297,7 @@ function addFriend(at: THREE.Vector3): void {
   const p = createPet();
   p.personality = PERSONALITY_IDS[Math.floor(Math.random() * PERSONALITY_IDS.length)];
   p.onboarded = true;
-  const c = new AllayController(m, { camera: stage.camera, bounds: () => stage.bounds(), night: () => night }, p, {
+  const c = new AllayController(m, { camera: stage.camera, bounds: () => stage.bounds(), night: () => night, bed: () => (stage.bed ? stage.bedSpot(new THREE.Vector3()) : null) }, p, {
     say: () => {},
     particle: (kind, pos, count, color, spread) => stage.spawn(kind, pos, count, color, spread),
     caught: () => {},
@@ -336,6 +369,8 @@ const hud = new Hud(overlay, {
   select: (slot) => {
     if (slot === 'mic') void micOn();
     else micOff();
+    if (slot === 'wave') void sensorOn();
+    else sensorOff();
     if (slot !== 'note') stage.removeNoteBlock();
   },
   call: () => {
@@ -510,6 +545,8 @@ async function applyPack(p: AssetPack): Promise<void> {
   stage.useImages(img);
   stage.useFoodImages(food);
   stage.useCakeImages(img);
+  stage.useBedImages(img);
+  stage.usePlayImages(img);
   hud.useImages(img);
   if (img.ascii) await useAsciiFont(img.ascii).catch(() => {});
   hud.useFoodImages(food);
@@ -711,6 +748,43 @@ function tap(x: number, y: number): void {
   if (sel === 'food' && hud.food) {
     // 食物不蓄力，輕輕拋給悅靈接（無限使用）
     throwAt(hud.food, ray, 0);
+    return;
+  }
+  if (sel === 'bed') {
+    // 點到床：悅靈睡著就叫醒，醒著就去睡；點地面就把床放過去
+    const hitBed = !!stage.bed && raycaster.intersectObject(stage.bed, true).length > 0;
+    if (hitBed) {
+      if (ctrl.mode === 'sleep') ctrl.wake();
+      else ctrl.goBed();
+      return;
+    }
+    const p = groundPoint(ray);
+    if (!p) return;
+    stage.placeBed(p);
+    playSfx('wood', p);
+    return;
+  }
+  if (sel === 'firework') {
+    const p = groundPoint(ray);
+    if (!p) return;
+    stage.launchFirework(p);
+    playSfx('launch', p);
+    ctrl.watch(p.clone().add(new THREE.Vector3(0, 2.6, 0)));
+    return;
+  }
+  if (sel === 'bath') {
+    if (!hit) return hud.showItem(t('hint.bath'));
+    const head = ctrl.headTop(new THREE.Vector3());
+    stage.splash(head, 14);
+    stage.bubbles(ctrl.pos, 10);
+    playSfx('bucket', ctrl.pos);
+    setTimeout(() => {
+      playSfx('splash', ctrl.pos);
+      stage.splash(ctrl.pos, 10);
+    }, 500);
+    ctrl.bathe();
+    cheer(pet, 6);
+    say('bath');
     return;
   }
   if (sel === 'feather') {

@@ -159,6 +159,59 @@ export const ITEM_ICONS: Record<string, { grid: string[]; pal: Palette }> = {
     ],
     pal: { k: '#3a2410', b: '#7a4a24', B: '#9a6234', n: '#2a1608' },
   },
+  // 以下為原創的暫用圖示（有素材包時改用原版材質）
+  hand: {
+    grid: [
+      '..k.k.k.....',
+      '.kwkwkwk....',
+      '.kwkwkwk.k..',
+      '.kwkwkwkkwk.',
+      '.kwwwwwwkwk.',
+      '.kwwwwwwwwk.',
+      '.kwwwwwwwk..',
+      '..kwwwwwwk..',
+      '...kwwwwk...',
+      '....kkkk....',
+    ],
+    pal: { k: '#3a2a1a', w: '#f0c090' },
+  },
+  bed: {
+    grid: [
+      'kk..........',
+      'kwwkrrrrrrrk',
+      'kwwkrrrrrrrk',
+      'kbbbbbbbbbbk',
+      'kk........kk',
+    ],
+    pal: { k: '#3a2a1a', w: '#ffffff', r: '#c83030', b: '#8a5a30' },
+  },
+  firework: {
+    grid: [
+      '.....k......',
+      '....krk.....',
+      '...kyyyk....',
+      '...kryrk....',
+      '...kryrk....',
+      '...kryrk....',
+      '....kbk.....',
+      '....kbk.....',
+      '.....b......',
+    ],
+    pal: { k: '#2a2a2a', r: '#d83838', y: '#f8e070', b: '#8a6a40' },
+  },
+  bucket: {
+    grid: [
+      '..kkkkkkkk..',
+      '.k........k.',
+      'kgbbbbbbbbgk',
+      'kgbBbbbbbbgk',
+      '.kgbbbbbbgk.',
+      '.kggggggggk.',
+      '..kggggggk..',
+      '..kkkkkkkk..',
+    ],
+    pal: { k: '#2a2a32', g: '#b8b8c0', b: '#3870e0', B: '#a0c8ff' },
+  },
   // 原創的像素相機（AR 模式按鈕）
   camera: {
     grid: [

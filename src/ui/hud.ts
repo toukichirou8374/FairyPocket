@@ -10,8 +10,8 @@ import { getLang, itemName, LANGS, personalityText, t, type Lang } from '../i18n
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
 
-export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'mic' | 'call';
-export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'mic', 'call'];
+export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'mic' | 'wave' | 'bed' | 'firework' | 'bath' | 'call';
+export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'mic', 'wave', 'bed', 'firework', 'bath', 'call'];
 
 /** 快捷欄名稱（Java 版譯名）與操作提示 */
 function slotText(s: Slot): { label: string; hint: string } {
@@ -21,6 +21,10 @@ function slotText(s: Slot): { label: string; hint: string } {
     case 'slime': return { label: itemName('slime_ball'), hint: t('hint.slime') };
     case 'note': return { label: itemName('note_block'), hint: t('hint.note') };
     case 'mic': return { label: t('mic'), hint: t('hint.mic') };
+    case 'wave': return { label: t('waveSlot'), hint: t('hint.wave') };
+    case 'bed': return { label: itemName('bed'), hint: t('hint.bed') };
+    case 'firework': return { label: itemName('firework'), hint: t('hint.firework') };
+    case 'bath': return { label: itemName('water_bucket'), hint: t('hint.bath') };
     case 'call': return { label: t('call'), hint: '' };
   }
 }
@@ -35,6 +39,18 @@ function chestIcon(tex: HTMLImageElement): string {
   ctx.drawImage(tex, 14 * k, 14 * k, 14 * k, 5 * k, 1, 1, 14, 5); // 蓋子正面
   ctx.drawImage(tex, 14 * k, 33 * k, 14 * k, 10 * k, 1, 6, 14, 9); // 箱身正面
   ctx.drawImage(tex, 1 * k, 1 * k, 2 * k, 4 * k, 7, 4, 2, 4); // 鎖扣
+  return c.toDataURL();
+}
+
+/** 用原版床的側面材質（床尾 + 床頭）拼出快捷欄的床圖示 */
+function bedIcon(head: HTMLImageElement, foot: HTMLImageElement): string {
+  const c = document.createElement('canvas');
+  c.width = c.height = 32;
+  const ctx = c.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  // 床的高度是 9 像素（材質的下半部）
+  ctx.drawImage(foot, 0, 7 * (foot.height / 16), foot.width, 9 * (foot.height / 16), 0, 11, 16, 9);
+  ctx.drawImage(head, 0, 7 * (head.height / 16), head.width, 9 * (head.height / 16), 16, 11, 16, 9);
   return c.toDataURL();
 }
 
@@ -109,7 +125,7 @@ export class Hud {
   private lastStat = '';
   private bar!: HTMLDivElement;
   private selFrame!: HTMLDivElement;
-  private mc: { hotbarW: number; selW: number; selH: number } | null = null;
+  private mc: { img: HTMLImageElement; cols: number; selW: number; selH: number } | null = null;
 
   constructor(private root: HTMLElement, private actions: HudActions) {
     this.nameTag = el('div', 'nametag', root);
@@ -145,6 +161,11 @@ export class Hud {
     tool('shutter', t('arPhoto'), () => this.actions.arPhoto());
     this.recBtn = tool('record', t('arRecord'), () => this.actions.arRecord());
     tool('flip', t('arFlip'), () => this.actions.arFlip()).textContent = '⇄';
+    // 藏起生命值、快捷欄、名字與對話泡泡，畫面比較乾淨
+    const ui = tool('ui', t('arUi'), () => {
+      ui.classList.toggle('on', root.classList.toggle('noui'));
+    });
+    ui.textContent = 'UI';
     tool('exit', t('close'), () => this.actions.arClose()).textContent = '✕';
 
     const hud = el('div', 'hud', root);
@@ -166,7 +187,7 @@ export class Hud {
       this.slots.push(b);
       const label = slotText(s).label;
       b.setAttribute('aria-label', label);
-      const icon = ITEM_ICONS[{ food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', mic: 'mic', call: 'bell' }[s]];
+      const icon = ITEM_ICONS[{ food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', mic: 'mic', wave: 'hand', bed: 'bed', firework: 'firework', bath: 'bucket', call: 'bell' }[s]];
       const img = el('img', '', b);
       img.src = gridURL(icon.grid, icon.pal, 4);
       img.alt = label;
@@ -210,6 +231,10 @@ export class Hud {
   /** AR 模式開關：顯示相機工具列、藏起相機按鈕 */
   setAr(on: boolean): void {
     this.root.classList.toggle('ar', on);
+    if (!on) {
+      this.root.classList.remove('noui');
+      this.root.querySelector('.artool.ui')?.classList.remove('on');
+    }
     document.body.classList.toggle('ar', on);
   }
 
@@ -296,7 +321,9 @@ export class Hud {
     this.lastStat = '';
 
     const items: Record<Slot, string | undefined> = {
-      food: img.chest && chestIcon(img.chest), feather: img.feather?.src, slime: img.slime_ball?.src, note: img.note_block?.src, mic: undefined, call: img.bell?.src,
+      food: img.chest && chestIcon(img.chest), feather: img.feather?.src, slime: img.slime_ball?.src, note: img.note_block?.src, mic: undefined, wave: undefined,
+      bed: img.bed_head_east && img.bed_foot_east && bedIcon(img.bed_head_east, img.bed_foot_east),
+      firework: img.firework_rocket?.src, bath: img.water_bucket?.src, call: img.bell?.src,
     };
     this.slots.forEach((b) => {
       const src = items[b.dataset.slot as Slot];
@@ -316,14 +343,8 @@ export class Hud {
     }
 
     if (img.hotbar && img.hotbar_selection) {
-      // 原版快捷欄有 9 格，這裡裁成 5 格（左邊 5 格 + 最右側邊框）
-      const w = 1 + SLOTS.length * 20 + 1;
-      const { c, ctx } = canvas(w, img.hotbar.height);
-      ctx.drawImage(img.hotbar, 0, 0, w - 1, img.hotbar.height, 0, 0, w - 1, img.hotbar.height);
-      ctx.drawImage(img.hotbar, img.hotbar.width - 1, 0, 1, img.hotbar.height, w - 1, 0, 1, img.hotbar.height);
-      this.bar.style.backgroundImage = `url(${c.toDataURL()})`;
       this.selFrame.style.backgroundImage = `url(${img.hotbar_selection.src})`;
-      this.mc = { hotbarW: w, selW: img.hotbar_selection.width, selH: img.hotbar_selection.height };
+      this.mc = { img: img.hotbar, cols: 0, selW: img.hotbar_selection.width, selH: img.hotbar_selection.height };
       this.root.classList.add('mc');
       window.addEventListener('resize', () => this.layout());
       this.layout();
@@ -331,21 +352,54 @@ export class Hud {
   }
 
   /** 原版模式下依螢幕寬度以整數倍放大像素介面 */
+  /** 用原版快捷欄材質拼出 cols 格（原版 9 格，每格 20 像素，左右各 1 像素邊框） */
+  private barImage(cols: number): string {
+    const src = this.mc!.img;
+    const k = src.width / 182;
+    const c = document.createElement('canvas');
+    c.width = 2 + cols * 20;
+    c.height = 22;
+    const ctx = c.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(src, 0, 0, k, src.height, 0, 0, 1, 22);
+    for (let j = 0; j < cols; j++) ctx.drawImage(src, (1 + (j % 9) * 20) * k, 0, 20 * k, src.height, 1 + j * 20, 0, 20, 22);
+    ctx.drawImage(src, src.width - k, 0, k, src.height, c.width - 1, 0, 1, 22);
+    return c.toDataURL();
+  }
+
+  /**
+   * 原版模式下依螢幕大小以整數（0.5 倍為單位）放大像素介面。
+   * 10 格排成一排太小時（直拿手機），改成上下兩排、每排 5 格；格子至少約 50px 好點。
+   */
   private layout(): void {
     if (!this.mc) return;
-    // 橫拿手機時畫面較矮，也依高度縮小，避免介面佔掉太多畫面。
-    // 以 0.5 倍為單位，小螢幕的格子也至少有約 50px 好點（Retina 螢幕上仍是整數像素）
-    const raw = Math.min(window.innerWidth - 24, 420, window.innerHeight * 0.9) / this.mc.hotbarW;
-    const s = Math.max(2.5, Math.floor(raw * 2) / 2);
+    const w = window.innerWidth - 24, h = window.innerHeight * 0.9;
+    const fit = (cols: number, cap: number) => Math.min(w, cap, h) / (2 + cols * 20);
+    // 橫拿手機時寬度夠就排成一排（比較不佔畫面高度）
+    const cols = Math.min(w, 680) / (2 + SLOTS.length * 20) >= 2.5 ? SLOTS.length : Math.ceil(SLOTS.length / 2);
+    const rows = Math.ceil(SLOTS.length / cols);
+    const s = Math.max(2.5, Math.floor(fit(cols, 420) * 2) / 2);
+    if (cols !== this.mc.cols) {
+      this.mc.cols = cols;
+      this.bar.style.backgroundImage = `url(${this.barImage(cols)})`;
+    }
+    const barW = 2 + cols * 20;
     const r = this.root.style;
     r.setProperty('--s', `${s}px`);
-    r.setProperty('--u', `${(this.mc.hotbarW * s - 8) / 162}px`);
+    r.setProperty('--u', `${(barW * s - 8) / 162}px`);
+    this.bar.style.width = `${barW * s}px`;
+    this.bar.style.height = `${rows * 22 * s}px`;
+    this.bar.style.backgroundSize = `100% ${100 / rows}%`;
+    this.slots.forEach((b, i) => {
+      b.style.left = `${(1 + (i % cols) * 20) * s}px`;
+      b.style.top = `${(1 + Math.floor(i / cols) * 22) * s}px`;
+    });
     const i = this.selected ? SLOTS.indexOf(this.selected) : -1;
     this.selFrame.style.display = i < 0 ? 'none' : 'block';
-    this.selFrame.style.left = `${(i * 20 - 1) * s}px`;
+    this.selFrame.style.left = `${((i % cols) * 20 - 1) * s}px`;
+    this.selFrame.style.top = `${(Math.floor(i / cols) * 22 - 1) * s}px`;
     this.selFrame.style.width = `${this.mc.selW * s}px`;
     this.selFrame.style.height = `${this.mc.selH * s}px`;
-    this.bar.style.width = `${this.mc.hotbarW * s}px`;
   }
 
   updateStats(s: PetState): void {

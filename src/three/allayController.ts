@@ -13,7 +13,7 @@ const SPARSE_CHANCE = 0.4;
 export type Mode =
   | 'idle' | 'wander' | 'approach' | 'called' | 'rest' | 'sleep'
   | 'play' | 'eat' | 'happy' | 'tickled' | 'startled' | 'curious' | 'waking' | 'dance'
-  | 'observe' | 'flourish' | 'cake' | 'listen' | 'wave';
+  | 'observe' | 'flourish' | 'cake' | 'listen' | 'wave' | 'toBed' | 'bath' | 'watch';
 
 /** 聽到音符後跳舞的秒數（每次彈奏都會重新計時） */
 const DANCE_TIME = 10;
@@ -51,6 +51,8 @@ export interface World {
   camera: THREE.PerspectiveCamera;
   bounds(): { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
   night(): boolean;
+  /** 地上有床時，悅靈躺下的位置 */
+  bed?(): THREE.Vector3 | null;
 }
 
 export interface Hooks {
@@ -216,6 +218,31 @@ export class AllayController {
       this.setMode('listen', 30);
     } else if (this.mode === 'listen') this.setMode('happy', 0.9);
   }
+  /** 去床上睡覺（放好床後點床、或到了就寢時間） */
+  goBed(): void {
+    const spot = this.world.bed?.();
+    if (!spot) return;
+    if (this.mode === 'sleep') return;
+    this.wake();
+    this.wokeAt = -Infinity;
+    this.setMode('toBed', 8);
+  }
+
+  /** 洗澡：被水潑到時抖一抖身體甩水 */
+  bathe(): void {
+    if (this.mode === 'sleep') this.wake();
+    this.setMode('bath', 1.8);
+  }
+
+  /** 看煙火：停下來抬頭看 */
+  watch(at: THREE.Vector3): void {
+    if (!this.awake || this.mode === 'eat' || this.mode === 'play') return;
+    this.watchAt.copy(at);
+    this.anchor.copy(this.pos);
+    this.setMode('watch', 4);
+  }
+  private readonly watchAt = new THREE.Vector3();
+
   /** 有人對著前鏡頭揮手：飛到面前揮手回應 */
   waveBack(): void {
     if (this.mode === 'eat') return;
@@ -291,8 +318,32 @@ export class AllayController {
         } else if (this.modeTime > this.modeDur && this.pet.energy > 40) this.toIdle();
         break;
       }
+      case 'toBed': {
+        const spot = this.world.bed?.();
+        if (!spot) {
+          this.toIdle();
+          break;
+        }
+        this.target.copy(spot).add(tmp.set(0, 0.3, 0));
+        if (this.pos.distanceTo(this.target) < 0.25) {
+          this.setMode('sleep');
+          this.hooks.say('bedtime');
+        } else if (this.modeTime > this.modeDur) this.toIdle();
+        break;
+      }
+      case 'bath':
+        this.target.copy(this.pos);
+        if (this.modeTime > this.modeDur) this.setMode('happy', 0.9);
+        break;
+      case 'watch':
+        this.target.copy(this.anchor);
+        speed *= 0.5;
+        if (this.modeTime > this.modeDur) this.toIdle();
+        break;
       case 'sleep': {
-        this.target.set(this.anchor.x, b.minY + 0.1, this.anchor.z);
+        const bed = this.world.bed?.();
+        if (bed) this.target.copy(bed);
+        else this.target.set(this.anchor.x, b.minY + 0.1, this.anchor.z);
         speed *= 0.3;
         this.zzzIn -= dt;
         if (this.zzzIn <= 0) {
@@ -302,7 +353,8 @@ export class AllayController {
           if (++this.snore % 3 === 0) this.hooks.sfx?.('snore', this.pos);
         }
         // 到了起床時間（而且睡飽了）就自己醒來說早安
-        if (this.pet.energy >= 100 && !this.world.night()) {
+        // 白天小睡至少睡 20 秒
+        if (this.pet.energy >= 100 && !this.world.night() && this.modeTime > 20) {
           this.wokeAt = this.t;
           this.setMode('waking', 1.2);
           this.hooks.sfx?.('wake', this.pos);
@@ -416,6 +468,7 @@ export class AllayController {
     const tr = this.tr;
     // 作息：到了就寢時間就自己去睡（被叫醒後會再陪你 2 分鐘）
     if (this.world.night() && this.t - this.wokeAt > BEDTIME_GRACE) {
+      if (this.world.bed?.()) return this.goBed();
       this.anchor.set(rand(-0.3, 0.3), 0, rand(-0.4, 0.6));
       this.setMode('sleep');
       this.hooks.say('bedtime');
@@ -540,7 +593,8 @@ export class AllayController {
     const wantRoll = THREE.MathUtils.clamp(-this.yawRate * 0.12, -0.5, 0.5) + (this.mode === 'tickled' ? Math.sin(this.t * 30) * 0.15 : 0);
     this.roll = THREE.MathUtils.lerp(this.roll, wantRoll, k(4));
     this.pitch = THREE.MathUtils.lerp(this.pitch, sleeping ? 0.2 : 0, k(3));
-    m.tilt.rotation.set(this.pitch, 0, this.roll + sway * 0.279); // 跳舞時全身左右搖 16°
+    const shake = this.mode === 'bath' && this.modeTime > 0.4 ? Math.sin(this.modeTime * 42) * 0.35 * Math.max(0, 1 - (this.modeTime - 0.4) / 1.4) : 0;
+    m.tilt.rotation.set(this.pitch, 0, this.roll + sway * 0.279 + shake); // 跳舞時全身左右搖 16°；洗澡時甩水
     // 飛行時只有身體前傾，頭保持
     m.body.rotation.x = mv * (Math.PI / 4);
 
@@ -587,6 +641,10 @@ export class AllayController {
     else if (moodLevel(this.pet.mood) === 0 && (this.mode === 'idle' || this.mode === 'approach' || this.mode === 'wander')) headX += 0.2;
     if (dancing) { headY = sway * 0.244; headX = 0; } // 頭左右轉 14°
     if (this.mode === 'listen') { headX = -0.1 + this.hearing * 0.35; headY = 0; }
+    if (this.mode === 'watch') {
+      headX = -THREE.MathUtils.clamp(Math.atan2(this.watchAt.y - this.pos.y, Math.hypot(this.watchAt.x - this.pos.x, this.watchAt.z - this.pos.z)), 0, 0.9);
+      headY = THREE.MathUtils.clamp(angleDiff(this.yaw, Math.atan2(this.watchAt.x - this.pos.x, this.watchAt.z - this.pos.z)), -1, 1);
+    }
     // 觀察：左右慢慢（或快速）張望，微微低頭
     if (this.mode === 'observe') { headY = this.lookDir * Math.sin(this.modeTime * this.tr.sweep) * 0.9; headX = 0.12; }
     m.head.rotation.x = THREE.MathUtils.lerp(m.head.rotation.x, headX, k(6));
@@ -596,7 +654,7 @@ export class AllayController {
     // 眼睛：眨眼 / 睡覺 / 開心
     this.blinkIn -= dt;
     if (sleeping || this.mode === 'rest' && this.modeTime > 4) m.setEyes('closed');
-    else if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'eat' || this.mode === 'wave' || dancing) m.setEyes('happy');
+    else if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'eat' || this.mode === 'wave' || this.mode === 'bath' || dancing) m.setEyes('happy');
     else if (this.blinkIn < 0) {
       m.setEyes('closed');
       if (this.blinkIn < -0.13) this.blinkIn = rand(2, 5);

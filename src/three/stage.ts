@@ -64,6 +64,27 @@ function tinted(src: HTMLImageElement, tint?: string): HTMLCanvasElement {
   return c;
 }
 
+const BED = 0.5;
+const BED_FACES = ['head_up', 'foot_up', 'head_east', 'head_west', 'foot_east', 'foot_west', 'foot_south', 'head_north', 'down'] as const;
+type BedFace = (typeof BED_FACES)[number];
+
+/** 原版煙火常見的顏色 */
+const FIREWORK_COLORS = ['#ff5050', '#ffa030', '#ffe040', '#70ff60', '#60c8ff', '#c070ff', '#ff80c0', '#ffffff'];
+
+/** 暫用的火花：8 張由大到小的十字 */
+function sparkFrames(): THREE.Texture[] {
+  return Array.from({ length: 8 }, (_, i) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 8;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#ffffff';
+    const r = Math.max(0, 3 - Math.floor(i / 2));
+    ctx.fillRect(4 - r, 3, r * 2 + 1, 1);
+    ctx.fillRect(3 + 0, 4 - r, 1, r * 2 + 1);
+    return spriteTex(c);
+  });
+}
+
 /** 蛋糕方塊的邊長（世界單位） */
 const CAKE = 0.5;
 
@@ -594,6 +615,154 @@ export class Stage {
     this.scene.add(s);
   }
 
+  // ---------- 床（原版紅色床：寬 16、高 9、長 32 像素，床頭朝後） ----------
+
+  bed: THREE.Group | null = null;
+  private bedTex: Partial<Record<BedFace, THREE.Texture>> = {};
+
+  placeBed(at: THREE.Vector3): void {
+    this.removeBed();
+    const g = new THREE.Group();
+    const S = BED;
+    const box = (head: boolean) => {
+      const geo = new THREE.BoxGeometry(S, (9 / 16) * S, S);
+      geo.translate(0, (4.5 / 16) * S, head ? -S / 2 : S / 2);
+      const uv = geo.attributes.uv as THREE.BufferAttribute;
+      // 側面只用材質下半部 9 像素
+      for (const face of [0, 1, 4, 5]) {
+        const i = face * 4;
+        uv.setXY(i, 0, 9 / 16);
+        uv.setXY(i + 1, 1, 9 / 16);
+        uv.setXY(i + 2, 0, 0);
+        uv.setXY(i + 3, 1, 0);
+      }
+      const m = (k: BedFace, color: string) =>
+        new THREE.MeshLambertMaterial({ map: this.bedTex[k] ?? null, color: this.bedTex[k] ? '#ffffff' : color, transparent: true, alphaTest: 0.1 });
+      // 面的順序：+x（東）, -x（西）, 頂, 底, +z（南，床尾）, -z（北，床頭）
+      const mats = head
+        ? [m('head_east', '#c83030'), m('head_west', '#c83030'), m('head_up', '#f0f0f0'), m('down', '#8a5a30'), m('head_up', '#c83030'), m('head_north', '#8a5a30')]
+        : [m('foot_east', '#c83030'), m('foot_west', '#c83030'), m('foot_up', '#c83030'), m('down', '#8a5a30'), m('foot_south', '#8a5a30'), m('foot_up', '#c83030')];
+      return new THREE.Mesh(geo, mats);
+    };
+    g.add(box(true), box(false));
+    g.position.set(at.x, 0, at.z);
+    g.rotation.y = 0.35;
+    this.bed = g;
+    this.scene.add(g);
+  }
+
+  removeBed(): void {
+    if (!this.bed) return;
+    this.scene.remove(this.bed);
+    this.bed = null;
+  }
+
+  /** 悅靈躺下的位置（枕頭上方） */
+  bedSpot(out: THREE.Vector3): THREE.Vector3 {
+    const b = this.bed!;
+    return out.set(0, (9 / 16) * BED + 0.18, -BED * 0.35).applyAxisAngle(new THREE.Vector3(0, 1, 0), b.rotation.y).add(b.position);
+  }
+
+  useBedImages(img: Partial<Record<`bed_${BedFace}`, HTMLImageElement>>): void {
+    for (const k of BED_FACES) {
+      const src = img[`bed_${k}`];
+      if (src) this.bedTex[k] = spriteTex(tinted(src));
+    }
+    if (this.bed) this.placeBed(this.bed.position);
+  }
+
+  // ---------- 煙火（原版的火花粒子 spark_7 → spark_0） ----------
+
+  private rockets: { sprite: THREE.Sprite; vel: THREE.Vector3; fuse: number; color: THREE.Color; trail: number }[] = [];
+  private rocketTex: THREE.Texture = spriteTex(drawGrid(ITEM_ICONS.firework.grid, ITEM_ICONS.firework.pal, 4));
+  private sparkTex: THREE.Texture[] = sparkFrames();
+  /** 煙火炸開時呼叫（播放爆炸聲用） */
+  onBurst: ((at: THREE.Vector3) => void) | null = null;
+
+  /** 放煙火：在畫面上緣附近炸開（橫拿手機時也看得到） */
+  launchFirework(at: THREE.Vector3): void {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.rocketTex, transparent: true, depthWrite: false }));
+    sprite.scale.setScalar(0.32);
+    sprite.position.set(at.x, 0.15, at.z);
+    const color = new THREE.Color(FIREWORK_COLORS[Math.floor(Math.random() * FIREWORK_COLORS.length)]);
+    this.rockets.push({ sprite, vel: new THREE.Vector3((Math.random() - 0.5) * 0.3, 3.4, (Math.random() - 0.5) * 0.3), fuse: Math.max(0.35, (this.bounds().maxY + 0.2 - 0.15) / 3.4) + Math.random() * 0.12, color, trail: 0 });
+    this.scene.add(sprite);
+  }
+
+  private spark(at: THREE.Vector3, vel: THREE.Vector3, color: THREE.Color, life: number, size: number, gravity: number): void {
+    const mat = new THREE.SpriteMaterial({ map: this.sparkTex[0], transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    mat.color.copy(color);
+    const sp = new THREE.Sprite(mat);
+    sp.scale.setScalar(size);
+    sp.position.copy(at);
+    this.particles.push({ sprite: sp, vel, life, max: life, gravity, frames: this.sparkTex });
+    this.scene.add(sp);
+  }
+
+  private updateRockets(dt: number): void {
+    for (let i = this.rockets.length - 1; i >= 0; i--) {
+      const r = this.rockets[i];
+      r.fuse -= dt;
+      r.sprite.position.addScaledVector(r.vel, dt);
+      r.trail -= dt;
+      if (r.trail <= 0) {
+        r.trail = 0.04;
+        this.spark(r.sprite.position.clone(), new THREE.Vector3((Math.random() - 0.5) * 0.2, -0.4, (Math.random() - 0.5) * 0.2), new THREE.Color('#fff4c0'), 0.5, 0.08, 0);
+      }
+      if (r.fuse > 0) continue;
+      // 炸開：一顆大球的火花，再加一點白色閃光
+      const at = r.sprite.position.clone();
+      for (let k = 0; k < 70; k++) {
+        const dir = new THREE.Vector3().randomDirection().multiplyScalar(1.4 + Math.random() * 0.5);
+        this.spark(at, dir, r.color, 1.3 + Math.random() * 0.5, 0.13, 0.7);
+      }
+      for (let k = 0; k < 12; k++) this.spark(at, new THREE.Vector3().randomDirection().multiplyScalar(0.6), new THREE.Color('#ffffff'), 0.6, 0.1, 0.3);
+      this.onBurst?.(at);
+      this.scene.remove(r.sprite);
+      r.sprite.material.dispose();
+      this.rockets.splice(i, 1);
+    }
+  }
+
+  // ---------- 洗澡：水花（splash_0 → 3）與泡泡 ----------
+
+  private splashTex: THREE.Texture[] = [spriteTex(solid('#5a8cff'))];
+  private bubbleTex: THREE.Texture = spriteTex(drawGrid(['.kk.', 'k.wk', 'k..k', '.kk.'], { k: '#a8d0ff', w: '#ffffff' }, 2));
+
+  splash(at: THREE.Vector3, count = 12): void {
+    for (let k = 0; k < count; k++) {
+      const mat = new THREE.SpriteMaterial({ map: this.splashTex[0], transparent: true, depthWrite: false });
+      const sp = new THREE.Sprite(mat);
+      sp.scale.setScalar(0.12);
+      sp.position.copy(at).add(new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.2, (Math.random() - 0.5) * 0.2));
+      const vel = new THREE.Vector3((Math.random() - 0.5) * 2, 0.6 + Math.random() * 1.2, (Math.random() - 0.5) * 1);
+      this.particles.push({ sprite: sp, vel, life: 0.8, max: 0.8, gravity: 4, frames: this.splashTex });
+      this.scene.add(sp);
+    }
+  }
+
+  bubbles(at: THREE.Vector3, count = 8): void {
+    for (let k = 0; k < count; k++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.bubbleTex, transparent: true, depthWrite: false }));
+      sp.scale.setScalar(0.07 + Math.random() * 0.07);
+      sp.position.copy(at).add(new THREE.Vector3((Math.random() - 0.5) * 0.5, (Math.random() - 0.3) * 0.4, (Math.random() - 0.5) * 0.3));
+      const vel = new THREE.Vector3((Math.random() - 0.5) * 0.15, 0.25 + Math.random() * 0.25, 0);
+      const life = 1.4 + Math.random() * 1.2;
+      this.particles.push({ sprite: sp, vel, life, max: life, gravity: 0, sway: Math.random() * 6 });
+      this.scene.add(sp);
+    }
+  }
+
+  usePlayImages(img: Partial<Record<string, HTMLImageElement>>): void {
+    const t = (src: HTMLImageElement) => spriteTex(tinted(src));
+    if (img.firework_rocket) this.rocketTex = t(img.firework_rocket);
+    const sparks = [7, 6, 5, 4, 3, 2, 1, 0].map((i) => img[`spark_${i}`]);
+    if (sparks.every(Boolean)) this.sparkTex = sparks.map((x) => t(x!));
+    const splashes = [0, 1, 2, 3].map((i) => img[`splash_${i}`]);
+    if (splashes.every(Boolean)) this.splashTex = splashes.map((x) => t(x!));
+    if (img.bubble) this.bubbleTex = t(img.bubble);
+  }
+
   itemTexture(kind: Throwable): THREE.Texture {
     return kind === 'slime' ? this.ballTex : this.foodTex[kind];
   }
@@ -628,6 +797,7 @@ export class Stage {
         this.particles.splice(i, 1);
       }
     }
+    this.updateRockets(dt);
     if (this.noteBlock) this.noteBlock.scale.lerp(new THREE.Vector3(1, 1, 1), 1 - Math.exp(-10 * dt));
     this.motes.position.y = Math.sin(t * 0.2) * 0.1;
     if (this.weather && !this.arMode) {
