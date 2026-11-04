@@ -57,6 +57,8 @@ export interface Hooks {
   say(kind: LineKind): void;
   particle(kind: 'heart' | 'zzz' | 'crumb' | 'note' | 'sparkle' | 'dust', at: THREE.Vector3, count?: number, color?: string, spread?: number): void;
   caught(): void;
+  /** 情境音效（拍翅、衝刺、打呼、吃東西、醒來…） */
+  sfx?(e: 'flap' | 'dash' | 'snore' | 'bite' | 'burp' | 'wake' | 'startle', at: THREE.Vector3): void;
 }
 
 const tmp = new THREE.Vector3();
@@ -111,6 +113,11 @@ export class AllayController {
   }
 
   setMode(m: Mode, dur = 3): void {
+    // 開始飛行時拍翅膀、被呼喚或追球時衝刺
+    if (m !== this.mode) {
+      if (m === 'wander' || m === 'approach' || m === 'flourish' || m === 'curious') this.hooks.sfx?.('flap', this.pos);
+      else if (m === 'called' || m === 'play') this.hooks.sfx?.('dash', this.pos);
+    }
     this.mode = m;
     this.modeTime = 0;
     this.modeDur = dur;
@@ -134,6 +141,7 @@ export class AllayController {
     this.wokeAt = this.t;
     const startled = Math.random() < this.tr.startle;
     this.setMode(startled ? 'startled' : 'waking', startled ? 1 : 1.2);
+    this.hooks.sfx?.(startled ? 'startle' : 'wake', this.pos);
     this.pet.energy = Math.max(this.pet.energy, 35);
     this.hooks.say('wake');
     return true;
@@ -263,11 +271,14 @@ export class AllayController {
         if (this.zzzIn <= 0) {
           this.zzzIn = 1.6;
           this.hooks.particle('zzz', this.headTop(tmp));
+          // 每三個 Z 輕輕打呼一次
+          if (++this.snore % 3 === 0) this.hooks.sfx?.('snore', this.pos);
         }
         // 到了起床時間（而且睡飽了）就自己醒來說早安
         if (this.pet.energy >= 100 && !this.world.night()) {
           this.wokeAt = this.t;
           this.setMode('waking', 1.2);
+          this.hooks.sfx?.('wake', this.pos);
           this.hooks.say('morning');
         }
         break;
@@ -291,8 +302,12 @@ export class AllayController {
         this.target.copy(this.pos);
         if (this.modeTime > 0.35 && Math.floor(this.modeTime * 4) !== Math.floor((this.modeTime - dt) * 4)) {
           this.hooks.particle('crumb', tmp.copy(this.pos).add(new THREE.Vector3(0, 0.3, 0.3)), 3);
+          this.hooks.sfx?.('bite', this.pos);
         }
-        if (this.modeTime > this.modeDur) this.setMode('happy', 0.9);
+        if (this.modeTime > this.modeDur) {
+          if (Math.random() < 0.5) this.hooks.sfx?.('burp', this.pos);
+          this.setMode('happy', 0.9);
+        }
         break;
       case 'happy':
       case 'tickled':
@@ -406,6 +421,7 @@ export class AllayController {
   private lookDir = 1;
   /** 上次醒來的時間（晚上被叫醒後，會再陪玩一陣子才去睡） */
   private wokeAt = 0;
+  private snore = 0;
 
   private clampVec(v: THREE.Vector3): void {
     const b = this.world.bounds();

@@ -67,6 +67,8 @@ export interface HudActions {
   setSoundMode(m: SoundMode): void;
   /** 素材包裡有沒有音效 */
   soundAvailable(): boolean;
+  /** 介面音效：按鈕、打開／關上物品欄 */
+  sfx(e: 'click' | 'open' | 'close'): void;
 }
 
 export class Hud {
@@ -86,7 +88,6 @@ export class Hud {
   food: Food | null = null;
   private foodURL = {} as Record<Food, string>;
   private foodBadge!: HTMLImageElement;
-  private foodCount!: HTMLSpanElement;
   private shardBadge!: HTMLImageElement;
   private chargeEl!: HTMLDivElement;
   private lastStat = '';
@@ -105,7 +106,10 @@ export class Hud {
     const gear = el('button', 'gear', root);
     gear.setAttribute('aria-label', t('settings'));
     gear.textContent = '⚙';
-    gear.addEventListener('click', () => this.openSettings());
+    gear.addEventListener('click', () => {
+      this.actions.sfx('click');
+      this.openSettings();
+    });
 
     const hud = el('div', 'hud', root);
     this.itemName = el('div', 'itemname', hud);
@@ -133,8 +137,6 @@ export class Hud {
       if (s === 'food') {
         this.foodBadge = el('img', 'badge', b);
         this.foodBadge.hidden = true;
-        // 原版風格的數量（右下角白字＋陰影）
-        this.foodCount = el('span', 'count', b);
       }
       if (s === 'note') {
         // 悅靈跳舞時，音符盒格右下角出現紫水晶碎片
@@ -143,6 +145,7 @@ export class Hud {
         this.shardBadge.hidden = true;
       }
       b.addEventListener('click', () => {
+        if (s !== 'call' && s !== 'food') this.actions.sfx('click');
         if (s === 'call') {
           this.showItem(label);
           this.actions.call();
@@ -183,28 +186,29 @@ export class Hud {
 
   /** 背包：選一種食物，選好後就可以丟給悅靈 */
   private openBag(): void {
-    const { box, close } = this.modal(itemName('inventory'));
+    this.actions.sfx('open');
+    const { box, close: hide } = this.modal(itemName('inventory'));
+    const close = () => {
+      this.actions.sfx('close');
+      hide();
+    };
     box.classList.add('bag');
     const name = el('div', 'bagname', box);
     name.textContent = this.food ? itemName(this.food) : t('bagEmpty');
     const grid = el('div', 'baggrid', box);
-    const bag = this.getPet().bag;
     for (const f of FOOD_IDS) {
-      const b = el('button', 'bagslot' + (f === this.food ? ' on' : '') + (bag[f] ? '' : ' empty'), grid);
+      const b = el('button', 'bagslot' + (f === this.food ? ' on' : ''), grid);
       b.dataset.food = f;
-      b.setAttribute('aria-label', `${itemName(f)} ${bag[f]}`);
+      b.setAttribute('aria-label', itemName(f));
       el('img', '', b).src = this.foodURL[f];
-      el('span', 'count', b).textContent = String(bag[f]);
       b.addEventListener('click', () => {
         this.food = f;
         this.foodBadge.src = this.foodURL[f];
         this.foodBadge.hidden = false;
-        this.foodCount.textContent = String(bag[f]);
         close();
         this.setSelected('food');
       });
     }
-    el('div', 'info', box).textContent = t('bagRefill');
     const cancel = el('button', 'btn', box);
     cancel.textContent = t('close');
     cancel.addEventListener('click', close);
@@ -299,7 +303,6 @@ export class Hud {
   }
 
   updateStats(s: PetState): void {
-    this.foodCount.textContent = this.food ? String(s.bag[this.food]) : '';
     const h = toIcons(s.health);
     const f = toIcons(s.hunger);
     const key = h.join('') + f.join('');
@@ -338,6 +341,10 @@ export class Hud {
     const back = el('div', 'modal-back', this.root);
     const box = el('div', 'modal', back);
     el('h2', '', box).textContent = title;
+    // 視窗裡的按鈕都有原版點擊聲（物品欄的格子另有關箱子的聲音）
+    box.addEventListener('click', (e) => {
+      if (!box.classList.contains('bag') && (e.target as HTMLElement).closest('.btn, .pcard')) this.actions.sfx('click');
+    });
     return { box, close: () => back.remove() };
   }
 

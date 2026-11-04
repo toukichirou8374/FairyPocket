@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { applyElapsed, bagMax, createPet, feed, isNight, refillBag, moodLevel, play, reunionKind, tickPet, toIcons, MAX_HUNGER } from './state';
+import { applyElapsed, createPet, feed, isNight, moodLevel, play, reunionKind, tickPet, toIcons, MAX_HUNGER } from './state';
 import { decodeLink, encodeLink, linkKind, loadPet, parseSave, serialize, storePet, SAVE_KEY, BACKUP_KEY } from './save';
 import { pickLine } from './dialogue';
 import { loadLang, uiKeys } from '../i18n';
 import { buildFont, unifontGlyph } from '../pixelFont';
 import fontChars from '../../fonts/fairypocket-pixel.chars.txt?raw';
 import { packFile, parseLegacyPack, parseZipPack } from './assets';
-import { allayRate, loadSoundMode, SOUND_MODES } from '../audio';
+import { allayRate, distanceGain, loadSoundMode, SOUND_MODES } from '../audio';
+import { SFX, sfxPitch } from '../sfx';
 
 function memStorage() {
   const m = new Map<string, string>();
@@ -228,6 +229,23 @@ describe('sound spec', () => {
   });
 });
 
+describe('context sounds', () => {
+  it('maps every situation to an original sound path', () => {
+    for (const [k, v] of Object.entries(SFX)) {
+      expect(v.path.startsWith('sounds/'), k).toBe(true);
+      expect(v.pitch[0]).toBeLessThanOrEqual(v.pitch[1]);
+      expect(v.vol).toBeGreaterThan(0);
+      const p = sfxPitch(k as keyof typeof SFX, () => 0.5);
+      expect(p).toBeGreaterThanOrEqual(v.pitch[0]);
+    }
+  });
+  it('gets quieter with distance', () => {
+    expect(distanceGain(1)).toBe(1);
+    expect(distanceGain(6)).toBeCloseTo(0.5);
+    expect(distanceGain(100)).toBe(0.25);
+  });
+});
+
 describe('dialogue', () => {
   it('fills in the name', () => {
     expect(pickLine('greet', 'brave', '小藍', () => 0)).toContain('小藍');
@@ -250,18 +268,6 @@ describe('pixel font', () => {
     const ttf = buildFont('Test', [unifontGlyph(0x41, '0000000018242442427E424242420000')]);
     expect(new DataView(ttf.buffer).getUint32(0)).toBe(0x10000);
     expect(ttf.length % 4).toBe(0);
-  });
-});
-
-describe('food bag', () => {
-  it('refills one of each food every 10 minutes, up to the max', () => {
-    const s = createPet(0);
-    s.bag.apple = 0;
-    s.bag.golden_apple = 3;
-    refillBag(s, 25 * 60_000);
-    expect(s.bag.apple).toBe(2);
-    expect(s.bag.golden_apple).toBe(bagMax('golden_apple'));
-    expect(s.bagAt).toBe(20 * 60_000);
   });
 });
 

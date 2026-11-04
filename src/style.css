@@ -211,18 +211,6 @@ html, body {
 .bagslot img { width: 70%; height: 70%; image-rendering: pixelated; pointer-events: none; }
 .bagslot.on { background: #a8c8ff; }
 .bagslot { position: relative; }
-.bagslot.empty img { opacity: 0.35; }
-/* 原版風格的物品數量：右下角白字＋陰影 */
-.count {
-  position: absolute;
-  right: 3px;
-  bottom: 0;
-  font: 16px/1 var(--font);
-  color: #fff;
-  text-shadow: var(--shadow);
-  pointer-events: none;
-}
-.mc .slot .count { right: calc(var(--s) * 1); bottom: calc(var(--s) * 0.5); font-size: calc(var(--s) * 8); text-shadow: calc(var(--s)) calc(var(--s)) 0 #3f3f3f; }
 .bagslot:active { transform: scale(0.94); }
 
 .toast {

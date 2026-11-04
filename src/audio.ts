@@ -30,6 +30,11 @@ const MODE_KEY = 'fairypocket.sound.v1';
 const VOICES = [1, 2, 3, 4].map((i) => `sounds/mob/allay/idle_with_item${i}`);
 const CHIME = 'sounds/block/amethyst/shimmer';
 
+/** 距離音量：3 公尺內全音量，越遠越小聲，最小 25% */
+export function distanceGain(dist: number): number {
+  return Math.max(0.25, Math.min(1, 3 / Math.max(dist, 0.01)));
+}
+
 export function loadSoundMode(storage: Pick<Storage, 'getItem'>): SoundMode {
   const m = storage.getItem(MODE_KEY);
   return m === 'soft' || m === 'off' ? m : 'bright';
@@ -75,6 +80,7 @@ export class Sound {
   usePack(p: AssetPack | null): void {
     this.pack = p;
     this.cache.clear();
+    this.variants.clear();
     this.preload();
   }
 
@@ -117,24 +123,54 @@ export class Sound {
     }
   }
 
-  /** 播放任一原版音效，例如 play('sounds/random/pop', 0.5, 1.2) */
-  async play(path: string, volume: number, rate = 1): Promise<void> {
+  /**
+   * 原版同一種音效常有好幾個版本（例如 random/eat1～3）：
+   * 路徑沒有對應檔案時，就從 1、2、3… 的版本中隨機挑一個
+   */
+  private resolve(path: string): string {
+    if (!this.pack || packFile(this.pack, path)) return path;
+    let list = this.variants.get(path);
+    if (!list) {
+      list = [];
+      for (let i = 1; i <= 20; i++) if (packFile(this.pack, `${path}${i}`)) list.push(`${path}${i}`);
+      this.variants.set(path, list);
+    }
+    return list.length ? list[Math.floor(Math.random() * list.length)] : path;
+  }
+  private variants = new Map<string, string[]>();
+
+  /** 播放任一原版音效，例如 play('sounds/random/pop', 0.5, 1.2)；pan -1（左）～ 1（右） */
+  async play(path: string, volume: number, rate = 1, pan = 0): Promise<void> {
     const ctx = this.ctx;
     if (!ctx || volume <= 0) return;
-    const buf = await this.buffer(path);
+    const buf = await this.buffer(this.resolve(path));
     if (!buf || ctx.state !== 'running') return;
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.playbackRate.value = rate;
     const gain = ctx.createGain();
     gain.gain.value = volume;
-    src.connect(gain).connect(ctx.destination);
+    let node: AudioNode = src.connect(gain);
+    if (pan && ctx.createStereoPanner) {
+      const p = ctx.createStereoPanner();
+      p.pan.value = pan;
+      node = node.connect(p);
+    }
+    node.connect(ctx.destination);
     src.start();
   }
 
   /** 一般音效（音符盒等），音量跟著聲音模式 */
-  effect(path: string, volume = 1, rate = 1): void {
-    void this.play(path, volume * SOUND_MODES[this.mode].allay, rate);
+  effect(path: string, volume = 1, rate = 1, pan = 0): void {
+    void this.play(path, volume * SOUND_MODES[this.mode].allay, rate, pan);
+  }
+
+  /**
+   * 從畫面中某個位置發出的音效：離鏡頭越遠越小聲，左右聲道跟著位置
+   * （之後做 AR 模式時，也用同一套距離音量）
+   */
+  effectAt(path: string, dist: number, x: number, volume = 1, rate = 1): void {
+    this.effect(path, volume * distanceGain(dist), rate, Math.max(-0.8, Math.min(0.8, x / 2.5)));
   }
 
   /** 悅靈發言：悅靈叫聲 + 紫水晶鈴聲 */

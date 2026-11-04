@@ -6,10 +6,11 @@ import { AllayModel } from './three/allayModel';
 import { AllayController, TRAITS } from './three/allayController';
 import { Hud } from './ui/hud';
 import { pickLine, type LineKind } from './game/dialogue';
-import { applyElapsed, BEDTIMES, refillBag, cheer, createPet, moodLevel, reunionKind, type Bedtime, FAVORITE_FOOD, feed, FOOD_IDS, FRIEND_STAY_MS, isNight, MAX_FRIENDS, PERSONALITY_COLOR, PERSONALITY_IDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
+import { applyElapsed, BEDTIMES, cheer, createPet, moodLevel, reunionKind, type Bedtime, FAVORITE_FOOD, feed, FOOD_IDS, FRIEND_STAY_MS, isNight, MAX_FRIENDS, PERSONALITY_COLOR, PERSONALITY_IDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
 import { BACKUP_KEY, decodeLink, encodeLink, exportFileName, linkKind, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
+import { SFX, sfxPitch, type Sfx } from './sfx';
 import { asciiGlyphs, buildFont } from './pixelFont';
 import { itemName, loadLang, saveLang, setLang, t } from './i18n';
 
@@ -23,7 +24,6 @@ const stage = new Stage(canvas);
 const pet = loadPet(localStorage) ?? createPet();
 const awayMs = Date.now() - pet.lastSeen;
 applyElapsed(pet, awayMs);
-refillBag(pet);
 
 const BEDTIME_KEY = 'fairypocket.bedtime.v1';
 let bedtime: Bedtime = (BEDTIMES as readonly number[]).includes(Number(localStorage.getItem(BEDTIME_KEY))) ? (Number(localStorage.getItem(BEDTIME_KEY)) as Bedtime) : 22;
@@ -39,20 +39,34 @@ const say = (kind: LineKind, food?: Food) => {
   lastSpoke = performance.now();
 };
 
+/** 播放情境音效；at 是聲音的位置（離鏡頭越遠越小聲） */
+let lastFlight = 0;
+function playSfx(e: Sfx, at?: THREE.Vector3): void {
+  // 拍翅、衝刺不要太密集
+  if (e === 'flap' || e === 'dash') {
+    const now = performance.now();
+    if (now - lastFlight < 2500) return;
+    lastFlight = now;
+  }
+  const { path, vol } = SFX[e];
+  if (at) sound.effectAt(path, at.distanceTo(stage.camera.position), at.x, vol, sfxPitch(e));
+  else sound.effect(path, vol, sfxPitch(e));
+}
+
 /** 悅靈接住丟過來的東西 */
 function caught(): void {
   const kind = stage.ball?.kind;
   stage.removeBall();
   if (!kind) return;
+  playSfx('pickup', ctrl.pos);
   if (kind === 'slime') {
+    playSfx('slime', ctrl.pos);
     play(pet);
     say('play');
     return;
   }
   // 食物：悅靈認得是什麼，接住後吃掉
   if (feed(pet, kind) === 'ok') {
-    pet.bag[kind] = Math.max(0, pet.bag[kind] - 1);
-    hud.updateStats(pet);
     ctrl.eat();
     model.holdItem(stage.itemTexture(kind));
     setTimeout(() => model.holdItem(null), 1400);
@@ -68,6 +82,7 @@ const ctrl = new AllayController(
     say,
     particle: (kind, at, count, color, spread) => stage.spawn(kind, at, count, color, spread),
     caught,
+    sfx: playSfx,
   },
 );
 
@@ -161,7 +176,11 @@ const hud = new Hud(overlay, {
   select: (slot) => {
     if (slot !== 'note') stage.removeNoteBlock();
   },
-  call: () => ctrl.call(),
+  call: () => {
+    playSfx('bell');
+    ctrl.call();
+  },
+  sfx: playSfx,
   rename: (name) => {
     pet.name = name;
     hud.setName(name);
@@ -318,6 +337,7 @@ if (pet.onboarded) {
     if (kind === 'missed' || kind === 'longAway') {
       ctrl.call();
       cheer(pet, kind === 'longAway' ? 30 : 20);
+      if (kind === 'longAway') playSfx('levelup');
       stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), kind === 'longAway' ? 6 : 3);
     } else if (kind === 'welcomeBack') cheer(pet, 10);
     say(kind);
@@ -443,6 +463,7 @@ function hitsAllay(x: number, y: number): boolean {
 function throwAt(kind: Throwable, ray: THREE.Ray, power: number): void {
   const from = stage.camera.position.clone().add(new THREE.Vector3(0, -0.7, -0.6));
   stage.throwItem(kind, from, ray.direction, power);
+  playSfx('throw');
   ctrl.chaseBall();
 }
 
@@ -462,8 +483,7 @@ function tap(x: number, y: number): void {
     return useNoteBlock(ray, hitBlock);
   }
   if (sel === 'food' && hud.food) {
-    // 食物不蓄力，輕輕拋給悅靈接；吃掉才會扣數量
-    if (pet.bag[hud.food] <= 0) return hud.showItem(t('bagOut', { f: itemName(hud.food) }));
+    // 食物不蓄力，輕輕拋給悅靈接（無限使用）
     throwAt(hud.food, ray, 0);
     return;
   }
@@ -471,6 +491,7 @@ function tap(x: number, y: number): void {
     if (!hit) return hud.showItem(t('featherMiss'));
     play(pet);
     ctrl.tickled();
+    playSfx('tickle', ctrl.pos);
     say('tickle');
     return;
   }
@@ -590,7 +611,6 @@ function frame(now: number): void {
   statTimer -= dt;
   if (statTimer <= 0) {
     statTimer = 0.25;
-    refillBag(pet);
     hud.updateStats(pet);
   }
   requestAnimationFrame(frame);
