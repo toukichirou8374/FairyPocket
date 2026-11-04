@@ -47,6 +47,10 @@ export const TRAITS: Record<Personality, Traits> = {
   playful: { speed: 1.9, range: 0.85, nearDist: 3.4, wander: 1.8, approach: 1.3, spin: 1.4, observe: 1.8, flourish: 1, stay: 5, startle: 0.15, tempo: 1.1, look: [1.2, 2.2], sweep: 3.6 },
 };
 
+/** AR 攝影棚：玩家決定的姿勢（悅靈停止自己的行動） */
+export type Pose = 'fly' | 'wave' | 'dance' | 'happy' | 'hold' | 'sleep';
+const POSE_MODE: Record<Pose, Mode> = { fly: 'idle', wave: 'wave', dance: 'dance', happy: 'happy', hold: 'idle', sleep: 'sleep' };
+
 export interface World {
   camera: THREE.PerspectiveCamera;
   bounds(): { minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number };
@@ -117,6 +121,8 @@ export class AllayController {
   }
 
   setMode(m: Mode, dur = 3): void {
+    // 固定姿勢（AR 攝影棚）時不換動作
+    if (this.posed) return;
     // 開始飛行時拍翅膀、被呼喚或追球時衝刺
     if (m !== this.mode) {
       if (m === 'wander' || m === 'approach' || m === 'flourish' || m === 'curious') this.hooks.sfx?.('flap', this.pos);
@@ -218,6 +224,30 @@ export class AllayController {
       this.setMode('listen', 30);
     } else if (this.mode === 'listen') this.setMode('happy', 0.9);
   }
+  /** 目前的固定姿勢；null 代表悅靈自己行動 */
+  posed: Pose | null = null;
+  /** 固定姿勢時的位置（可以用手指拖） */
+  readonly posePos = new THREE.Vector3();
+  /** 固定姿勢時額外轉的角度（0 = 面向鏡頭） */
+  poseYaw = 0;
+
+  setPose(p: Pose | null): void {
+    if (!p) {
+      if (this.posed) {
+        this.posed = null;
+        this.poseYaw = 0;
+        this.toIdle();
+      }
+      return;
+    }
+    if (!this.posed) this.posePos.copy(this.pos);
+    this.posed = p;
+    // 直接換動作，不經過 setMode（不會改到睡覺狀態等存檔數值）
+    this.mode = POSE_MODE[p];
+    this.modeTime = 0;
+    this.modeDur = Infinity;
+  }
+
   /** 去床上睡覺（放好床後點床、或到了就寢時間） */
   goBed(): void {
     const spot = this.world.bed?.();
@@ -245,9 +275,20 @@ export class AllayController {
 
   /** 有人對著前鏡頭揮手：飛到面前揮手回應 */
   waveBack(): void {
-    if (this.mode === 'eat') return;
+    if (this.mode === 'eat' || this.mode === 'wave') return;
     this.wake();
-    this.setMode('wave', 2.4);
+    // 離鏡頭太遠才飛近一點，否則就在原地轉過來面向你揮手
+    const cam = this.world.camera.position;
+    if (this.pos.distanceTo(cam) > 4.2) this.waveAt.set(this.pos.x * 0.5, cam.y - 0.45, cam.z - this.tr.nearDist);
+    else this.waveAt.copy(this.pos);
+    this.setMode('wave', 2.6);
+  }
+  private readonly waveAt = new THREE.Vector3();
+
+  /** 揮手的程度：開始 0.35 秒舉手、結束前 0.35 秒放下 */
+  private waveAmount(): number {
+    const ease = (x: number) => x * x * (3 - 2 * x);
+    return ease(Math.min(1, this.modeTime / 0.35)) * ease(Math.min(1, Math.max(0, (this.modeDur - this.modeTime) / 0.35)));
   }
 
   /** 聽到的音量 0–1（說話時頭會跟著點） */
@@ -264,6 +305,16 @@ export class AllayController {
     this.modeTime += dt;
     const tr = this.tr;
     this.tt += dt * tr.tempo;
+    if (this.posed) {
+      // 固定姿勢：停在玩家放的位置，只播動作
+      this.target.copy(this.posePos);
+      this.move(dt, tr.speed * 1.5);
+      this.animate(dt);
+      if (this.posed === 'sleep' && Math.floor(this.modeTime / 1.6) !== Math.floor((this.modeTime - dt) / 1.6)) this.hooks.particle('zzz', this.headTop(tmp));
+      if (this.posed === 'dance' && Math.floor(this.modeTime / 0.7) !== Math.floor((this.modeTime - dt) / 0.7)) this.hooks.particle('note', this.headTop(tmp), 1);
+      this.aura(dt);
+      return;
+    }
     const b = this.world.bounds();
     let speed = tr.speed;
 
@@ -406,13 +457,10 @@ export class AllayController {
         if (this.pos.distanceTo(this.target) < 0.25) this.hooks.atCake?.();
         else if (this.modeTime > this.modeDur) this.toIdle();
         break;
-      case 'wave': {
-        const cam = this.world.camera.position;
-        this.target.set(0, cam.y - 0.45, cam.z - this.tr.nearDist);
-        speed *= 1.4;
-        if (this.modeTime > this.modeDur) this.setMode('happy', 0.9);
+      case 'wave':
+        this.target.copy(this.waveAt);
+        if (this.modeTime > this.modeDur) this.toIdle();
         break;
-      }
       case 'listen': {
         const cam = this.world.camera.position;
         this.target.set(0, cam.y - 0.5, cam.z - 2.6);
@@ -552,8 +600,11 @@ export class AllayController {
 
     // 轉向：移動時面向前進方向，否則面向玩家
     let wantYaw: number;
-    const facePlayer = this.mode === 'startled' || this.mode === 'sleep' || this.mode === 'rest' || this.mode === 'eat';
-    if (hspeed > 0.25 && !facePlayer) wantYaw = Math.atan2(this.vel.x, this.vel.z);
+    const facePlayer = this.mode === 'startled' || this.mode === 'sleep' || this.mode === 'rest' || this.mode === 'eat' || this.mode === 'wave';
+    if (this.posed) {
+      const cam = this.world.camera.position;
+      wantYaw = Math.atan2(cam.x - this.pos.x, cam.z - this.pos.z) + this.poseYaw;
+    } else if (hspeed > 0.25 && !facePlayer) wantYaw = Math.atan2(this.vel.x, this.vel.z);
     else {
       const cam = this.world.camera.position;
       wantYaw = Math.atan2(cam.x - this.pos.x, cam.z - this.pos.z);
@@ -573,7 +624,11 @@ export class AllayController {
       const cyc = this.modeTime % 2.75;
       danceSpin = cyc < 0.75 ? cyc / 0.75 : 0;
       this.spin = danceSpin * 4 * Math.PI;
-    } else this.spin = 0;
+    } else if (this.spin) {
+      const whole = Math.round(this.spin / (Math.PI * 2)) * Math.PI * 2;
+      this.spin = THREE.MathUtils.lerp(this.spin, whole, 1 - Math.exp(-8 * dt));
+      if (Math.abs(this.spin - whole) < 0.01) this.spin = 0;
+    }
     const dancing = this.mode === 'dance';
     const sway = dancing ? Math.cos(this.t * 2.79) * (1 - danceSpin) : 0;
 
@@ -612,7 +667,7 @@ export class AllayController {
     m.setWings(this.wingSpread, this.wingTilt);
 
     // 手臂：平常外張慢擺；拿東西（吃）時往前舉
-    const hold = this.mode === 'eat' ? 1 : 0;
+    const hold = this.mode === 'eat' || this.posed === 'hold' ? 1 : 0;
     this.holdAmt = THREE.MathUtils.lerp(this.holdAmt, hold, k(8));
     const h = this.holdAmt;
     let armX = h * THREE.MathUtils.lerp(-Math.PI / 3, -1.134, mv) + (this.mode === 'eat' ? Math.sin(this.modeTime * 14) * 0.1 : 0);
@@ -627,8 +682,14 @@ export class AllayController {
     m.armR.rotation.y = -0.2793 * h;
     // 揮手：舉起一隻手左右搖
     if (this.mode === 'wave') {
-      m.armR.rotation.x = -2.5;
-      m.armR.rotation.z = -0.3 + Math.sin(this.modeTime * 13) * 0.55;
+      // 揮手：先舉手，從肩膀左右揮動，最後把手放下（頭與身體跟著輕輕擺）
+      const w = this.waveAmount();
+      const swing = Math.sin(this.modeTime * 9);
+      m.armR.rotation.x = THREE.MathUtils.lerp(m.armR.rotation.x, -2.6, w);
+      m.armR.rotation.z = THREE.MathUtils.lerp(m.armR.rotation.z, -0.25 + swing * 0.5, w);
+      m.armL.rotation.z = THREE.MathUtils.lerp(m.armL.rotation.z, 0.6, w * 0.5);
+      m.tilt.rotation.z += swing * 0.07 * w;
+      m.root.position.y += Math.abs(swing) * 0.03 * w;
     }
 
     // 頭：自動看向玩家
@@ -649,7 +710,7 @@ export class AllayController {
     if (this.mode === 'observe') { headY = this.lookDir * Math.sin(this.modeTime * this.tr.sweep) * 0.9; headX = 0.12; }
     m.head.rotation.x = THREE.MathUtils.lerp(m.head.rotation.x, headX, k(6));
     m.head.rotation.y = dancing ? headY : THREE.MathUtils.lerp(m.head.rotation.y, headY, k(6));
-    m.head.rotation.z = dancing ? sway * 0.524 : this.mode === 'curious' || this.mode === 'observe' ? Math.sin(this.t * 2) * 0.2 : this.mode === 'listen' ? 0.35 : 0; // 頭歪 30°
+    m.head.rotation.z = dancing ? sway * 0.524 : this.mode === 'curious' || this.mode === 'observe' ? Math.sin(this.t * 2) * 0.2 : this.mode === 'listen' ? 0.35 : this.mode === 'wave' ? Math.sin(this.modeTime * 9 + 0.8) * 0.18 * this.waveAmount() : 0; // 頭歪 30°
 
     // 眼睛：眨眼 / 睡覺 / 開心
     this.blinkIn -= dt;

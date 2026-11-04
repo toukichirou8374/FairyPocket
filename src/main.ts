@@ -12,11 +12,11 @@ import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPac
 import { Sound } from './audio';
 import { SFX, sfxPitch, type Sfx } from './sfx';
 import { ArCamera, Composer, saveMedia, type ArEvents, type Facing } from './ar';
-import { clipBuffer, Listener, loadReplies, recordClip, saveReplies, syllables, type Clip } from './voice';
+import { forgetVoiceData, Listener } from './voice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
 import { asciiGlyphs, buildFont } from './pixelFont';
-import { getLang, itemName, loadLang, saveLang, setLang, t } from './i18n';
+import { itemName, loadLang, saveLang, setLang, t } from './i18n';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const overlay = document.getElementById('overlay') as HTMLDivElement;
@@ -46,8 +46,8 @@ const say = (kind: LineKind, food?: Food | null, d: number | string = '') => {
 // ---------- 麥克風：選起麥克風格後一直聽，說完就回應 ----------
 
 const listener = new Listener();
-let replies: (Clip | null)[] = [];
-void loadReplies(getLang()).then((r) => (replies = r));
+// 舊版「錄音回應」存的錄音不再使用，刪掉
+void forgetVoiceData();
 
 async function micOn(): Promise<void> {
   sound.unlock();
@@ -73,19 +73,12 @@ function micOff(): void {
 /** 說完了：從這個語言錄好的回應隨機挑一句；沒有就用悅靈語回答 */
 async function answer(samples: Float32Array, rate: number): Promise<void> {
   ctrl.listen(false);
-  const ctx = sound.context;
-  if (!ctx) return;
-  const ready = replies.filter((r): r is Clip => !!r);
-  let len: number;
-  if (ready.length) {
-    len = sound.playClip(clipBuffer(ctx, ready[Math.floor(Math.random() * ready.length)]));
-    hud.say('♪');
-  } else {
-    len = await sound.babble(pet.personality, syllables(samples, rate));
-    hud.say(pickLine('heard', pet.personality, pet.name));
-  }
+  // 用原本的悅靈叫聲＋紫水晶鈴聲回答；說得比較久，就多回幾聲
+  const times = Math.min(3, 1 + Math.floor(samples.length / rate / 2));
+  for (let i = 0; i < times; i++) setTimeout(() => sound.speak(pet.personality), i * 650);
+  hud.say(pickLine('heard', pet.personality, pet.name));
   // 悅靈說話時先不要聽（避免聽到自己的聲音）
-  listener.pausedUntil = performance.now() + (len + 0.4) * 1000;
+  listener.pausedUntil = performance.now() + (times * 0.65 + 1.2) * 1000;
   stage.spawn('note', ctrl.headTop(new THREE.Vector3()), 2);
   cheer(pet, 3);
   lastSpoke = performance.now();
@@ -152,6 +145,9 @@ async function arOpen(facing: Facing = 'environment'): Promise<void> {
   wantPhoto = false;
   hud.setAr(true);
   stage.setAR(true);
+  // AR 攝影棚：悅靈停下來，由玩家決定姿勢和位置
+  ctrl.setPose('fly');
+  hud.showItem(t('arPoseHint'));
   if (facing === 'user') hud.showItem(t('arFront'));
 }
 
@@ -160,6 +156,9 @@ async function arClose(): Promise<void> {
   arCam.stop();
   hud.setAr(false);
   stage.setAR(false);
+  ctrl.setPose(null);
+  model.root.scale.setScalar(1);
+  model.holdItem(null);
 }
 
 async function arRecord(): Promise<void> {
@@ -405,36 +404,22 @@ const hud = new Hud(overlay, {
   },
   arRecord: () => void arRecord(),
   arFlip: () => void arOpen(arCam.facing === 'user' ? 'environment' : 'user'),
-  replies: () => replies.map((r) => !!r),
-  recordReply: async (i) => {
-    sound.unlock();
-    const ctx = sound.context;
-    if (!ctx) return null;
-    try {
-      const rec = await recordClip(ctx);
-      return {
-        stop: rec.stop,
-        done: rec.done.then(async (clip) => {
-          if (!clip) return false;
-          replies[i] = clip;
-          await saveReplies(getLang(), replies);
-          return true;
-        }),
-      };
-    } catch {
-      hud.toast(t('micDenied'));
-      return null;
+  arPose: (p) => {
+    if (p === 'turn') {
+      ctrl.poseYaw += Math.PI / 4;
+      return;
     }
-  },
-  playReply: (i) => {
-    sound.unlock();
-    const ctx = sound.context;
-    const r = replies[i];
-    if (ctx && r) sound.playClip(clipBuffer(ctx, r));
-  },
-  deleteReply: (i) => {
-    replies[i] = null;
-    void saveReplies(getLang(), replies);
+    if (p === 'free') {
+      ctrl.setPose(null);
+      model.holdItem(null);
+      return;
+    }
+    // 捧著：每按一次換一樣食物
+    if (p === 'hold') {
+      holdIndex = ctrl.posed === 'hold' ? (holdIndex + 1) % FOOD_IDS.length : holdIndex;
+      model.holdItem(stage.itemTexture(FOOD_IDS[holdIndex]));
+    } else model.holdItem(null);
+    ctrl.setPose(p);
   },
   biome: () => biome,
   setBiome: (b) => {
@@ -811,11 +796,44 @@ document.addEventListener('pointerdown', () => sound.unlock(), { capture: true }
 
 let down: { x: number; y: number; t: number; moved: number; rub: number } | null = null;
 let lastRubPet = 0;
+// AR 攝影棚：一指拖曳移動悅靈、兩指捏合縮放
+const touches = new Map<number, { x: number; y: number }>();
+let pinch: { dist: number; scale: number } | null = null;
+let holdIndex = 0;
+const posing = () => arCam.on && !!ctrl.posed;
+
+function dragAllay(x: number, y: number): void {
+  const ray = rayFrom(x, y);
+  // 跟悅靈同一個深度的平面上
+  const t = (ctrl.posePos.z - ray.origin.z) / ray.direction.z;
+  if (!(t > 0)) return;
+  const p = ray.at(t, new THREE.Vector3());
+  const b = stage.bounds();
+  ctrl.posePos.set(THREE.MathUtils.clamp(p.x, b.minX * 1.3, b.maxX * 1.3), THREE.MathUtils.clamp(p.y - 0.25, 0.2, b.maxY + 0.6), ctrl.posePos.z);
+}
+
+function pinchDist(): number {
+  const [a, b] = [...touches.values()];
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
 canvas.addEventListener('pointerdown', (e) => {
+  if (posing()) {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 2) pinch = { dist: pinchDist(), scale: model.root.scale.x };
+    else dragAllay(e.clientX, e.clientY);
+    return;
+  }
   down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: 0, rub: 0 };
   if (hud.selected === 'slime') chargeStart = performance.now();
 });
 canvas.addEventListener('pointermove', (e) => {
+  if (posing() && touches.has(e.pointerId)) {
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && touches.size === 2) model.root.scale.setScalar(THREE.MathUtils.clamp((pinch.scale * pinchDist()) / pinch.dist, 0.4, 3));
+    else if (touches.size === 1) dragAllay(e.clientX, e.clientY);
+    return;
+  }
   if (!down) return;
   const d = Math.hypot(e.movementX, e.movementY);
   down.moved += d;
@@ -833,6 +851,10 @@ canvas.addEventListener('pointermove', (e) => {
   }
 });
 canvas.addEventListener('pointerup', (e) => {
+  if (touches.delete(e.pointerId)) {
+    if (touches.size < 2) pinch = null;
+    return;
+  }
   if (chargeStart !== null) {
     // 放開就丟，蓄力時手指移動也沒關係（以放開的位置決定方向）
     throwAt('slime', rayFrom(e.clientX, e.clientY), chargeLevel());
@@ -841,7 +863,9 @@ canvas.addEventListener('pointerup', (e) => {
   } else if (down && down.moved < 14 && performance.now() - down.t < 600) tap(e.clientX, e.clientY);
   down = null;
 });
-canvas.addEventListener('pointercancel', () => {
+canvas.addEventListener('pointercancel', (e) => {
+  touches.delete(e.pointerId);
+  pinch = null;
   down = null;
   chargeStart = null;
   hud.setCharge(null);

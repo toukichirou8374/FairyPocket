@@ -8,7 +8,7 @@ import fontChars from '../../fonts/fairypocket-pixel.chars.txt?raw';
 import { packFile, parseLegacyPack, parseZipBlob, parseZipPack } from './assets';
 import { allayRate, distanceGain, loadSoundMode, SOUND_MODES } from '../audio';
 import { SFX, sfxPitch } from '../sfx';
-import { syllables, trimSilence } from '../voice';
+import { trimSilence } from '../voice';
 import { WaveDetector } from '../ar';
 import { emptyMemory, memoryTopic, mostEaten, rememberFood, takeMilestone, timeGreeting, visitDay } from './memory';
 
@@ -291,18 +291,7 @@ describe('voice', () => {
     expect(out.length).toBe(400 + 2 * 50);
     expect(trimSilence(new Float32Array(2000), rate)).toBeNull();
   });
-  it('finds syllables and their relative pitch', () => {
-    const rate = 16000;
-    const d = new Float32Array(rate * 2);
-    // 三個音節：200Hz、200Hz、300Hz
-    for (const [start, hz] of [[0.1, 200], [0.6, 200], [1.1, 300]]) {
-      for (let i = 0; i < rate * 0.2; i++) d[Math.floor(start * rate) + i] = 0.4 * Math.sin((2 * Math.PI * hz * i) / rate);
-    }
-    const syl = syllables(d, rate);
-    expect(syl.length).toBe(3);
-    expect(syl[2].rel).toBeGreaterThan(1.3);
-    expect(syl[0].t).toBeCloseTo(0.1, 1);
-  });
+
 });
 
 describe('ar wave', () => {

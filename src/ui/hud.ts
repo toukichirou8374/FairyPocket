@@ -5,13 +5,29 @@ import { affectionLevel, BEDTIMES, FOOD_IDS, moodLevel, NAME_MAX, wakeHour, type
 import type { AssetImages } from '../game/assets';
 import { SOUND_MODES, type SoundMode } from '../audio';
 import { BIOMES, type Biome } from '../three/biome';
-import { getLang, itemName, LANGS, personalityText, t, type Lang } from '../i18n';
+import type { Pose } from '../three/allayController';
+import { getLang, itemName, LANGS, personalityText, t, type Lang, type UiKey } from '../i18n';
 
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
 
 export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'mic' | 'wave' | 'bed' | 'firework' | 'bath' | 'call';
 export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'mic', 'wave', 'bed', 'firework', 'bath', 'call'];
+
+/** 快捷欄的 5 個分類格：點一下拿起這一類上次用的東西，再點一下打開選單換別的 */
+export type Group = 'food' | 'toys' | 'blocks' | 'sense' | 'call';
+export const GROUPS: { id: Group; tools: Slot[] }[] = [
+  { id: 'food', tools: ['food'] },
+  { id: 'toys', tools: ['feather', 'slime', 'firework', 'bath'] },
+  { id: 'blocks', tools: ['note', 'bed'] },
+  { id: 'sense', tools: ['mic', 'wave'] },
+  { id: 'call', tools: ['call'] },
+];
+const groupOf = (t: Slot) => GROUPS.find((g) => g.tools.includes(t))!;
+
+const TOOL_ICON: Record<Slot, string> = {
+  food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', mic: 'mic', wave: 'hand', bed: 'bed', firework: 'firework', bath: 'bucket', call: 'bell',
+};
 
 /** 快捷欄名稱（Java 版譯名）與操作提示 */
 function slotText(s: Slot): { label: string; hint: string } {
@@ -75,11 +91,8 @@ export interface HudActions {
   arPhoto(): void;
   arRecord(): void;
   arFlip(): void;
-  /** 設定頁錄的回應（目前語言 5 句）：哪幾格有錄、錄音、試聽、刪除 */
-  replies(): boolean[];
-  recordReply(i: number): Promise<{ stop: () => void; done: Promise<boolean> } | null>;
-  playReply(i: number): void;
-  deleteReply(i: number): void;
+  /** AR 攝影棚：換姿勢、轉向（turn）、讓悅靈自己行動（free） */
+  arPose(p: Pose | 'turn' | 'free'): void;
   biome(): Biome;
   setBiome(b: Biome): void;
   setBedtime(b: Bedtime): void;
@@ -120,6 +133,7 @@ export class Hud {
   private foodURL = {} as Record<Food, string>;
   private foodBadge!: HTMLImageElement;
   private recBtn!: HTMLButtonElement;
+  private poseBar!: HTMLDivElement;
   private shardBadge!: HTMLImageElement;
   private chargeEl!: HTMLDivElement;
   private lastStat = '';
@@ -161,11 +175,20 @@ export class Hud {
     tool('shutter', t('arPhoto'), () => this.actions.arPhoto());
     this.recBtn = tool('record', t('arRecord'), () => this.actions.arRecord());
     tool('flip', t('arFlip'), () => this.actions.arFlip()).textContent = '⇄';
-    // 藏起生命值、快捷欄、名字與對話泡泡，畫面比較乾淨
-    const ui = tool('ui', t('arUi'), () => {
-      ui.classList.toggle('on', root.classList.toggle('noui'));
-    });
-    ui.textContent = 'UI';
+    // AR 攝影棚：選悅靈的姿勢（取代快捷欄）
+    const poses = el('div', 'posebar', root);
+    const POSES: (Pose | 'turn' | 'free')[] = ['fly', 'wave', 'dance', 'happy', 'hold', 'sleep', 'turn', 'free'];
+    for (const p of POSES) {
+      const b = el('button', 'btn pose', poses);
+      b.dataset.pose = p;
+      b.textContent = t(`pose.${p}` as UiKey);
+      b.addEventListener('click', () => {
+        this.actions.sfx('click');
+        if (p !== 'turn') poses.querySelectorAll('.pose').forEach((x) => x.classList.toggle('on', x === b && p !== 'free'));
+        this.actions.arPose(p);
+      });
+    }
+    this.poseBar = poses;
     tool('exit', t('close'), () => this.actions.arClose()).textContent = '✕';
 
     const hud = el('div', 'hud', root);
@@ -181,35 +204,40 @@ export class Hud {
     this.bar = bar;
     this.selFrame = el('div', 'selframe', bar);
     for (const f of FOOD_IDS) this.foodURL[f] = foodIcon(f, 4).toDataURL();
-    SLOTS.forEach((s) => {
+    for (const t of SLOTS) this.toolURL[t] = gridURL(ITEM_ICONS[TOOL_ICON[t]].grid, ITEM_ICONS[TOOL_ICON[t]].pal, 4);
+    GROUPS.forEach((g) => {
       const b = el('button', 'slot', bar);
-      b.dataset.slot = s;
+      b.dataset.slot = g.id;
       this.slots.push(b);
-      const label = slotText(s).label;
-      b.setAttribute('aria-label', label);
-      const icon = ITEM_ICONS[{ food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', mic: 'mic', wave: 'hand', bed: 'bed', firework: 'firework', bath: 'bucket', call: 'bell' }[s]];
       const img = el('img', '', b);
-      img.src = gridURL(icon.grid, icon.pal, 4);
-      img.alt = label;
-      if (s === 'food') {
+      img.src = this.toolURL[this.current[g.id]];
+      b.setAttribute('aria-label', g.id === 'food' || g.id === 'call' ? slotText(g.tools[0]).label : t(`group.${g.id}`));
+      if (g.id === 'food') {
         this.foodBadge = el('img', 'badge', b);
         this.foodBadge.hidden = true;
       }
-      if (s === 'note') {
-        // 悅靈跳舞時，音符盒格右下角出現紫水晶碎片
+      if (g.id === 'blocks') {
+        // 悅靈跳舞時，方塊格右下角出現紫水晶碎片
         this.shardBadge = el('img', 'badge', b);
         this.shardBadge.src = gridURL(ITEM_ICONS.amethyst.grid, ITEM_ICONS.amethyst.pal, 4);
         this.shardBadge.hidden = true;
       }
       b.addEventListener('click', () => {
-        if (s !== 'call' && s !== 'food') this.actions.sfx('click');
-        if (s === 'call') {
-          this.showItem(label);
+        if (g.id === 'call') {
+          this.showItem(slotText('call').label);
           this.actions.call();
           return;
         }
-        if (s === 'food') return this.openBag();
-        this.setSelected(this.selected === s ? null : s);
+        const holding = this.selected && groupOf(this.selected).id === g.id;
+        if (g.id === 'food') {
+          // 還沒選過食物、或已經拿著食物：打開物品欄
+          if (holding || !this.food) return this.openBag();
+          this.actions.sfx('click');
+          return this.setSelected('food');
+        }
+        if (holding) return this.openMenu(g.id);
+        this.actions.sfx('click');
+        this.setSelected(this.current[g.id]);
       });
     });
     this.chargeEl = el('div', 'charge', hud);
@@ -217,9 +245,20 @@ export class Hud {
     this.toastEl = el('div', 'toast', root);
   }
 
+  /** 每個分類上次拿的東西 */
+  private current: Record<Group, Slot> = { food: 'food', toys: 'feather', blocks: 'note', sense: 'mic', call: 'call' };
+  private toolURL = {} as Record<Slot, string>;
+
   setSelected(slot: Slot | null): void {
     this.selected = slot;
-    this.slots.forEach((b) => b.classList.toggle('selected', b.dataset.slot === slot));
+    if (slot) {
+      const g = groupOf(slot);
+      this.current[g.id] = slot;
+      const b = this.slots.find((x) => x.dataset.slot === g.id);
+      if (b) b.querySelector('img')!.src = this.toolURL[slot];
+    }
+    const sel = slot ? groupOf(slot).id : null;
+    this.slots.forEach((b) => b.classList.toggle('selected', b.dataset.slot === sel));
     this.layout();
     if (slot) {
       const s = slotText(slot);
@@ -231,10 +270,8 @@ export class Hud {
   /** AR 模式開關：顯示相機工具列、藏起相機按鈕 */
   setAr(on: boolean): void {
     this.root.classList.toggle('ar', on);
-    if (!on) {
-      this.root.classList.remove('noui');
-      this.root.querySelector('.artool.ui')?.classList.remove('on');
-    }
+    // 進 AR 時預設「飛行」姿勢
+    this.poseBar.querySelectorAll('.pose').forEach((x) => x.classList.toggle('on', on && (x as HTMLElement).dataset.pose === 'fly'));
     document.body.classList.toggle('ar', on);
   }
 
@@ -253,6 +290,40 @@ export class Hud {
   setCharge(v: number | null): void {
     this.chargeEl.classList.toggle('show', v !== null);
     if (v !== null) (this.chargeEl.firstChild as HTMLDivElement).style.width = `${Math.round(v * 100)}%`;
+  }
+
+  /** 分類選單：像物品欄一樣的格子，選一樣拿起來；「收起」就什麼都不拿 */
+  private openMenu(g: Group): void {
+    this.actions.sfx('open');
+    const { box, close: hide } = this.modal(t(`group.${g}` as UiKey));
+    const close = () => {
+      this.actions.sfx('close');
+      hide();
+    };
+    box.classList.add('bag');
+    const name = el('div', 'bagname', box);
+    name.textContent = this.selected ? slotText(this.selected).label : '';
+    const grid = el('div', 'baggrid', box);
+    for (const tool of GROUPS.find((x) => x.id === g)!.tools) {
+      const b = el('button', 'bagslot' + (tool === this.selected ? ' on' : ''), grid);
+      b.dataset.tool = tool;
+      b.setAttribute('aria-label', slotText(tool).label);
+      el('img', '', b).src = this.toolURL[tool];
+      b.addEventListener('click', () => {
+        close();
+        this.setSelected(tool);
+      });
+    }
+    const row = el('div', 'btnrow', box);
+    const put = el('button', 'btn', row);
+    put.textContent = t('putAway');
+    put.addEventListener('click', () => {
+      close();
+      this.setSelected(null);
+    });
+    const cancel = el('button', 'btn', row);
+    cancel.textContent = t('close');
+    cancel.addEventListener('click', close);
   }
 
   /** 背包：選一種食物，選好後就可以丟給悅靈 */
@@ -325,9 +396,9 @@ export class Hud {
       bed: img.bed_head_east && img.bed_foot_east && bedIcon(img.bed_head_east, img.bed_foot_east),
       firework: img.firework_rocket?.src, bath: img.water_bucket?.src, call: img.bell?.src,
     };
+    for (const tool of SLOTS) if (items[tool]) this.toolURL[tool] = items[tool]!;
     this.slots.forEach((b) => {
-      const src = items[b.dataset.slot as Slot];
-      if (src) b.querySelector('img')!.src = src;
+      b.querySelector('img')!.src = this.toolURL[this.current[b.dataset.slot as Group]];
     });
     if (img.amethyst_shard) this.shardBadge.src = img.amethyst_shard.src;
     // 設定畫面的按鈕、輸入框用原版九宮格材質
@@ -376,9 +447,11 @@ export class Hud {
     const w = window.innerWidth - 24, h = window.innerHeight * 0.9;
     const fit = (cols: number, cap: number) => Math.min(w, cap, h) / (2 + cols * 20);
     // 橫拿手機時寬度夠就排成一排（比較不佔畫面高度）
-    const cols = Math.min(w, 680) / (2 + SLOTS.length * 20) >= 2.5 ? SLOTS.length : Math.ceil(SLOTS.length / 2);
-    const rows = Math.ceil(SLOTS.length / cols);
-    const s = Math.max(2.5, Math.floor(fit(cols, 420) * 2) / 2);
+    const n = GROUPS.length;
+    const cols = Math.min(w, 680) / (2 + n * 20) >= 2.5 ? n : Math.ceil(n / 2);
+    const rows = Math.ceil(n / cols);
+    // 最大寬度 330px：iPhone 直拿時每格約 60px，不會太大
+    const s = Math.max(2.5, Math.floor(fit(cols, 330) * 2) / 2);
     if (cols !== this.mc.cols) {
       this.mc.cols = cols;
       this.bar.style.backgroundImage = `url(${this.barImage(cols)})`;
@@ -394,7 +467,7 @@ export class Hud {
       b.style.left = `${(1 + (i % cols) * 20) * s}px`;
       b.style.top = `${(1 + Math.floor(i / cols) * 22) * s}px`;
     });
-    const i = this.selected ? SLOTS.indexOf(this.selected) : -1;
+    const i = this.selected ? GROUPS.indexOf(groupOf(this.selected)) : -1;
     this.selFrame.style.display = i < 0 ? 'none' : 'block';
     this.selFrame.style.left = `${((i % cols) * 20 - 1) * s}px`;
     this.selFrame.style.top = `${(Math.floor(i / cols) * 22 - 1) * s}px`;
@@ -473,45 +546,6 @@ export class Hud {
       b.textContent = LANGS[l];
       b.addEventListener('click', () => l !== getLang() && this.actions.setLang(l));
     });
-  }
-
-  /** 設定頁：錄 5 句回應（目前語言）。按「錄音」開始，說完會自動停止 */
-  private replyEditor(box: HTMLElement): void {
-    el('label', '', box).textContent = t('replies', { l: LANGS[getLang()] });
-    el('div', 'info', box).textContent = t('repliesHelp');
-    const has = this.actions.replies();
-    for (let i = 0; i < has.length; i++) {
-      const row = el('div', 'btnrow reply', box);
-      const rec = el('button', 'btn', row);
-      const play = el('button', 'btn small', row);
-      const del = el('button', 'btn small', row);
-      play.textContent = '▶';
-      del.textContent = '✕';
-      const show = (on: boolean) => {
-        rec.textContent = `${i + 1}　${on ? t('replyRerecord') : t('replyRecord')}`;
-        play.disabled = del.disabled = !on;
-      };
-      show(has[i]);
-      let stop: (() => void) | null = null;
-      rec.addEventListener('click', async () => {
-        if (stop) return stop();
-        const r = await this.actions.recordReply(i);
-        if (!r) return;
-        stop = r.stop;
-        rec.textContent = `${i + 1}　■ ${t('replyRecording')}`;
-        rec.classList.add('on');
-        const ok = await r.done;
-        stop = null;
-        rec.classList.remove('on');
-        if (!ok) this.toast(t('micNothing'));
-        show(ok || !play.disabled);
-      });
-      play.addEventListener('click', () => this.actions.playReply(i));
-      del.addEventListener('click', () => {
-        this.actions.deleteReply(i);
-        show(false);
-      });
-    }
   }
 
   openOnboarding(): void {
@@ -602,7 +636,6 @@ export class Hud {
       });
     }
 
-    this.replyEditor(box);
 
     el('label', '', box).textContent = t('bedtime');
     const brow = el('div', 'btnrow', box);

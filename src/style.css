@@ -141,9 +141,22 @@ body.ar #sky { display: none; }
 .artool.record.on::after { border-radius: 4px; animation: rec 0.8s ease-in-out infinite alternate; }
 .artool:active { transform: scale(0.92); }
 .ar .gear { display: none; }
-.artool.ui { font-size: 16px; }
-.artool.ui.on { background: rgba(255, 255, 255, 0.85); color: #1d2b4a; }
-.noui .hud, .noui .nametag, .noui .bubble { visibility: hidden !important; }
+/* AR 攝影棚：藏起快捷欄，改顯示姿勢列 */
+.ar .hud { display: none; }
+.posebar {
+  display: none;
+  position: absolute;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 12px);
+  transform: translateX(-50%);
+  width: min(94vw, 460px);
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+.ar .posebar { display: flex; }
+.posebar .btn.pose { width: auto; flex: 0 0 auto; margin: 0; padding: 8px 12px; background: rgba(255, 255, 255, 0.85); }
+.posebar .btn.pose.on { background: #e4f4ff; }
 @media (max-height: 460px) {
   .artools { gap: 8px; }
   .artool { width: 42px; height: 42px; font-size: 18px; }

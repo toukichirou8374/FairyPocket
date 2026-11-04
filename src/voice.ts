@@ -1,9 +1,5 @@
 // 麥克風：選起麥克風格後悅靈會一直聽，自己判斷你什麼時候說完，然後回應你。
-// 回應用玩家在設定頁錄的話（每種語言 5 句，隨機挑一句）；沒錄的話就用原版悅靈的叫聲
-// 依你說話的音節與高低回答（悅靈語）。聽到的聲音只拿來判斷與分析，不會存起來。
-// 設定頁錄的回應只存在這台裝置（IndexedDB）。
-
-import type { Lang } from './i18n';
+// 回應用原本的悅靈叫聲＋紫水晶鈴聲。聽到的聲音只拿來判斷說話的開始與結束，不會存起來。
 
 /** 說話音量門檻（0–1） */
 const SPEAK = 0.12;
@@ -123,74 +119,6 @@ function join(chunks: Float32Array[], len: number): Float32Array {
   return all;
 }
 
-// ---------- 分析音節（悅靈語用） ----------
-
-export interface Syllable {
-  /** 開始時間（秒） */
-  t: number;
-  dur: number;
-  /** 相對音高（1 = 這段話的平均） */
-  rel: number;
-}
-
-/** 依音量起伏切出音節，並估計每個音節的音高（自相關法） */
-export function syllables(d: Float32Array, rate: number, max = 12): Syllable[] {
-  const frame = Math.floor(rate * 0.01);
-  const rms: number[] = [];
-  for (let i = 0; i + frame <= d.length; i += frame) {
-    let s = 0;
-    for (let j = 0; j < frame; j++) s += d[i + j] * d[i + j];
-    rms.push(Math.sqrt(s / frame));
-  }
-  const peak = Math.max(...rms, 0);
-  if (peak < 0.01) return [];
-  const on = Math.max(0.015, peak * 0.35);
-  const off = on * 0.6;
-  const out: { t: number; dur: number; pitch: number }[] = [];
-  let i = 0;
-  while (i < rms.length && out.length < max) {
-    if (rms[i] < on) {
-      i++;
-      continue;
-    }
-    const a = i;
-    let top = a;
-    while (i < rms.length && rms[i] >= off && i - a < 35) {
-      if (rms[i] > rms[top]) top = i;
-      i++;
-    }
-    const dur = Math.max(0.06, (i - a) * 0.01);
-    out.push({ t: a * 0.01, dur, pitch: pitchAt(d, rate, top * frame) });
-    i += 6; // 音節之間至少隔 60ms
-  }
-  const voiced = out.map((s) => s.pitch).filter((p) => p > 0).sort((x, y) => x - y);
-  const mid = voiced.length ? voiced[Math.floor(voiced.length / 2)] : 0;
-  return out.map((s) => ({ t: s.t, dur: s.dur, rel: s.pitch > 0 && mid > 0 ? s.pitch / mid : 1 }));
-}
-
-/** 在某個位置附近估計音高（80–500Hz），估不出來回傳 0 */
-function pitchAt(d: Float32Array, rate: number, at: number): number {
-  const n = Math.floor(rate * 0.03);
-  const s = Math.max(0, Math.min(d.length - n * 2, at - n / 2));
-  if (s < 0) return 0;
-  let best = 0, bestLag = 0;
-  for (let lag = Math.floor(rate / 500); lag <= Math.floor(rate / 80); lag++) {
-    let c = 0, e1 = 0, e2 = 0;
-    for (let j = 0; j < n; j++) {
-      const x = d[s + j], y = d[s + j + lag];
-      c += x * y;
-      e1 += x * x;
-      e2 += y * y;
-    }
-    const r = c / Math.sqrt(e1 * e2 + 1e-9);
-    if (r > best) {
-      best = r;
-      bestLag = lag;
-    }
-  }
-  return best > 0.5 ? rate / bestLag : 0;
-}
-
 /** 去掉前後的靜音（前後各留 0.05 秒）；太短或幾乎沒聲音時回傳 null */
 export function trimSilence(d: Float32Array, rate: number, silence = 0.02): Float32Array<ArrayBuffer> | null {
   let a = 0;
@@ -202,112 +130,12 @@ export function trimSilence(d: Float32Array, rate: number, silence = 0.02): Floa
   return d.slice(Math.max(0, a - pad), Math.min(d.length, b + 1 + pad));
 }
 
-// ---------- 設定頁錄的回應（每種語言 5 句，只存在這台裝置） ----------
+// ---------- 舊版留下的錄音 ----------
 
-export const REPLY_SLOTS = 5;
-const REPLY_MAX_SEC = 4;
-
-export interface Clip {
-  rate: number;
-  data: Float32Array;
-}
-type Replies = (Clip | null)[];
-
-const DB = 'fairypocket-voice';
-const STORE = 'phrases';
-
-function db(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+/** 刪掉舊版「學人說話」「錄音回應」存在裝置上的錄音 */
+export function forgetVoiceData(): Promise<void> {
+  return new Promise((resolve) => {
+    const req = indexedDB.deleteDatabase('fairypocket-voice');
+    req.onsuccess = req.onerror = req.onblocked = () => resolve();
   });
-}
-
-async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  const d = await db();
-  try {
-    return await new Promise<T>((resolve, reject) => {
-      const t = d.transaction(STORE, mode);
-      const r = fn(t.objectStore(STORE));
-      t.oncomplete = () => resolve(r.result);
-      t.onerror = t.onabort = () => reject(t.error);
-    });
-  } finally {
-    d.close();
-  }
-}
-
-export async function loadReplies(lang: Lang): Promise<Replies> {
-  try {
-    // 舊版「學人說話」存的錄音不再使用，順便刪掉
-    void run('readwrite', (s) => s.delete('list')).catch(() => {});
-    const r = ((await run('readonly', (s) => s.get(`replies:${lang}`))) as Replies | undefined) ?? [];
-    return Array.from({ length: REPLY_SLOTS }, (_, i) => r[i] ?? null);
-  } catch {
-    return Array(REPLY_SLOTS).fill(null);
-  }
-}
-
-export async function saveReplies(lang: Lang, r: Replies): Promise<void> {
-  await run('readwrite', (s) => s.put(r, `replies:${lang}`));
-}
-
-export function clipBuffer(ctx: AudioContext, c: Clip): AudioBuffer {
-  const buf = ctx.createBuffer(1, c.data.length, c.rate);
-  buf.copyToChannel(new Float32Array(c.data), 0);
-  return buf;
-}
-
-/**
- * 錄一句回應：開始後一直錄到說完（安靜 0.7 秒）、按停止或滿 4 秒為止。
- * 回傳 stop 函式與結果。
- */
-export async function recordClip(ctx: AudioContext): Promise<{ stop: () => void; done: Promise<Clip | null> }> {
-  setSession('play-and-record');
-  let stream: MediaStream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-  } catch (e) {
-    setSession('ambient');
-    throw e;
-  }
-  const src = ctx.createMediaStreamSource(stream);
-  const node = ctx.createScriptProcessor(2048, 1, 1);
-  const chunks: Float32Array[] = [];
-  let len = 0, quiet = 0, heard = false;
-  let finish!: () => void;
-  const done = new Promise<Clip | null>((resolve) => {
-    finish = () => {
-      stream.getTracks().forEach((t) => t.stop());
-      src.disconnect();
-      node.disconnect();
-      setSession('ambient');
-      const t = trimSilence(join(chunks, len), ctx.sampleRate);
-      resolve(t ? { rate: ctx.sampleRate, data: t } : null);
-    };
-  });
-  let ended = false;
-  const stop = () => {
-    if (ended) return;
-    ended = true;
-    finish();
-  };
-  node.onaudioprocess = (e) => {
-    const d = e.inputBuffer.getChannelData(0);
-    let sum = 0;
-    for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
-    const loud = Math.sqrt(sum / d.length) * 8 > SPEAK;
-    chunks.push(d.slice());
-    len += d.length;
-    if (loud) {
-      heard = true;
-      quiet = 0;
-    } else quiet += d.length / ctx.sampleRate;
-    if ((heard && quiet > END_SILENCE) || len / ctx.sampleRate > REPLY_MAX_SEC) stop();
-  };
-  src.connect(node);
-  node.connect(ctx.destination);
-  return { stop, done };
 }
