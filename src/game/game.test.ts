@@ -10,6 +10,7 @@ import { allayRate, distanceGain, loadSoundMode, SOUND_MODES } from '../audio';
 import { SFX, sfxPitch } from '../sfx';
 import { trimSilence } from '../voice';
 import { WaveDetector } from '../ar';
+import { trackPitch, transform } from '../voicefx';
 import { emptyMemory, memoryTopic, mostEaten, rememberFood, takeMilestone, timeGreeting, visitDay } from './memory';
 
 function memStorage() {
@@ -360,5 +361,34 @@ describe('i18n', () => {
     expect(loadLang(empty, 'en-US')).toBe('en_us');
     expect(loadLang(empty, 'ja-JP', true)).toBe('zh_tw');
     expect(loadLang({ getItem: () => 'en_us' }, 'zh-TW')).toBe('en_us');
+  });
+});
+
+describe('變聲', () => {
+  // 模擬大人男生的聲音：120Hz 的母音（含泛音），1.2 秒
+  const rate = 48000;
+  const voice = new Float32Array(rate * 1.2);
+  for (let i = 0; i < voice.length; i++) {
+    const t = i / rate;
+    for (let h = 1; h <= 8; h++) voice[i] += (Math.sin(2 * Math.PI * 120 * h * t) / h) * 0.2;
+  }
+  const mid = (d: Float32Array) => {
+    const v = [...trackPitch(d, rate)].filter((x) => x > 0).sort((a, b) => a - b);
+    return v[Math.floor(v.length / 2)];
+  };
+  it('聽得出原本的音高', () => {
+    expect(mid(voice)).toBeGreaterThan(110);
+    expect(mid(voice)).toBeLessThan(130);
+  });
+  it('少女、小孩、精靈的聲音一個比一個高，長度差不多', () => {
+    const girl = transform(voice, rate, 'girl');
+    const child = transform(voice, rate, 'child');
+    expect(mid(girl)).toBeGreaterThan(220);
+    expect(mid(girl)).toBeLessThan(280);
+    expect(mid(child)).toBeGreaterThan(mid(girl));
+    expect(Math.abs(girl.length - voice.length)).toBeLessThan(rate * 0.1);
+    const fairy = transform(voice, rate, 'fairy');
+    expect(fairy.length).toBeGreaterThan(voice.length * 0.9);
+    expect(Math.max(...fairy.map(Math.abs))).toBeLessThanOrEqual(0.91);
   });
 });

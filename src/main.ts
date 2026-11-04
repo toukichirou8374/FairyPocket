@@ -13,11 +13,11 @@ import { Sound } from './audio';
 import { SFX, sfxPitch, type Sfx } from './sfx';
 import { Music } from './music';
 import { ArCamera, Composer, saveMedia, type ArEvents, type Facing } from './ar';
-import { forgetVoiceData, Listener } from './voice';
+import { clipBuffer, Listener, loadReplies, loadVoiceStyle, recordClip, saveReplies, saveVoiceStyle, type Clip } from './voice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
 import { asciiGlyphs, buildFont } from './pixelFont';
-import { itemName, loadLang, saveLang, setLang, t } from './i18n';
+import { getLang, itemName, loadLang, saveLang, setLang, t } from './i18n';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const overlay = document.getElementById('overlay') as HTMLDivElement;
@@ -49,7 +49,10 @@ const say = (kind: LineKind, food?: Food | null, d: number | string = '') => {
 
 const listener = new Listener();
 // 舊版「錄音回應」存的錄音不再使用，刪掉
-void forgetVoiceData();
+/** 設定頁錄的回應（目前語言 5 句）與變聲種類 */
+let replies: (Clip | null)[] = [];
+void loadReplies(getLang()).then((r) => (replies = r));
+let voiceStyle = loadVoiceStyle(localStorage);
 
 async function micOn(): Promise<void> {
   sound.unlock();
@@ -75,12 +78,22 @@ function micOff(): void {
 /** 說完了：從這個語言錄好的回應隨機挑一句；沒有就用悅靈語回答 */
 async function answer(samples: Float32Array, rate: number): Promise<void> {
   ctrl.listen(false);
-  // 用原本的悅靈叫聲＋紫水晶鈴聲回答；說得比較久，就多回幾聲
-  const times = Math.min(3, 1 + Math.floor(samples.length / rate / 2));
-  for (let i = 0; i < times; i++) setTimeout(() => sound.speak(pet.personality), i * 650);
-  hud.say(pickLine('heard', pet.personality, pet.name));
+  const ctx = sound.context;
+  const ready = replies.filter((r): r is Clip => !!r);
+  let len: number;
+  if (ctx && ready.length) {
+    // 有錄回應：隨機挑一句，變聲後播放
+    len = sound.playClip(clipBuffer(ctx, ready[Math.floor(Math.random() * ready.length)], voiceStyle));
+    hud.say('♪');
+  } else {
+    // 沒錄：用原本的悅靈叫聲＋紫水晶鈴聲回答；說得比較久，就多回幾聲
+    const times = Math.min(3, 1 + Math.floor(samples.length / rate / 2));
+    for (let i = 0; i < times; i++) setTimeout(() => sound.speak(pet.personality), i * 650);
+    hud.say(pickLine('heard', pet.personality, pet.name));
+    len = times * 0.65 + 0.8;
+  }
   // 悅靈說話時先不要聽（避免聽到自己的聲音）
-  listener.pausedUntil = performance.now() + (times * 0.65 + 1.2) * 1000;
+  listener.pausedUntil = performance.now() + (len + 0.4) * 1000;
   stage.spawn('note', ctrl.headTop(new THREE.Vector3()), 2);
   cheer(pet, 3);
   lastSpoke = performance.now();
@@ -419,6 +432,42 @@ const hud = new Hud(overlay, {
     playSfx('click');
   },
   arRecord: () => void arRecord(),
+  replies: () => replies.map((r) => !!r),
+  recordReply: async (i) => {
+    sound.unlock();
+    const ctx = sound.context;
+    if (!ctx) return null;
+    try {
+      const rec = await recordClip(ctx);
+      return {
+        stop: rec.stop,
+        done: rec.done.then(async (clip) => {
+          if (!clip) return false;
+          replies[i] = clip;
+          await saveReplies(getLang(), replies);
+          return true;
+        }),
+      };
+    } catch {
+      hud.toast(t('micDenied'));
+      return null;
+    }
+  },
+  playReply: (i) => {
+    sound.unlock();
+    const ctx = sound.context;
+    const r = replies[i];
+    if (ctx && r) sound.playClip(clipBuffer(ctx, r, voiceStyle));
+  },
+  deleteReply: (i) => {
+    replies[i] = null;
+    void saveReplies(getLang(), replies);
+  },
+  voiceStyle: () => voiceStyle,
+  setVoiceStyle: (v) => {
+    voiceStyle = v;
+    saveVoiceStyle(localStorage, v);
+  },
   arFlip: () => void arOpen(arCam.facing === 'user' ? 'environment' : 'user'),
   arPose: (p) => {
     if (p === 'turn') {

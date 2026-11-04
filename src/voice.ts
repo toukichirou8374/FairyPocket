@@ -1,5 +1,10 @@
 // 麥克風：選起麥克風格後悅靈會一直聽，自己判斷你什麼時候說完，然後回應你。
-// 回應用原本的悅靈叫聲＋紫水晶鈴聲。聽到的聲音只拿來判斷說話的開始與結束，不會存起來。
+// 回應用玩家在設定頁錄的話（每種語言 5 句，隨機挑一句，變聲成精靈、小孩或少女的聲音）；
+// 沒錄的話用原本的悅靈叫聲＋紫水晶鈴聲。聽到的聲音只拿來判斷說話的開始與結束，不會存起來。
+// 設定頁錄的回應只存在這台裝置（IndexedDB）。
+
+import type { Lang } from './i18n';
+import { transform, VOICE_STYLES, type VoiceStyle } from './voicefx';
 
 /** 說話音量門檻（0–1） */
 const SPEAK = 0.12;
@@ -130,12 +135,130 @@ export function trimSilence(d: Float32Array, rate: number, silence = 0.02): Floa
   return d.slice(Math.max(0, a - pad), Math.min(d.length, b + 1 + pad));
 }
 
-// ---------- 舊版留下的錄音 ----------
+// ---------- 設定頁錄的回應（每種語言 5 句，只存在這台裝置） ----------
 
-/** 刪掉舊版「學人說話」「錄音回應」存在裝置上的錄音 */
-export function forgetVoiceData(): Promise<void> {
-  return new Promise((resolve) => {
-    const req = indexedDB.deleteDatabase('fairypocket-voice');
-    req.onsuccess = req.onerror = req.onblocked = () => resolve();
+export const REPLY_SLOTS = 5;
+const REPLY_MAX_SEC = 4;
+
+export interface Clip {
+  rate: number;
+  data: Float32Array;
+}
+type Replies = (Clip | null)[];
+
+const DB = 'fairypocket-voice';
+const STORE = 'phrases';
+
+function db(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
   });
+}
+
+async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  const d = await db();
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      const t = d.transaction(STORE, mode);
+      const r = fn(t.objectStore(STORE));
+      t.oncomplete = () => resolve(r.result);
+      t.onerror = t.onabort = () => reject(t.error);
+    });
+  } finally {
+    d.close();
+  }
+}
+
+export async function loadReplies(lang: Lang): Promise<Replies> {
+  try {
+    const r = ((await run('readonly', (s) => s.get(`replies:${lang}`))) as Replies | undefined) ?? [];
+    return Array.from({ length: REPLY_SLOTS }, (_, i) => r[i] ?? null);
+  } catch {
+    return Array(REPLY_SLOTS).fill(null);
+  }
+}
+
+export async function saveReplies(lang: Lang, r: Replies): Promise<void> {
+  await run('readwrite', (s) => s.put(r, `replies:${lang}`));
+}
+
+/** 變聲後的錄音（同一句同一種聲音只算一次） */
+const fxCache = new WeakMap<Clip, Map<VoiceStyle, Float32Array<ArrayBuffer>>>();
+
+export function clipBuffer(ctx: AudioContext, c: Clip, style: VoiceStyle): AudioBuffer {
+  let m = fxCache.get(c);
+  if (!m) fxCache.set(c, (m = new Map()));
+  let d = m.get(style);
+  if (!d) m.set(style, (d = transform(c.data, c.rate, style)));
+  const buf = ctx.createBuffer(1, d.length, c.rate);
+  buf.copyToChannel(d, 0);
+  return buf;
+}
+
+// ---------- 變聲的種類（存在這台裝置） ----------
+
+const STYLE_KEY = 'fairypocket.voicestyle.v1';
+
+export function loadVoiceStyle(storage: Pick<Storage, 'getItem'>): VoiceStyle {
+  const v = storage.getItem(STYLE_KEY) as VoiceStyle | null;
+  return v && VOICE_STYLES.includes(v) ? v : 'fairy';
+}
+
+export function saveVoiceStyle(storage: Pick<Storage, 'setItem'>, v: VoiceStyle): void {
+  storage.setItem(STYLE_KEY, v);
+}
+
+/**
+ * 錄一句回應：開始後一直錄到說完（安靜 0.7 秒）、按停止或滿 4 秒為止。
+ * 回傳 stop 函式與結果。
+ */
+export async function recordClip(ctx: AudioContext): Promise<{ stop: () => void; done: Promise<Clip | null> }> {
+  setSession('play-and-record');
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  } catch (e) {
+    setSession('ambient');
+    throw e;
+  }
+  const src = ctx.createMediaStreamSource(stream);
+  const node = ctx.createScriptProcessor(2048, 1, 1);
+  const chunks: Float32Array[] = [];
+  let len = 0, quiet = 0, heard = false;
+  let finish!: () => void;
+  const done = new Promise<Clip | null>((resolve) => {
+    finish = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      src.disconnect();
+      node.disconnect();
+      setSession('ambient');
+      const t = trimSilence(join(chunks, len), ctx.sampleRate);
+      resolve(t ? { rate: ctx.sampleRate, data: t } : null);
+    };
+  });
+  let ended = false;
+  const stop = () => {
+    if (ended) return;
+    ended = true;
+    finish();
+  };
+  node.onaudioprocess = (e) => {
+    const d = e.inputBuffer.getChannelData(0);
+    let sum = 0;
+    for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
+    const loud = Math.sqrt(sum / d.length) * 8 > SPEAK;
+    chunks.push(d.slice());
+    len += d.length;
+    if (loud) {
+      heard = true;
+      quiet = 0;
+    } else quiet += d.length / ctx.sampleRate;
+    if ((heard && quiet > END_SILENCE) || len / ctx.sampleRate > REPLY_MAX_SEC) stop();
+  };
+  src.connect(node);
+  node.connect(ctx.destination);
+  return { stop, done };
 }

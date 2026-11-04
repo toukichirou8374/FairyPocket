@@ -236,6 +236,21 @@ export class Sound {
     return this.ctx;
   }
 
+  /** 播放（變聲後的）錄音回應，前面加一聲紫水晶鈴聲。回傳大約要播多久（秒） */
+  playClip(buf: AudioBuffer): number {
+    const ctx = this.ctx;
+    const m = SOUND_MODES[this.mode];
+    if (!ctx || ctx.state !== 'running' || m.allay <= 0) return 0;
+    void this.play(CHIME, m.chime, m.chimePitch);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = Math.min(1.5, m.allay * 1.2);
+    src.connect(g).connect(this.output(ctx));
+    src.start(ctx.currentTime + 0.15);
+    return buf.duration + 0.3;
+  }
+
   /** 悅靈發言：悅靈叫聲 + 紫水晶鈴聲 */
   speak(p: Personality): void {
     const m = SOUND_MODES[this.mode];

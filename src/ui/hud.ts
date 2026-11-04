@@ -7,6 +7,7 @@ import { SOUND_MODES, type SoundMode } from '../audio';
 import { BIOMES, type Biome } from '../three/biome';
 import type { Pose } from '../three/allayController';
 import { getLang, itemName, LANGS, personalityText, t, type Lang, type UiKey } from '../i18n';
+import { VOICE_STYLES, type VoiceStyle } from '../voicefx';
 
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
@@ -92,6 +93,14 @@ export interface HudActions {
   arPhoto(): void;
   arRecord(): void;
   arFlip(): void;
+  /** 設定頁錄的回應（目前語言 5 句）：哪幾格有錄、錄音、試聽、刪除 */
+  replies(): boolean[];
+  recordReply(i: number): Promise<{ stop: () => void; done: Promise<boolean> } | null>;
+  playReply(i: number): void;
+  deleteReply(i: number): void;
+  /** 回應的變聲種類 */
+  voiceStyle(): VoiceStyle;
+  setVoiceStyle(v: VoiceStyle): void;
   /** AR 攝影棚：換姿勢、轉向（turn）、讓悅靈自己行動（free） */
   arPose(p: Pose | 'turn' | 'free'): void;
   biome(): Biome;
@@ -632,6 +641,58 @@ export class Hud {
     });
   }
 
+  /** 設定頁：錄 5 句回應（目前語言）。按「錄音」開始，說完會自動停止 */
+  private replyEditor(box: HTMLElement): void {
+    el('label', '', box).textContent = t('replies', { l: LANGS[getLang()] });
+    el('div', 'info', box).textContent = t('repliesHelp');
+    // 變聲：精靈／小孩／少女
+    const vrow = el('div', 'btnrow', box);
+    for (const v of VOICE_STYLES) {
+      const b = el('button', 'btn small' + (v === this.actions.voiceStyle() ? ' on' : ''), vrow);
+      b.textContent = t(`voice.${v}`);
+      b.addEventListener('click', () => {
+        vrow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
+        this.actions.setVoiceStyle(v);
+        // 換了聲音就播一句有錄的來聽聽看
+        const first = this.actions.replies().findIndex((x) => x);
+        if (first >= 0) this.actions.playReply(first);
+      });
+    }
+    const has = this.actions.replies();
+    for (let i = 0; i < has.length; i++) {
+      const row = el('div', 'btnrow reply', box);
+      const rec = el('button', 'btn', row);
+      const play = el('button', 'btn small', row);
+      const del = el('button', 'btn small', row);
+      play.textContent = '▶';
+      del.textContent = '✕';
+      const show = (on: boolean) => {
+        rec.textContent = `${i + 1}　${on ? t('replyRerecord') : t('replyRecord')}`;
+        play.disabled = del.disabled = !on;
+      };
+      show(has[i]);
+      let stop: (() => void) | null = null;
+      rec.addEventListener('click', async () => {
+        if (stop) return stop();
+        const r = await this.actions.recordReply(i);
+        if (!r) return;
+        stop = r.stop;
+        rec.textContent = `${i + 1}　■ ${t('replyRecording')}`;
+        rec.classList.add('on');
+        const ok = await r.done;
+        stop = null;
+        rec.classList.remove('on');
+        if (!ok) this.toast(t('micNothing'));
+        show(ok || !play.disabled);
+      });
+      play.addEventListener('click', () => this.actions.playReply(i));
+      del.addEventListener('click', () => {
+        this.actions.deleteReply(i);
+        show(false);
+      });
+    }
+  }
+
   openOnboarding(): void {
     const { box, close } = this.modal(t('onboardTitle'));
     this.langPicker(box);
@@ -733,6 +794,7 @@ export class Hud {
       });
     }
 
+    this.replyEditor(box);
 
     el('label', '', box).textContent = t('bedtime');
     const brow = el('div', 'btnrow', box);
