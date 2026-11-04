@@ -128,6 +128,7 @@ export class Hud {
   private slots: HTMLButtonElement[] = [];
   private itemName: HTMLDivElement;
   private toastEl: HTMLDivElement;
+  private toastTimer = 0;
   private bubbleTimer = 0;
   private itemTimer = 0;
   private heartURL: string[];
@@ -502,7 +503,83 @@ export class Hud {
   toast(text: string): void {
     this.toastEl.textContent = text;
     this.toastEl.classList.add('show');
-    window.setTimeout(() => this.toastEl.classList.remove('show'), 2400);
+    clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('show'), 2400);
+  }
+
+  // ---------- 匯入進度（像原版的載入畫面：文字 + 進度條 + 一直往上跑的百分比） ----------
+
+  private prog: { back: HTMLDivElement; label: HTMLDivElement; fill: HTMLDivElement; pct: HTMLDivElement; foot: HTMLDivElement } | null = null;
+  private progShown = 0;
+  private progAt = 0;
+  private progNext = 0;
+  private progRaf = 0;
+  private progTimer = 0;
+
+  /**
+   * 顯示或更新進度：at = 目前已完成的比例，next = 這一步做完會到的比例。
+   * 等待中的百分比會慢慢往 next 靠近（不會停住），讓人知道還在跑。
+   */
+  progress(label: string, at: number, next = at): void {
+    if (!this.prog) {
+      const back = el('div', 'progress-back', this.root);
+      const box = el('div', 'progress', back);
+      const lbl = el('div', 'plabel', box);
+      const bar = el('div', 'pbar', box);
+      const fill = el('div', 'pfill', bar);
+      const pct = el('div', 'ppct', box);
+      const foot = el('div', 'pfoot', box);
+      this.prog = { back, label: lbl, fill, pct, foot };
+      this.progShown = 0;
+    }
+    clearTimeout(this.progTimer);
+    this.prog.back.classList.remove('done', 'fail');
+    this.prog.foot.replaceChildren();
+    this.prog.label.textContent = label;
+    this.progAt = Math.max(this.progShown, at);
+    this.progNext = Math.max(this.progAt, next);
+    if (!this.progRaf) {
+      let last = performance.now();
+      const tick = (now: number) => {
+        const dt = Math.min(0.1, (now - last) / 1000);
+        last = now;
+        // 先追上已完成的部分，再朝下一個目標慢慢逼近（只走剩下距離的一小部分，永遠不會超過）
+        if (this.progShown < this.progAt) this.progShown = Math.min(this.progAt, this.progShown + dt * 0.8);
+        else this.progShown += (this.progNext - this.progShown) * (1 - Math.exp(-dt * 0.6));
+        this.drawProgress();
+        this.progRaf = requestAnimationFrame(tick);
+      };
+      this.progRaf = requestAnimationFrame(tick);
+    }
+  }
+
+  private drawProgress(): void {
+    if (!this.prog) return;
+    const v = Math.min(1, this.progShown);
+    this.prog.fill.style.width = `${(v * 100).toFixed(1)}%`;
+    this.prog.pct.textContent = `${Math.floor(v * 100)}%`;
+  }
+
+  /** 結束進度：成功顯示 100% 與完成訊息（幾秒後自動關閉），失敗顯示原因並等使用者關閉 */
+  progressEnd(text: string, ok: boolean): void {
+    if (!this.prog) this.progress('', 0);
+    const p = this.prog!;
+    cancelAnimationFrame(this.progRaf);
+    this.progRaf = 0;
+    if (ok) this.progShown = 1;
+    this.drawProgress();
+    p.label.textContent = text;
+    p.back.classList.add(ok ? 'done' : 'fail');
+    if (ok) p.pct.textContent = '100% ✔';
+    const b = el('button', 'btn', p.foot);
+    b.textContent = t('close');
+    const close = () => {
+      clearTimeout(this.progTimer);
+      p.back.remove();
+      if (this.prog === p) this.prog = null;
+    };
+    b.addEventListener('click', close);
+    if (ok) this.progTimer = window.setTimeout(close, 4000);
   }
 
   /** 名字與泡泡跟著悅靈頭頂移動 */

@@ -492,15 +492,17 @@ const hud = new Hud(overlay, {
     setTimeout(() => say('greet'), 600);
   },
   importAssets: async (file) => {
-    hud.toast(t('packReading'));
+    // 0～5%：讀取；5～85%：存入這台裝置（依檔案大小計算）；85～100%：套用到遊戲
+    hud.progress(t('packReading'), 0, 0.05);
     try {
       const p = await readPackFile(file);
-      await savePack(p, (n, m) => hud.toast(t('packSaving', { n, m })));
+      await savePack(p, (at, next) => hud.progress(t('packSaving'), 0.05 + at * 0.8, 0.05 + next * 0.8));
       localStorage.removeItem(OPT_OUT_KEY);
+      hud.progress(t('packApplying'), 0.85, 0.99);
       await applyPack(p);
-      hud.toast(t('packDone', { v: p.source }));
+      hud.progressEnd(t('packDone', { v: p.source }), true);
     } catch (e) {
-      hud.toast(t('packFail', { e: (e as Error).message || String(e) }));
+      hud.progressEnd(t('packFail', { e: (e as Error).message || String(e) }), false);
     }
   },
   clearAssets: async () => {

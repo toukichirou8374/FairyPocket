@@ -263,17 +263,37 @@ async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
   }
 }
 
-/** 每批存幾個檔案（分批存，避免一次交易太大讓 iPad 記憶體不足） */
-const PART = 400;
+/** 每批最多存幾個檔案、幾 MB（分批存，避免一次交易太大讓 iPad 記憶體不足，也讓進度跑得比較細） */
+const PART_FILES = 200;
+const PART_BYTES = 3_000_000;
 
-export async function savePack(p: AssetPack, progress?: (done: number, total: number) => void): Promise<void> {
-  const entries = [...p.files];
-  const parts = Math.ceil(entries.length / PART);
-  for (let i = 0; i < parts; i++) {
-    progress?.(i + 1, parts);
-    const chunk = Object.fromEntries(entries.slice(i * PART, (i + 1) * PART));
-    await tx('readwrite', (s) => s.put(chunk, `part:${i}`));
+/**
+ * 分批存入素材包。progress(at, next)：at = 已存好的比例（依檔案大小），next = 這一批存好後的比例。
+ */
+export async function savePack(p: AssetPack, progress?: (at: number, next: number) => void): Promise<void> {
+  const chunks: [string, Blob][][] = [];
+  let cur: [string, Blob][] = [];
+  let curBytes = 0;
+  for (const e of p.files) {
+    if (cur.length && (cur.length >= PART_FILES || curBytes + e[1].size > PART_BYTES)) {
+      chunks.push(cur);
+      cur = [];
+      curBytes = 0;
+    }
+    cur.push(e);
+    curBytes += e[1].size;
   }
+  if (cur.length) chunks.push(cur);
+  const sizes = chunks.map((c) => c.reduce((m, [, b]) => m + b.size, 0));
+  const total = Math.max(1, sizes.reduce((a, b) => a + b, 0));
+  const parts = chunks.length;
+  let done = 0;
+  for (let i = 0; i < parts; i++) {
+    progress?.(done / total, (done + sizes[i]) / total);
+    await tx('readwrite', (s) => s.put(Object.fromEntries(chunks[i]), `part:${i}`));
+    done += sizes[i];
+  }
+  progress?.(1, 1);
   // 最後才寫目錄，存到一半失敗時不會讀到不完整的素材包
   await tx('readwrite', (s) => s.put({ source: p.source, id: p.id, parts }, 'current'));
 }
