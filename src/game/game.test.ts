@@ -8,6 +8,7 @@ import fontChars from '../../fonts/fairypocket-pixel.chars.txt?raw';
 import { packFile, parseLegacyPack, parseZipPack } from './assets';
 import { allayRate, distanceGain, loadSoundMode, SOUND_MODES } from '../audio';
 import { SFX, sfxPitch } from '../sfx';
+import { emptyMemory, memoryTopic, mostEaten, rememberFood, takeMilestone, timeGreeting, visitDay } from './memory';
 
 function memStorage() {
   const m = new Map<string, string>();
@@ -226,6 +227,45 @@ describe('sound spec', () => {
     expect(SOUND_MODES.soft).toMatchObject({ allay: 0.52, chime: 0.21, chimePitch: 1.35 });
     expect(SOUND_MODES.off).toMatchObject({ allay: 0, chime: 0 });
     expect(loadSoundMode({ getItem: () => null })).toBe('bright');
+  });
+});
+
+describe('memory', () => {
+  const DAY = 86400_000;
+  it('counts days in a row and resets after a gap', () => {
+    const m = emptyMemory();
+    const t0 = new Date(2026, 10, 1, 9).getTime();
+    expect(visitDay(m, t0)).toBe(true);
+    expect(visitDay(m, t0 + 3600_000)).toBe(false);
+    visitDay(m, t0 + DAY);
+    visitDay(m, t0 + 2 * DAY);
+    expect(m.streak).toBe(3);
+    visitDay(m, t0 + 5 * DAY);
+    expect(m.streak).toBe(1);
+    expect(m.days).toBe(4);
+  });
+  it('remembers foods and celebrates milestones once', () => {
+    const s = createPet(0);
+    for (let i = 0; i < 3; i++) rememberFood(s.memory, 'bread', 1000);
+    expect(mostEaten(s.memory)).toBe('bread');
+    s.stats.petted = 120;
+    expect(takeMilestone(s, ['mPetted'])).toEqual({ kind: 'mPetted', n: 100 });
+    expect(takeMilestone(s, ['mPetted'])).toBeNull();
+    const topic = memoryTopic(s, 1000 + 3600_000, () => 0);
+    expect(topic?.kind).toBe('remFood');
+  });
+  it('survives a save round trip', () => {
+    const s = createPet(0);
+    rememberFood(s.memory, 'cookie', 5);
+    const back = parseSave(serialize(s));
+    expect(back.memory.foods.cookie).toBe(1);
+    expect(back.memory.lastFood).toBe('cookie');
+  });
+  it('fills in counts in lines', () => {
+    expect(pickLine('streak', 'brave', 'x', () => 0, '', 'zh_tw', 5)).toContain('5');
+    expect(['greetMorning', 'greetAfternoon', 'greetEvening']).toContain(timeGreeting(new Date(2026, 0, 1, 8).getTime()));
+    expect(timeGreeting(new Date(2026, 0, 1, 8).getTime())).toBe('greetMorning');
+    expect(timeGreeting(new Date(2026, 0, 1, 21).getTime())).toBe('greetEvening');
   });
 });
 

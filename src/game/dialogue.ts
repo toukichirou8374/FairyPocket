@@ -7,7 +7,11 @@ export type LineKind =
   | 'greet' | 'welcomeBack' | 'idle' | 'hungry' | 'sleepy' | 'wake' | 'fed' | 'full'
   | 'pet' | 'tickle' | 'play' | 'call' | 'night' | 'curious'
   | 'fedFood' | 'favorite' | 'fullFood' | 'dance' | 'duplicate'
-  | 'missed' | 'longAway' | 'lonely' | 'happyIdle' | 'bedtime' | 'morning';
+  | 'missed' | 'longAway' | 'lonely' | 'happyIdle' | 'bedtime' | 'morning'
+  // 時段問候與記憶話題（{d} 是天數或次數）
+  | 'greetMorning' | 'greetAfternoon' | 'greetEvening'
+  | 'remFood' | 'mostFood' | 'missPlay' | 'missDance' | 'streak' | 'together'
+  | 'mFed' | 'mPetted' | 'mPlayed' | 'mDays' | 'mStreak';
 
 type Table = Partial<Record<LineKind, string[]>>;
 
@@ -38,6 +42,20 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     happyIdle: ['今天好開心喔～♪', '跟你在一起最快樂了！', '嘿嘿，心情超好！'],
     bedtime: ['到睡覺時間了…晚安～', '呼啊…我先去睡囉，你也早點睡', '晚安，明天見！'],
     morning: ['早安！新的一天開始了！', '早安～睡得好飽！', '天亮了！今天要做什麼呢？'],
+    greetMorning: ['早安！今天也一起度過吧～', '早安～你睡得好嗎？', '早上好！{n}已經準備好了！'],
+    greetAfternoon: ['午安！你今天過得怎麼樣？', '下午好～吃過午餐了嗎？', '午安！我剛剛一直在等你～'],
+    greetEvening: ['晚上好！今天辛苦了～', '你來了！今天發生了什麼事呢？', '睡覺前要陪我玩一下喔！'],
+    remFood: ['上次你餵我吃的{f}好好吃喔！', '我還記得{f}的味道～', '{f}…想起來就好開心！'],
+    mostFood: ['你最常給我{f}耶！你是不是也喜歡？', '說到{f}，我已經吃過好多次了！', '{f}是我們的回憶味道～'],
+    missPlay: ['好久沒玩史萊姆球了…想玩！', '還記得一起玩球嗎？再來一次嘛！'],
+    missDance: ['好想再聽一次音階盒…', '上次跳舞好開心，還想再跳！'],
+    streak: ['我們已經連續 {d} 天見面了！', '連續第 {d} 天！每天都見得到你真好～'],
+    together: ['我們認識第 {d} 天了耶！', '跟你在一起已經 {d} 天了～'],
+    mFed: ['這是你第 {d} 次餵我耶！謝謝你一直照顧我！'],
+    mPetted: ['你已經摸摸我 {d} 次了！最喜歡你的手了～'],
+    mPlayed: ['我們一起玩了 {d} 次了！下一次也要玩喔！'],
+    mDays: ['我們已經一起度過 {d} 天了！以後也請多指教！'],
+    mStreak: ['連續 {d} 天都來看我！好感動…'],
   },
   ja_jp: {
     greet: ['こんにちは！{n}だよ～', '今日もよろしくね！'],
@@ -65,6 +83,20 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     happyIdle: ['今日はすごく楽しい～♪', 'あなたといると一番しあわせ！', 'えへへ、ごきげんだよ！'],
     bedtime: ['もう寝る時間…おやすみ～', 'ふわぁ…先に寝るね、あなたも早く寝てね', 'おやすみ、また明日！'],
     morning: ['おはよう！新しい一日だね！', 'おはよう～よく寝た！', '朝だ！今日はなにする？'],
+    greetMorning: ['おはよう！今日もいっしょにすごそうね～', 'おはよう～よく眠れた？', 'おはよう！{n}はもう準備できてるよ！'],
+    greetAfternoon: ['こんにちは！今日はどんな日？', 'こんにちは～お昼ごはん食べた？', 'こんにちは！ずっと待ってたよ～'],
+    greetEvening: ['こんばんは！今日もおつかれさま～', '来てくれた！今日はなにがあったの？', '寝る前にちょっと遊んでね！'],
+    remFood: ['この前もらった{f}、おいしかったな！', '{f}の味、まだ覚えてるよ～', '{f}…思い出すだけでうれしい！'],
+    mostFood: ['{f}をいちばんくれるよね！あなたも好きなの？', '{f}はもう何回も食べたよ！', '{f}はわたしたちの思い出の味～'],
+    missPlay: ['ずっとスライムボールで遊んでないな…遊びたい！', 'いっしょにボール遊びしたの覚えてる？またやろう！'],
+    missDance: ['また音符ブロックの音が聞きたいな…', 'この前のダンス楽しかった、また踊りたい！'],
+    streak: ['{d} 日連続で会えてるよ！', '連続 {d} 日目！毎日会えてうれしい～'],
+    together: ['出会って {d} 日目だね！', 'いっしょにいて {d} 日になったよ～'],
+    mFed: ['ごはんをくれたの、これで {d} 回目だよ！いつもありがとう！'],
+    mPetted: ['なでなで {d} 回目！あなたの手、大好き～'],
+    mPlayed: ['いっしょに遊んだの {d} 回目！次も遊ぼうね！'],
+    mDays: ['いっしょに {d} 日すごしたよ！これからもよろしくね！'],
+    mStreak: ['{d} 日連続で会いに来てくれた！感動…'],
   },
   en_us: {
     greet: ["Hi there! I'm {n}~", 'Nice to see you today!'],
@@ -92,6 +124,20 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     happyIdle: ["I'm so happy today~♪", "Being with you is the best!", "Hehe, I'm in a great mood!"],
     bedtime: ["It's bedtime… good night~", "Yawn… I'll sleep first, you sleep early too", 'Good night, see you tomorrow!'],
     morning: ['Good morning! A new day!', 'Morning~ I slept so well!', "It's morning! What shall we do today?"],
+    greetMorning: ["Good morning! Let's spend today together~", 'Morning~ did you sleep well?', 'Good morning! {n} is ready!'],
+    greetAfternoon: ['Good afternoon! How is your day?', 'Hi~ did you have lunch?', 'Good afternoon! I was waiting for you~'],
+    greetEvening: ['Good evening! You worked hard today~', "You're here! What happened today?", 'Play with me a bit before bed!'],
+    remFood: ['The {f} you gave me last time was so yummy!', 'I still remember the taste of that {f}~', '{f}… just thinking about it makes me happy!'],
+    mostFood: ['You give me {f} the most! Do you like it too?', "I've had {f} so many times now!", '{f} tastes like our memories~'],
+    missPlay: ["We haven't played with the slimeball in a while… let's play!", "Remember playing catch? Let's do it again!"],
+    missDance: ['I want to hear the note block again…', 'Dancing last time was so fun, I want to dance again!'],
+    streak: ["We've met {d} days in a row!", 'Day {d} in a row! I love seeing you every day~'],
+    together: ["It's day {d} since we met!", "We've been together for {d} days~"],
+    mFed: ["That's feeding number {d}! Thanks for always taking care of me!"],
+    mPetted: ["You've petted me {d} times! I love your hands~"],
+    mPlayed: ["We've played {d} times! Let's play next time too!"],
+    mDays: ["We've spent {d} days together! Please keep being my friend!"],
+    mStreak: ["You came to see me {d} days in a row! I'm so touched…"],
   },
 };
 
@@ -101,15 +147,18 @@ const BY_PERSONALITY: Record<Lang, Record<Personality, Table>> = {
       idle: ['我會一直守著你的', '有我在，不用怕！', '你累了嗎？要休息一下喔'],
       call: ['我在這裡！一直都在！', '需要我嗎？馬上到！'],
       night: ['你先睡，我幫你守夜'],
+      remFood: ['上次的{f}很好吃，你自己也要好好吃飯喔'],
     },
     brave: {
       idle: ['我想飛到更遠的地方看看！', '什麼都不怕！', '探險！探險！'],
       play: ['再丟遠一點也沒問題！', '這點距離難不倒我！'],
+      missPlay: ['好久沒丟球了！這次丟遠一點，我一定接得到！'],
     },
     cautious: {
       idle: ['剛剛那是什麼聲音…？', '待在你旁邊比較安心', '慢慢來就好…'],
       wake: ['嚇、嚇我一跳…', '唔…被吵醒了…'],
       curious: ['好像…沒問題吧？', '我仔細看看喔…'],
+      streak: ['每天都見到你…好安心'],
     },
     playful: {
       idle: ['來玩嘛來玩嘛！', '轉圈圈～轉圈圈～', '我們來比賽誰飛得快！', '史萊姆球！我要玩史萊姆球！'],
@@ -164,9 +213,9 @@ const BY_PERSONALITY: Record<Lang, Record<Personality, Table>> = {
   },
 };
 
-export function pickLine(kind: LineKind, personality: Personality, name: string, rnd = Math.random, food = '', lang: Lang = getLang()): string {
+export function pickLine(kind: LineKind, personality: Personality, name: string, rnd = Math.random, food = '', lang: Lang = getLang(), d: number | string = ''): string {
   // 個性台詞放兩次，出現機率比較高
   const own = BY_PERSONALITY[lang][personality][kind] ?? [];
   const pool = [...COMMON[lang][kind], ...own, ...own];
-  return pool[Math.floor(rnd() * pool.length)].replaceAll('{n}', name).replaceAll('{f}', food);
+  return pool[Math.floor(rnd() * pool.length)].replaceAll('{n}', name).replaceAll('{f}', food).replaceAll('{d}', String(d));
 }

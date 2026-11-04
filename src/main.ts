@@ -11,6 +11,7 @@ import { BACKUP_KEY, decodeLink, encodeLink, exportFileName, linkKind, loadPet, 
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
 import { SFX, sfxPitch, type Sfx } from './sfx';
+import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
 import { asciiGlyphs, buildFont } from './pixelFont';
 import { itemName, loadLang, saveLang, setLang, t } from './i18n';
 
@@ -33,11 +34,23 @@ stage.scene.add(model.root);
 
 const sound = new Sound(localStorage);
 let lastSpoke = 0;
-const say = (kind: LineKind, food?: Food) => {
-  hud.say(pickLine(kind, pet.personality, pet.name, Math.random, food ? itemName(food) : ''));
+const say = (kind: LineKind, food?: Food | null, d: number | string = '') => {
+  hud.say(pickLine(kind, pet.personality, pet.name, Math.random, food ? itemName(food) : '', undefined, d));
   sound.speak(pet.personality);
   lastSpoke = performance.now();
 };
+
+/** 達成紀念次數時（第 100 次摸摸…），過一下再開心地說出來 */
+function celebrate(only: MilestoneLine[]): void {
+  const m = takeMilestone(pet, only);
+  if (!m) return;
+  save();
+  setTimeout(() => {
+    say(m.kind, null, m.n);
+    stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), 4);
+    playSfx('levelup');
+  }, 2600);
+}
 
 /** 播放情境音效；at 是聲音的位置（離鏡頭越遠越小聲） */
 let lastFlight = 0;
@@ -62,7 +75,9 @@ function caught(): void {
   if (kind === 'slime') {
     playSfx('slime', ctrl.pos);
     play(pet);
+    pet.memory.lastPlayAt = Date.now();
     say('play');
+    celebrate(['mPlayed']);
     return;
   }
   // 食物：悅靈認得是什麼，接住後吃掉
@@ -70,7 +85,9 @@ function caught(): void {
     ctrl.eat();
     model.holdItem(stage.itemTexture(kind));
     setTimeout(() => model.holdItem(null), 1400);
+    rememberFood(pet.memory, kind);
     say(FAVORITE_FOOD[pet.personality] === kind ? 'favorite' : 'fedFood', kind);
+    celebrate(['mFed']);
   } else say('fullFood', kind);
 }
 
@@ -169,6 +186,7 @@ function useNoteBlock(ray: THREE.Ray, hitBlock: boolean): void {
   if (!ctrl.dancing) cheer(pet, 4);
   ctrl.dance(top);
   friends.forEach((f, i) => f.ctrl.dance(top.clone().add(new THREE.Vector3(Math.cos(i * 2.1) * 0.7, 0.15 * i, Math.sin(i * 2.1) * 0.5))));
+  pet.memory.lastDanceAt = Date.now();
   if (!wasDancing && ctrl.dancing) say('dance');
 }
 
@@ -234,6 +252,7 @@ const hud = new Hud(overlay, {
     pet.name = name;
     pet.personality = p;
     pet.onboarded = true;
+    visitDay(pet.memory);
     applyGlow();
     hud.setName(name);
     save();
@@ -333,6 +352,9 @@ hud.updateStats(pet);
 // 重逢：離開越久，回來時越開心（離開時心情會慢慢變差，見到你就好起來）
 if (pet.onboarded) {
   const kind = reunionKind(awayMs);
+  // 今天第一次見面：依時段問候，並看看有沒有連續見面、相處天數的紀念
+  const firstToday = visitDay(pet.memory);
+  save();
   setTimeout(() => {
     if (kind === 'missed' || kind === 'longAway') {
       ctrl.call();
@@ -340,7 +362,9 @@ if (pet.onboarded) {
       if (kind === 'longAway') playSfx('levelup');
       stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), kind === 'longAway' ? 6 : 3);
     } else if (kind === 'welcomeBack') cheer(pet, 10);
-    say(kind);
+    if (kind === 'greet' && firstToday) say(timeGreeting());
+    else say(kind);
+    if (firstToday) celebrate(['mStreak', 'mDays']);
   }, 1200);
 }
 
@@ -498,6 +522,7 @@ function tap(x: number, y: number): void {
   if (hit) {
     petPet(pet);
     if (ctrl.petted()) say('pet');
+    celebrate(['mPetted']);
     return;
   }
   // 點空白處：悅靈好奇地飛過去
@@ -527,6 +552,7 @@ canvas.addEventListener('pointermove', (e) => {
       lastRubPet = now;
       petPet(pet);
       if (ctrl.petted() && Math.random() < 0.3) say('pet');
+      celebrate(['mPetted']);
     }
   }
 });
@@ -598,7 +624,10 @@ function frame(now: number): void {
       talkIn = 15;
       if (now - lastSpoke > 45_000 && (ctrl.mode === 'idle' || ctrl.mode === 'approach' || ctrl.mode === 'wander')) {
         const mood = moodLevel(pet.mood);
-        say(pet.hunger < 6 ? 'hungry' : pet.energy < 25 ? 'sleepy' : mood === 0 ? 'lonely' : night && Math.random() < 0.3 ? 'night' : mood === 2 && Math.random() < 0.5 ? 'happyIdle' : 'idle');
+        // 心情不差、也不餓不睏時，有時會聊起記得的事
+        const topic = pet.hunger >= 6 && pet.energy >= 25 && mood > 0 && Math.random() < 0.35 ? memoryTopic(pet) : null;
+        if (topic) say(topic.kind, topic.food, topic.d);
+        else say(pet.hunger < 6 ? 'hungry' : pet.energy < 25 ? 'sleepy' : mood === 0 ? 'lonely' : night && Math.random() < 0.3 ? 'night' : mood === 2 && Math.random() < 0.5 ? 'happyIdle' : 'idle');
       }
     }
   }

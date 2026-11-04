@@ -1,5 +1,7 @@
 // 悅靈的數值狀態。純函式為主，方便單元測試。
 
+import { emptyMemory, type Memory } from './memory';
+
 export type Personality = 'guardian' | 'brave' | 'cautious' | 'playful';
 
 export const PERSONALITY_IDS: Personality[] = ['guardian', 'brave', 'cautious', 'playful'];
@@ -36,6 +38,8 @@ export interface PetState {
   createdAt: number;
   lastSeen: number;
   stats: { fed: number; petted: number; played: number };
+  /** 悅靈的記憶：吃過什麼、上次玩、連續見面天數、慶祝過的紀念 */
+  memory: Memory;
 }
 
 /** 跳舞時給紫水晶碎片會暫時複製出一隻夥伴，陪你 5 分鐘後飛走（不存檔、不會一直多一隻） */
@@ -98,6 +102,7 @@ export function createPet(now = Date.now()): PetState {
     createdAt: now,
     lastSeen: now,
     stats: { fed: 0, petted: 0, played: 0 },
+    memory: emptyMemory(),
   };
 }
 
