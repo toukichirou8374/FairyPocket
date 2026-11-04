@@ -1,10 +1,10 @@
-// 按鍵遊戲（給小朋友認識鍵盤與控制器按鈕）。
+// 精靈舞蹈（按鍵遊戲，給小朋友認識鍵盤與控制器按鈕）。
 // 不用跟節奏：畫面上出現一個按鍵，按對了就換下一個並加分；按錯了悅靈懊惱，題目不換，直到按對為止。
 // 一首歌放完就結束，看這首歌答對幾個。這個檔案只有規則與題目，畫面在 ui/keyGameUI.ts。
 
 import type { Lang } from '../i18n';
 
-export type KeyGameMode = 'keyboard' | 'gamepad' | 'tap' | 'voice';
+export type KeyGameMode = 'keyboard' | 'gamepad' | 'tap' | 'voice' | 'motion';
 
 /** 小遊戲的 3 首輕快歌曲（原版唱片） */
 export const KG_SONGS = [
@@ -33,29 +33,54 @@ export interface Prompt {
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 const DIGITS = '0123456789'.split('');
 
+/** 十字鍵的名稱 */
 const KEY_NAMES: Record<Lang, Record<string, string>> = {
-  zh_tw: { Space: '空白鍵', Enter: 'Enter 鍵', ArrowUp: '上', ArrowDown: '下', ArrowLeft: '左', ArrowRight: '右' },
-  ja_jp: { Space: 'スペース', Enter: 'エンター', ArrowUp: 'うえ', ArrowDown: 'した', ArrowLeft: 'ひだり', ArrowRight: 'みぎ' },
-  en_us: { Space: 'Space', Enter: 'Enter', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' },
+  zh_tw: { ArrowUp: '上', ArrowDown: '下', ArrowLeft: '左', ArrowRight: '右' },
+  ja_jp: { ArrowUp: 'うえ', ArrowDown: 'した', ArrowLeft: 'ひだり', ArrowRight: 'みぎ' },
+  en_us: { ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' },
 };
 const ARROWS: Record<string, string> = { ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' };
 
+/** 注音符號在鍵盤上的位置（台灣常用的大千排列，37 個聲母韻母，不含聲調） */
+export const ZHUYIN: Record<string, string> = {
+  ㄅ: 'Digit1', ㄉ: 'Digit2', ㄓ: 'Digit5', ㄚ: 'Digit8', ㄞ: 'Digit9', ㄢ: 'Digit0', ㄦ: 'Minus',
+  ㄆ: 'KeyQ', ㄊ: 'KeyW', ㄍ: 'KeyE', ㄐ: 'KeyR', ㄔ: 'KeyT', ㄗ: 'KeyY', ㄧ: 'KeyU', ㄛ: 'KeyI', ㄟ: 'KeyO', ㄣ: 'KeyP',
+  ㄇ: 'KeyA', ㄋ: 'KeyS', ㄎ: 'KeyD', ㄑ: 'KeyF', ㄕ: 'KeyG', ㄘ: 'KeyH', ㄨ: 'KeyJ', ㄜ: 'KeyK', ㄠ: 'KeyL', ㄤ: 'Semicolon',
+  ㄈ: 'KeyZ', ㄌ: 'KeyX', ㄏ: 'KeyC', ㄒ: 'KeyV', ㄖ: 'KeyB', ㄙ: 'KeyN', ㄩ: 'KeyM', ㄝ: 'Comma', ㄡ: 'Period', ㄥ: 'Slash',
+};
+
+/** 假名在日文鍵盤（JIS かな入力）上的位置：あいうえお 46 音（不含を） */
+export const KANA: Record<string, string> = {
+  あ: 'Digit3', い: 'KeyE', う: 'Digit4', え: 'Digit5', お: 'Digit6',
+  か: 'KeyT', き: 'KeyG', く: 'KeyH', け: 'Quote', こ: 'KeyB',
+  さ: 'KeyX', し: 'KeyD', す: 'KeyR', せ: 'KeyP', そ: 'KeyC',
+  た: 'KeyQ', ち: 'KeyA', つ: 'KeyZ', て: 'KeyW', と: 'KeyS',
+  な: 'KeyU', に: 'KeyI', ぬ: 'Digit1', ね: 'Comma', の: 'KeyK',
+  は: 'KeyF', ひ: 'KeyV', ふ: 'Digit2', へ: 'Equal', ほ: 'Minus',
+  ま: 'KeyJ', み: 'KeyN', む: 'Backslash', め: 'Slash', も: 'KeyM',
+  や: 'Digit7', ゆ: 'Digit8', よ: 'Digit9',
+  ら: 'KeyO', り: 'KeyL', る: 'Period', れ: 'Semicolon', ろ: 'IntlRo',
+  わ: 'Digit0', ん: 'KeyY',
+};
+
+/**
+ * 鍵盤題目：英文字母與數字；繁中版再加注音符號、日文版再加假名（英文版只有英文與數字）。
+ * 判定用實體按鍵的位置，所以不管有沒有開輸入法都能判斷。
+ */
 export function keyboardPrompts(lang: Lang): Prompt[] {
-  const n = KEY_NAMES[lang];
-  return [
+  const list: Prompt[] = [
     ...LETTERS.map((c) => ({ id: `Key${c}`, label: c, speak: c })),
     ...DIGITS.map((d) => ({ id: `Digit${d}`, label: d, speak: d })),
-    { id: 'Space', label: n.Space, speak: n.Space },
-    { id: 'Enter', label: 'Enter', name: lang === 'en_us' ? undefined : n.Enter, speak: n.Enter },
-    ...Object.entries(ARROWS).map(([id, a]) => ({ id, label: a, name: n[id], speak: n[id] })),
   ];
+  const extra = lang === 'zh_tw' ? ZHUYIN : lang === 'ja_jp' ? KANA : null;
+  if (extra) for (const [ch, code] of Object.entries(extra)) list.push({ id: code, label: ch, speak: ch });
+  return list;
 }
 
 /** 鍵盤事件對應到題目 id（數字鍵盤的數字也算） */
 export function keyId(code: string): string {
   const m = /^Numpad(\d)$/.exec(code);
   if (m) return `Digit${m[1]}`;
-  if (code === 'NumpadEnter') return 'Enter';
   return code;
 }
 
@@ -125,7 +150,7 @@ export class KeyRound {
   /** 出下一題（不會跟上一題一樣） */
   next(): Prompt {
     const prev = this.current;
-    const list = this.prompts.length > 1 ? this.prompts.filter((p) => p.id !== prev?.id) : this.prompts;
+    const list = this.prompts.length > 1 ? this.prompts.filter((p) => p.id !== prev?.id && p.label !== prev?.label) : this.prompts;
     this.current = list[Math.floor(this.random() * list.length)];
     return this.current;
   }

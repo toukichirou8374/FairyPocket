@@ -408,13 +408,19 @@ describe('按鍵遊戲', () => {
       expect(r.next().id).not.toBe(prev.id);
     }
   });
-  it('鍵盤：字母、數字、方向鍵，數字鍵盤也算', () => {
-    const ids = keyboardPrompts('ja_jp').map((p) => p.id);
-    expect(ids).toContain('KeyA');
-    expect(ids).toContain('Digit7');
-    expect(ids).toContain('ArrowLeft');
+  it('鍵盤：英文數字；繁中加注音、日文加假名、英文只有英數', () => {
+    const labels = (l: 'zh_tw' | 'ja_jp' | 'en_us') => keyboardPrompts(l).map((p) => p.label);
+    expect(labels('en_us')).toHaveLength(36);
+    expect(labels('zh_tw')).toContain('ㄅ');
+    expect(labels('zh_tw')).not.toContain('あ');
+    expect(labels('ja_jp')).toContain('あ');
+    expect(labels('ja_jp')).not.toContain('ㄅ');
+    expect(labels('en_us')).not.toContain('ㄅ');
+    expect(keyboardPrompts('zh_tw').find((p) => p.label === 'ㄅ')!.id).toBe('Digit1');
+    expect(keyboardPrompts('ja_jp').find((p) => p.label === 'あ')!.id).toBe('Digit3');
+    expect(keyboardPrompts('zh_tw')).toHaveLength(36 + 37);
+    expect(keyboardPrompts('ja_jp')).toHaveLength(36 + 45);
     expect(keyId('Numpad7')).toBe('Digit7');
-    expect(keyId('NumpadEnter')).toBe('Enter');
     expect(isModifier('ShiftLeft')).toBe(true);
     expect(isModifier('KeyA')).toBe(false);
   });

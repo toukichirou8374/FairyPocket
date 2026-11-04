@@ -586,6 +586,11 @@ export class Stage {
   }
   private arMode = false;
 
+  /** 小遊戲的舞台上不要長草 */
+  showPlants(on: boolean): void {
+    this.plants.visible = on && !this.arMode;
+  }
+
   private spawnWeather(): void {
     const w = this.weather!;
     const frame = this.tex.dust[w.kind === 'snow' ? 2 : 4];

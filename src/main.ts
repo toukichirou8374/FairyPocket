@@ -14,6 +14,7 @@ import { SFX, sfxPitch, type Sfx } from './sfx';
 import { Music } from './music';
 import { ArCamera, Composer, saveMedia, type ArEvents, type Facing } from './ar';
 import { KeyGameUI } from './ui/keyGameUI';
+import { buildCrown, buildDanceStage, DANCE_TEXTURES, type DanceImages } from './three/danceStage';
 import { clipBuffer, Listener, loadReplies, loadVoiceStyle, recordClip, saveReplies, saveVoiceStyle, type Clip } from './voice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
@@ -469,7 +470,7 @@ const hud = new Hud(overlay, {
     voiceStyle = v;
     saveVoiceStyle(localStorage, v);
   },
-  games: () => keyGame.openMenu(),
+  games: () => keyGame.openGames(),
   arFlip: () => void arOpen(arCam.facing === 'user' ? 'environment' : 'user'),
   arPose: (p) => {
     if (p === 'turn') {
@@ -597,6 +598,31 @@ function speakText(text: string): void {
   s.speak(u);
 }
 
+/** 精靈舞蹈的舞台與花圈（第一次用到時才用素材包的材質搭出來） */
+let danceImgs: DanceImages | null = null;
+let danceStage: THREE.Group | null = null;
+let crown: THREE.Group | null = null;
+let danceOn = false;
+async function showDanceStage(on: boolean): Promise<void> {
+  danceOn = on;
+  if (on && !danceStage) {
+    danceImgs = pack ? await loadImages(pack, DANCE_TEXTURES) : {};
+    danceStage = buildDanceStage(danceImgs);
+    crown = buildCrown(danceImgs);
+  }
+  if (!danceStage || !crown) return;
+  if (danceOn) {
+    stage.scene.add(danceStage);
+    model.head.add(crown);
+  } else {
+    stage.scene.remove(danceStage);
+    model.head.remove(crown);
+  }
+  // 平常放的方塊、蛋糕、床先藏起來，舞台才不會跟它們重疊
+  for (const o of [stage.noteBlock, stage.cake, stage.bed, stage.jukebox]) if (o) o.visible = !danceOn;
+  stage.showPlants(!danceOn);
+}
+
 const CHEERS = [
   ['happy', 0.9],
   ['dance', 1.2],
@@ -618,9 +644,10 @@ const keyGame = new KeyGameUI({
   songProgress: () => music.songProgress(),
   begin: () => {
     sound.unlock();
+    void showDanceStage(true);
     // 悅靈飛到畫面中間，專心陪玩
     ctrl.setPose('fly');
-    ctrl.posePos.set(0, 1.25, 0.6);
+    ctrl.posePos.set(0, 1.05, 0.6);
     requestAnimationFrame(resize);
   },
   cheer: (text) => {
@@ -641,6 +668,7 @@ const keyGame = new KeyGameUI({
     if (score > 0) playSfx('levelup');
   },
   end: () => {
+    void showDanceStage(false);
     ctrl.setPose(null);
     requestAnimationFrame(resize);
   },
@@ -691,6 +719,9 @@ async function applyPack(p: AssetPack): Promise<void> {
   stage.useBedImages(img);
   stage.useJukeboxImages(img);
   music.usePack(p);
+  // 精靈舞蹈的舞台下次用新的材質重搭
+  danceStage = null;
+  crown = null;
   stage.usePlayImages(img);
   hud.useImages(img);
   if (img.ascii) await useAsciiFont(img.ascii).catch(() => {});

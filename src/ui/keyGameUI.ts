@@ -1,4 +1,4 @@
-// 按鍵遊戲的畫面：選單（玩法、歌曲）→ 遊戲中（題目、分數、歌曲進度）→ 結果。
+// 小遊戲的畫面：遊戲選擇 → 精靈舞蹈的選單（玩法、歌曲）→ 遊戲中（題目、分數、歌曲進度）→ 結果。
 // 規則在 game/keyGame.ts；悅靈的動作、音樂、念名稱由 main.ts 提供。
 
 import {
@@ -80,7 +80,38 @@ export class KeyGameUI {
     return !!this.layer;
   }
 
-  // ---------- 選單 ----------
+  // ---------- 遊戲選擇 ----------
+
+  openGames(): void {
+    const back = el('div', 'modal-back', this.host.root);
+    const box = el('div', 'modal kgmenu', back);
+    el('h2', '', box).textContent = t('games');
+    el('div', 'info', box).textContent = t('gamesPick');
+    const list = el('div', 'kglist', box);
+    const games: { id: string; title: string; desc: string; ready: boolean }[] = [
+      { id: 'dance', title: t('kg.title'), desc: t('kg.short'), ready: true },
+      { id: 'sticker', title: t('game.sticker'), desc: t('soon'), ready: false },
+    ];
+    for (const g of games) {
+      const b = el('button', 'btn kggame', list);
+      el('span', 'kgname', b).textContent = g.title;
+      el('span', 'kgdesc', b).textContent = g.desc;
+      b.disabled = !g.ready;
+      b.addEventListener('click', () => {
+        this.host.click();
+        back.remove();
+        if (g.id === 'dance') this.openMenu();
+      });
+    }
+    const close = el('button', 'btn', box);
+    close.textContent = t('close');
+    close.addEventListener('click', () => {
+      this.host.click();
+      back.remove();
+    });
+  }
+
+  // ---------- 精靈舞蹈的選單 ----------
 
   openMenu(): void {
     const back = el('div', 'modal-back', this.host.root);
@@ -88,23 +119,23 @@ export class KeyGameUI {
     box.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('.btn')) this.host.click();
     });
-    el('h2', '', box).textContent = t('games');
-    el('div', 'kgcard-title', box).textContent = t('kg.title');
+    el('h2', '', box).textContent = t('kg.title');
     el('div', 'info', box).textContent = t('kg.desc');
 
     el('label', '', box).textContent = t('kg.mode');
     const mrow = el('div', 'pgrid', box);
-    const modes: KeyGameMode[] = ['keyboard', 'gamepad', 'tap', 'voice'];
+    const modes: KeyGameMode[] = ['keyboard', 'gamepad', 'tap', 'voice', 'motion'];
     const songRow = () => songs.querySelectorAll<HTMLElement>('.btn').forEach((b) => (b.querySelector('.best')!.textContent = t('kg.best', { n: loadBest(localStorage, this.mode, b.dataset.song as KgSong) })));
     for (const m of modes) {
       const b = el('button', 'btn' + (m === this.mode ? ' on' : ''), mrow);
       b.textContent = t(`kg.mode.${m}`);
-      if (m === 'voice') b.disabled = true;
+      if (m === 'voice' || m === 'motion') b.disabled = true;
       b.addEventListener('click', () => {
         this.mode = m;
         localStorage.setItem(MODE_KEY, m);
         mrow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
         songRow();
+        showSp();
       });
     }
 
@@ -123,8 +154,13 @@ export class KeyGameUI {
     songRow();
     if (!KG_SONGS.some((s) => this.host.hasSong(s.path))) el('div', 'info', box).textContent = t('kg.noSong');
 
+    // 念出按鍵只有鍵盤玩法有
     const sp = el('button', 'btn' + (this.speakOn ? ' on' : ''), box);
-    const showSp = () => (sp.textContent = `${t('kg.speak')}：${t(this.speakOn ? 'on' : 'off')}`);
+    function showSp(this: void): void {
+      sp.textContent = `${t('kg.speak')}：${t(self.speakOn ? 'on' : 'off')}`;
+      sp.style.display = self.mode === 'keyboard' ? '' : 'none';
+    }
+    const self = this;
     showSp();
     sp.addEventListener('click', () => {
       this.speakOn = !this.speakOn;
@@ -258,7 +294,7 @@ export class KeyGameUI {
       this.lockUntil = performance.now() + 900;
       this.updateScore();
       this.keyEl?.classList.add('hit');
-      if (this.speakOn) this.host.speak(p.speak);
+      if (this.speakOn && this.mode === 'keyboard') this.host.speak(p.speak);
       this.host.cheer(this.mode === 'tap' ? `${p.speak}！` : (p.name ?? p.label));
       const old = this.keyEl;
       window.setTimeout(() => {
