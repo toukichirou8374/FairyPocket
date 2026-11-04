@@ -702,7 +702,7 @@ export class Hud {
     el('label', '', box).textContent = t('replies', { l: LANGS[getLang()] });
     el('div', 'info', box).textContent = t('repliesHelp');
     // 變聲：精靈／小孩／少女
-    const vrow = el('div', 'btnrow', box);
+    const vrow = el('div', 'pgrid voicegrid', box);
     for (const v of VOICE_STYLES) {
       const b = el('button', 'btn small' + (v === this.actions.voiceStyle() ? ' on' : ''), vrow);
       b.textContent = t(`voice.${v}`);

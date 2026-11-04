@@ -551,7 +551,7 @@ body.ar #sky { display: none; }
 .kgmenu .btn.on { outline: 3px solid #ffff55; outline-offset: -3px; }
 
 /* 遊戲中：只留下悅靈、泡泡與小遊戲畫面 */
-.kg-on > :not(.kg):not(.bubble):not(.nametag):not(.toast):not(.modal-back) { display: none !important; }
+.kg-on > :not(.kg):not(.sb):not(.bubble):not(.nametag):not(.toast):not(.modal-back) { display: none !important; }
 .kg { position: absolute; inset: 0; pointer-events: auto; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
 .kg-top {
   position: absolute;
@@ -704,3 +704,68 @@ body.ar #sky { display: none; }
 body.motion #motion-cam { display: block; }
 body.motion #sky { display: none; }
 .kgdev { color: #c06000; }
+
+.voicegrid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+.voicegrid .btn { flex: none; }
+
+/* PS5 風格的按鈕：深色圓鈕、彩色符號 */
+.kg-pad.ps .kg-face { font-size: 66px; background: #24262d; color: var(--pad, #fff); text-shadow: none; box-shadow: inset -5px -7px 0 #15161a, 0 6px 0 #0d0d10; }
+@media (max-height: 500px) {
+  .kg-sticker .kg-face { width: 92px; height: 92px; }
+  .kg-sticker .kg-name { font-size: 18px; }
+}
+
+/* ---- 貼紙簿 ---- */
+.sb {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--modal-bg, #f4ecd8);
+  color: var(--modal-text, #2a2a2a);
+  pointer-events: auto;
+  padding: calc(env(safe-area-inset-top) + 8px) calc(env(safe-area-inset-right) + 8px) calc(env(safe-area-inset-bottom) + 8px) calc(env(safe-area-inset-left) + 8px);
+  box-sizing: border-box;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.sb-top { display: flex; align-items: center; gap: 10px; }
+.sb-title { flex: 1; font-size: 20px; }
+.sb-modes { display: flex; gap: 6px; }
+.sb-modes .btn { margin: 0; padding-left: 14px; padding-right: 14px; }
+.sb-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 8px 0 4px; flex-shrink: 0; -webkit-overflow-scrolling: touch; }
+.sb-tabs .btn { margin: 0; flex: 0 0 auto; padding: 6px 12px; white-space: nowrap; }
+.sb .btn.on { outline: 3px solid #ffff55; outline-offset: -3px; }
+.sb-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 2px 0 6px; }
+.sb-help { flex: 1 1 220px; font-size: 14px; line-height: 1.4; opacity: 0.85; }
+.sb-voice { margin: 0; flex: 0 0 auto; font-size: 14px; }
+.sb-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 10px; align-content: start; padding: 4px 2px 12px; }
+.sb-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; }
+.sb-face {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  font-size: 38px;
+  color: #3a3a3a;
+  background: #fffaf0;
+  border: 3px solid #3a2a2a;
+  border-radius: 12px;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
+}
+.sb-tile.pic .sb-face { padding: 4px; box-sizing: border-box; }
+.sb-face canvas { width: 100%; height: 100%; image-rendering: pixelated; }
+.sb-name { font-size: 13px; text-align: center; }
+.sb-badge { position: absolute; top: -4px; right: 2px; background: #ff7aa0; color: #fff; border-radius: 50%; width: 22px; height: 22px; display: grid; place-items: center; font-size: 13px; border: 2px solid #3a2a2a; }
+.sb-tile.empty { opacity: 0.4; }
+.sb-tile:active .sb-face { transform: scale(0.94); }
+.sb-tile.play .sb-face { animation: kg-hint 0.8s ease-in-out; }
+.sb-panel { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.45); }
+.sb-panel .modal { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.sb-panel .btnrow, .sb-panel > .modal > .btn { width: 100%; }
+.sb-tile.big .sb-face { width: 120px; height: 120px; font-size: 64px; }
+.sb-tile.big .sb-name { font-size: 18px; }
+.sb-status { font-size: 17px; margin: 6px 0 2px; text-align: center; }
+.sb-status.rec { color: #e03a3a; animation: kg-ring 1.2s ease-in-out infinite; }
+.sb-flash { position: absolute; left: 50%; bottom: 18%; transform: translateX(-50%); background: rgba(0, 0, 0, 0.7); color: #fff; padding: 8px 14px; font-size: 16px; pointer-events: none; }
+.sb .sb-tabs .btn, .sb .sb-voice, .sb .sb-modes .btn { width: auto; min-width: max-content; flex: 0 0 auto; }

@@ -188,14 +188,45 @@ export async function saveReplies(lang: Lang, r: Replies): Promise<void> {
 /** 變聲後的錄音（同一句同一種聲音只算一次） */
 const fxCache = new WeakMap<Clip, Map<VoiceStyle, Float32Array<ArrayBuffer>>>();
 
-export function clipBuffer(ctx: AudioContext, c: Clip, style: VoiceStyle): AudioBuffer {
-  let m = fxCache.get(c);
-  if (!m) fxCache.set(c, (m = new Map()));
-  let d = m.get(style);
-  if (!d) m.set(style, (d = transform(c.data, c.rate, style)));
+/** style 為 null 時播放原本的聲音 */
+export function clipBuffer(ctx: AudioContext, c: Clip, style: VoiceStyle | null): AudioBuffer {
+  let d: Float32Array<ArrayBuffer>;
+  if (!style) d = new Float32Array(c.data);
+  else {
+    let m = fxCache.get(c);
+    if (!m) fxCache.set(c, (m = new Map()));
+    let v = m.get(style);
+    if (!v) m.set(style, (v = transform(c.data, c.rate, style)));
+    d = v;
+  }
   const buf = ctx.createBuffer(1, d.length, c.rate);
   buf.copyToChannel(d, 0);
   return buf;
+}
+
+// ---------- 貼紙簿的錄音（每張貼紙一段，只存在這台裝置） ----------
+
+const STICKER_PREFIX = 'sticker:';
+
+/** 讀出所有貼紙的錄音：貼紙 id → 錄音 */
+export async function loadStickerClips(): Promise<Map<string, Clip>> {
+  const out = new Map<string, Clip>();
+  try {
+    const keys = (await run('readonly', (s) => s.getAllKeys())) as IDBValidKey[];
+    for (const k of keys) {
+      if (typeof k !== 'string' || !k.startsWith(STICKER_PREFIX)) continue;
+      const c = (await run('readonly', (s) => s.get(k))) as Clip | undefined;
+      if (c) out.set(k.slice(STICKER_PREFIX.length), c);
+    }
+  } catch {
+    // 讀不到就當作還沒有錄音
+  }
+  return out;
+}
+
+export async function saveStickerClip(id: string, c: Clip | null): Promise<void> {
+  if (c) await run('readwrite', (s) => s.put(c, STICKER_PREFIX + id));
+  else await run('readwrite', (s) => s.delete(STICKER_PREFIX + id));
 }
 
 // ---------- 變聲的種類（存在這台裝置） ----------
@@ -215,7 +246,7 @@ export function saveVoiceStyle(storage: Pick<Storage, 'setItem'>, v: VoiceStyle)
  * 錄一句回應：開始後一直錄到說完（安靜 0.7 秒）、按停止或滿 4 秒為止。
  * 回傳 stop 函式與結果。
  */
-export async function recordClip(ctx: AudioContext): Promise<{ stop: () => void; done: Promise<Clip | null> }> {
+export async function recordClip(ctx: AudioContext, maxSec = REPLY_MAX_SEC): Promise<{ stop: () => void; done: Promise<Clip | null> }> {
   setSession('play-and-record');
   let stream: MediaStream;
   try {
@@ -256,7 +287,7 @@ export async function recordClip(ctx: AudioContext): Promise<{ stop: () => void;
       heard = true;
       quiet = 0;
     } else quiet += d.length / ctx.sampleRate;
-    if ((heard && quiet > END_SILENCE) || len / ctx.sampleRate > REPLY_MAX_SEC) stop();
+    if ((heard && quiet > END_SILENCE) || len / ctx.sampleRate > maxSec) stop();
   };
   src.connect(node);
   node.connect(ctx.destination);

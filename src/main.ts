@@ -14,10 +14,11 @@ import { SFX, sfxPitch, type Sfx } from './sfx';
 import { Music } from './music';
 import { ArCamera, Composer, saveMedia, type ArEvents, type Facing } from './ar';
 import { KeyGameUI } from './ui/keyGameUI';
+import { StickerBook } from './ui/stickerBook';
 import { MotionTracker } from './motion';
 import { STICKERS, stickerCanvas } from './game/stickers';
 import { buildCrown, buildDanceStage, DANCE_TEXTURES, type DanceImages } from './three/danceStage';
-import { clipBuffer, Listener, loadReplies, loadVoiceStyle, recordClip, saveReplies, saveVoiceStyle, type Clip } from './voice';
+import { clipBuffer, Listener, loadReplies, loadStickerClips, loadVoiceStyle, recordClip, saveReplies, saveStickerClip, saveVoiceStyle, type Clip } from './voice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
 import { asciiGlyphs, buildFont } from './pixelFont';
@@ -625,6 +626,30 @@ async function showDanceStage(on: boolean): Promise<void> {
   stage.showPlants(!danceOn);
 }
 
+/** 貼紙簿：每張貼紙錄一段聲音（最長 5 秒），可以用原聲或變聲聽 */
+const stickerBook = new StickerBook({
+  root: overlay,
+  click: () => playSfx('click'),
+  record: async () => {
+    sound.unlock();
+    const ctx = sound.context;
+    if (!ctx) return null;
+    try {
+      return await recordClip(ctx, 5);
+    } catch {
+      return null;
+    }
+  },
+  play: (c, changed) => {
+    sound.unlock();
+    const ctx = sound.context;
+    if (ctx) sound.playClip(clipBuffer(ctx, c, changed ? voiceStyle : null));
+  },
+  voiceName: () => t(`voice.${voiceStyle}`),
+  load: loadStickerClips,
+  save: saveStickerClip,
+});
+
 /** 精靈舞蹈：不支援語音辨識時用的「聽到聲音」偵測，與體感用的前鏡頭 */
 const gameListener = new Listener();
 const motion = new MotionTracker(document.body);
@@ -694,6 +719,8 @@ const keyGame = new KeyGameUI({
     return { x: (v.x + 1) / 2, y: (1 - v.y) / 2 };
   },
   motionActivity: (x, y, r) => motion.activity(x, y, r),
+  motionOverall: () => motion.overall(),
+  openStickerBook: () => void stickerBook.open(),
   moveAllay: () => {
     // 換到畫面上另一個地方（跟上一個位置拉開距離），讓小朋友要移動身體
     const cam = stage.camera;

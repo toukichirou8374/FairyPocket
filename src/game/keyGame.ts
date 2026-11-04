@@ -30,8 +30,8 @@ export interface Prompt {
 
 // ---------- 鍵盤 ----------
 
-const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-const DIGITS = '0123456789'.split('');
+export const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+export const DIGITS = '0123456789'.split('');
 
 /** 十字鍵的名稱 */
 const KEY_NAMES: Record<Lang, Record<string, string>> = {
@@ -93,12 +93,12 @@ export function isModifier(code: string): boolean {
 
 export type PadFamily = 'xbox' | 'playstation' | 'nintendo';
 
-/** 依控制器名稱判斷是哪一家的（按鈕上的字不一樣） */
+/** 依控制器名稱判斷是哪一家的（按鈕上的字不一樣）；認不出來時以 PS5 為準 */
 export function padFamily(id: string): PadFamily {
   const s = id.toLowerCase();
-  if (/playstation|dualsense|dualshock|054c|sony|ps[345]/.test(s)) return 'playstation';
+  if (/xbox|045e|xinput/.test(s)) return 'xbox';
   if (/nintendo|switch|pro controller|joy-con|057e/.test(s)) return 'nintendo';
-  return 'xbox';
+  return 'playstation';
 }
 
 /** 標準按鈕編號：0 下、1 右、2 左、3 上（臉部按鈕），4／5 肩鍵，12–15 十字鍵 */
@@ -150,7 +150,9 @@ export class KeyRound {
   /** 出下一題（不會跟上一題一樣） */
   next(): Prompt {
     const prev = this.current;
-    const list = this.prompts.length > 1 ? this.prompts.filter((p) => p.id !== prev?.id && p.label !== prev?.label) : this.prompts;
+    // 不跟上一題一樣（同一個按鍵、或畫面上一樣的字）；過濾完沒有東西就全部都可以
+    const others = this.prompts.filter((p) => p.id !== prev?.id && !(p.label && p.label === prev?.label));
+    const list = others.length ? others : this.prompts;
     this.current = list[Math.floor(this.random() * list.length)];
     return this.current;
   }

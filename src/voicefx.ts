@@ -6,22 +6,49 @@
 // 2. 用 PSOLA（逐個聲波週期剪下、重新排列疊加）改變音高，同時把聲音稍微拉長；
 // 3. 再整段加快播放，讓「音色」（共振峰）也一起變高、長度回到原本的長度。
 //    只提高音高聽起來會像「大人捏著嗓子」；音色也一起變高，才會像小孩、少女的聲音。
-// 精靈再多加一點閃亮的回音與高八度的泛音。
+// 4. 依聲音的種類再加一點效果：回音、顫音（音高輕輕抖）、音量起伏、說話變快、聲音變亮。
 
-export type VoiceStyle = 'fairy' | 'child' | 'girl';
-export const VOICE_STYLES: VoiceStyle[] = ['fairy', 'child', 'girl'];
+export type VoiceStyle = 'fairy' | 'child' | 'girl' | 'baby' | 'chipmunk' | 'kitten' | 'bird' | 'cartoon' | 'anime' | 'bubble';
+export const VOICE_STYLES: VoiceStyle[] = ['fairy', 'child', 'girl', 'baby', 'chipmunk', 'kitten', 'bird', 'cartoon', 'anime', 'bubble'];
 
 interface Preset {
   /** 目標平均音高（Hz） */
   target: number;
   /** 音色（共振峰）提高的倍率 */
   formant: number;
+  /** 說話速度（1 = 原本的速度，大於 1 變快） */
+  speed?: number;
+  /** 顫音：每秒幾次、抖動多深（毫秒） */
+  vibrato?: [number, number];
+  /** 音量起伏：每秒幾次、起伏多大（0–1） */
+  tremolo?: [number, number];
+  /** 閃亮的短回音 */
+  echo?: boolean;
+  /** 聲音變亮（加強高音） */
+  bright?: number;
 }
 
 const PRESETS: Record<VoiceStyle, Preset> = {
-  girl: { target: 250, formant: 1.17 },
+  /** 精靈：很高、輕輕起伏，加上閃亮的回音 */
+  fairy: { target: 400, formant: 1.38, tremolo: [6, 0.12], echo: true },
+  /** 小孩 */
   child: { target: 310, formant: 1.28 },
-  fairy: { target: 400, formant: 1.38 },
+  /** 少女 */
+  girl: { target: 250, formant: 1.17 },
+  /** 寶寶：音色很小、說話慢一點、輕輕抖 */
+  baby: { target: 380, formant: 1.45, speed: 0.9, vibrato: [5, 0.35] },
+  /** 小松鼠：又高又快 */
+  chipmunk: { target: 480, formant: 1.6, speed: 1.35 },
+  /** 小貓：高高的、尾音會抖 */
+  kitten: { target: 450, formant: 1.35, vibrato: [7, 0.6] },
+  /** 小鳥：非常高、快快抖動 */
+  bird: { target: 650, formant: 1.55, speed: 1.15, vibrato: [9, 0.45] },
+  /** 卡通：誇張的高音色、亮亮的 */
+  cartoon: { target: 340, formant: 1.5, speed: 1.1, bright: 0.5 },
+  /** 動漫：甜甜的少女聲、亮亮的 */
+  anime: { target: 330, formant: 1.22, vibrato: [5.5, 0.2], bright: 0.4 },
+  /** 泡泡：聲音像泡泡一樣咕嚕咕嚕地起伏 */
+  bubble: { target: 360, formant: 1.3, tremolo: [9, 0.45], vibrato: [4, 0.4] },
 };
 
 /** 音高範圍（Hz） */
@@ -157,18 +184,46 @@ function resample(d: Float32Array, factor: number): Float32Array {
   return out;
 }
 
-/** 精靈：加上輕輕的顫音與閃亮的短回音 */
-function sparkle(d: Float32Array, rate: number): Float32Array {
-  const echo = Math.floor(rate * 0.085);
-  const out = new Float32Array(d.length + echo * 4);
-  // 顫音：音量以每秒 6 次輕輕起伏
-  for (let i = 0; i < d.length; i++) out[i] = d[i] * (0.88 + 0.12 * Math.sin((2 * Math.PI * 6 * i) / rate));
-  // 回音：一次比一次小聲
+/** 閃亮的短回音（一次比一次小聲） */
+function echo(d: Float32Array, rate: number): Float32Array {
+  const gap = Math.floor(rate * 0.085);
+  const out = new Float32Array(d.length + gap * 4);
+  out.set(d);
   for (let k = 1; k <= 3; k++) {
     const g = 0.28 / k;
-    for (let i = 0; i < d.length; i++) out[i + echo * k] += out[i] * g;
+    for (let i = 0; i < d.length; i++) out[i + gap * k] += d[i] * g;
   }
   return out;
+}
+
+/** 音量起伏 */
+function tremolo(d: Float32Array, rate: number, hz: number, depth: number): Float32Array {
+  for (let i = 0; i < d.length; i++) d[i] *= 1 - depth / 2 + (depth / 2) * Math.sin((2 * Math.PI * hz * i) / rate);
+  return d;
+}
+
+/** 顫音：用一個一直輕輕前後移動的延遲讀取，讓音高上下抖動 */
+function vibrato(d: Float32Array, rate: number, hz: number, ms: number): Float32Array {
+  const depth = (ms / 1000) * rate;
+  const out = new Float32Array(d.length);
+  for (let i = 0; i < d.length; i++) {
+    const x = i - depth * (1 + Math.sin((2 * Math.PI * hz * i) / rate));
+    const a = Math.floor(x);
+    const f = x - a;
+    out[i] = (d[a] ?? 0) * (1 - f) + (d[a + 1] ?? 0) * f;
+  }
+  return out;
+}
+
+/** 聲音變亮：加強變化快的部分（高音） */
+function brighten(d: Float32Array, k: number): Float32Array {
+  let prev = 0;
+  for (let i = 0; i < d.length; i++) {
+    const x = d[i];
+    d[i] = x + k * (x - prev);
+    prev = x;
+  }
+  return d;
 }
 
 /** 調整音量：最大值調到 0.9，避免破音或太小聲 */
@@ -189,9 +244,13 @@ export function transform(d: Float32Array, rate: number, style: VoiceStyle): Flo
   // 總共要提高的音高：讓平均音高到目標（最少提高 1.15 倍，最多 3 倍）
   const total = Math.min(3, Math.max(1.15, pre.target / mid));
   const formant = Math.min(pre.formant, total);
+  const speed = pre.speed ?? 1;
   // PSOLA 負責「音高 ÷ 音色」那一部分，並先拉長；加快播放時音高、音色再一起乘上 formant
-  let out = psola(d, rate, f0, total / formant, formant);
+  let out = psola(d, rate, f0, total / formant, formant / speed);
   out = resample(out, formant);
-  if (style === 'fairy') out = sparkle(out, rate);
+  if (pre.vibrato) out = vibrato(out, rate, pre.vibrato[0], pre.vibrato[1]);
+  if (pre.tremolo) out = tremolo(out, rate, pre.tremolo[0], pre.tremolo[1]);
+  if (pre.bright) out = brighten(out, pre.bright);
+  if (pre.echo) out = echo(out, rate);
   return normalize(out) as Float32Array<ArrayBuffer>;
 }

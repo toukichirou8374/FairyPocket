@@ -57,7 +57,11 @@ export interface KeyGameHost {
   motionStop(): void;
   allayScreen(): { x: number; y: number };
   motionActivity(x: number, y: number, r: number): number;
+  /** 整個鏡頭畫面在動的比例（離鏡頭太近時會很大） */
+  motionOverall(): number;
   moveAllay(): void;
+  /** 打開貼紙簿 */
+  openStickerBook(): void;
 }
 
 const SPEAK_KEY = 'fairypocket.keygame.speak.v1';
@@ -112,6 +116,8 @@ export class KeyGameUI {
   private camOk = false;
   private motionReadyAt = 0;
   private touchCount = 0;
+  /** 整個畫面在動的比例（平滑過），用來判斷是不是離鏡頭太近 */
+  private overall = 0;
 
   constructor(private host: KeyGameHost) {
     this.speakOn = localStorage.getItem(SPEAK_KEY) !== '0';
@@ -133,7 +139,7 @@ export class KeyGameUI {
     const list = el('div', 'kglist', box);
     const games: { id: string; title: string; desc: string; ready: boolean }[] = [
       { id: 'dance', title: t('kg.title'), desc: t('kg.short'), ready: true },
-      { id: 'sticker', title: t('game.sticker'), desc: t('soon'), ready: false },
+      { id: 'sticker', title: t('game.sticker'), desc: t('sb.short'), ready: true },
     ];
     for (const g of games) {
       const b = el('button', 'btn kggame', list);
@@ -144,6 +150,7 @@ export class KeyGameUI {
         this.host.click();
         back.remove();
         if (g.id === 'dance') this.openMenu();
+        else this.host.openStickerBook();
       });
     }
     const close = el('button', 'btn', box);
@@ -229,7 +236,7 @@ export class KeyGameUI {
 
   private prompts(): Prompt[] {
     const lang = getLang();
-    if (this.mode === 'gamepad') return gamepadPrompts(this.padFam ?? 'xbox', lang);
+    if (this.mode === 'gamepad') return gamepadPrompts(this.padFam ?? 'playstation', lang);
     if (this.mode === 'tap') return [{ id: 'tap', label: '★', name: t('kg.tapMe'), speak: t('kg.good') }];
     if (this.mode === 'motion') return [{ id: 'motion', label: '', speak: t('kg.good') }];
     if (this.mode === 'voice') return STICKERS.map((s) => ({ id: s.id, label: '', name: s.names[lang], speak: s.names[lang] }));
@@ -392,8 +399,14 @@ export class KeyGameUI {
       this.ringEl.style.width = this.ringEl.style.height = `${RING * 2 * W}px`;
       this.ringEl.classList.toggle('wait', now < this.motionReadyAt);
     }
-    // 手機直著拿：提示橫放
-    if (this.rotateEl) this.rotateEl.style.display = window.innerHeight > W && 'ontouchstart' in window ? '' : 'none';
+    // 提示：直著拿（畫面比較高）時請橫放；整個畫面一直在動（離鏡頭太近）時請往後退
+    if (this.camOk) this.overall += (this.host.motionOverall() - this.overall) * 0.08;
+    const portrait = window.innerHeight > W;
+    const tooClose = this.camOk && this.overall > 0.3;
+    if (this.rotateEl) {
+      this.rotateEl.style.display = portrait || tooClose ? '' : 'none';
+      this.rotateEl.textContent = portrait ? t('kg.rotate') : t('kg.tooClose');
+    }
     if (!this.camOk || now < this.motionReadyAt) return;
     const act = this.host.motionActivity(a.x, a.y, RING);
     this.touchCount = act > TOUCH ? this.touchCount + 1 : 0;
@@ -473,7 +486,7 @@ export class KeyGameUI {
     if (!this.layer || !this.round) return;
     const p = this.round.next();
     const kind = this.mode === 'gamepad' ? 'pad' : this.mode === 'tap' ? 'tap' : this.mode === 'voice' ? 'sticker' : 'cap';
-    const k = el('div', `kg-key kg-${kind}`, this.layer);
+    const k = el('div', `kg-key kg-${kind}${this.mode === 'gamepad' && (this.padFam ?? 'playstation') === 'playstation' ? ' ps' : ''}`, this.layer);
     const face = el('div', 'kg-face', k);
     if (this.mode === 'voice') {
       const s = STICKERS.find((x) => x.id === p.id)!;
@@ -493,11 +506,25 @@ export class KeyGameUI {
       x = Math.random() < 0.5 ? 10 + Math.random() * 20 : 70 + Math.random() * 20;
       y = 30 + Math.random() * 44;
     }
-    k.style.left = `${x}%`;
-    k.style.top = `${y}%`;
+    this.placeInside(k, x, y);
     this.keyEl = k;
     this.shownAt = performance.now();
     this.nextHint = HINT_FIRST;
+  }
+
+  /** 把題目放在 (x%, y%)，但整個題目（含名字）不能超出畫面、不能壓到上面的分數列與下面的說明 */
+  private placeInside(k: HTMLElement, x: number, y: number): void {
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    const w = k.offsetWidth;
+    const h = k.offsetHeight;
+    const topBar = this.layer?.querySelector('.kg-top')?.getBoundingClientRect().bottom ?? 60;
+    const top = topBar + 8;
+    const bottom = H - (this.noteEl ? this.noteEl.offsetHeight + 22 : 10);
+    const cx = Math.min(Math.max((x / 100) * W, w / 2 + 8), W - w / 2 - 8);
+    const cy = bottom - top < h ? (top + bottom) / 2 : Math.min(Math.max((y / 100) * H, top + h / 2), bottom - h / 2);
+    k.style.left = `${cx}px`;
+    k.style.top = `${cy}px`;
   }
 
   private updateScore(): void {

@@ -65,6 +65,13 @@ export class MotionTracker {
     this.prev = gray;
   }
 
+  /** 整個鏡頭畫面在動的比例（0–1） */
+  overall(): number {
+    let n = 0;
+    for (let i = 0; i < this.changed.length; i++) n += this.changed[i];
+    return n / this.changed.length;
+  }
+
   /**
    * 畫面上某一點附近在動的比例（0–1）。
    * sx、sy 是畫面上的位置（0–1，左上為 0），r 是半徑（畫面寬度的比例）。

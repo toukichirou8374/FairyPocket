@@ -10,7 +10,8 @@ import { allayRate, distanceGain, loadSoundMode, SOUND_MODES } from '../audio';
 import { SFX, sfxPitch } from '../sfx';
 import { trimSilence } from '../voice';
 import { WaveDetector } from '../ar';
-import { trackPitch, transform } from '../voicefx';
+import { trackPitch, transform, VOICE_STYLES } from '../voicefx';
+import { stickerBookItems } from '../ui/stickerBook';
 import { matchesSticker, normalizeSpeech, STICKERS } from './stickers';
 import { gamepadPrompts, isModifier, keyboardPrompts, keyId, KeyRound, loadBest, padFamily, saveBest } from './keyGame';
 import { emptyMemory, memoryTopic, mostEaten, rememberFood, takeMilestone, timeGreeting, visitDay } from './memory';
@@ -409,6 +410,15 @@ describe('按鍵遊戲', () => {
       expect(r.next().id).not.toBe(prev.id);
     }
   });
+  it('聲音玩法：題目沒有文字也能一直出下一題', () => {
+    const r = new KeyRound([{ id: 'a', label: '', speak: 'a' }, { id: 'b', label: '', speak: 'b' }, { id: 'c', label: '', speak: 'c' }]);
+    for (let i = 0; i < 20; i++) {
+      const prev = r.current;
+      const p = r.next();
+      expect(p).toBeTruthy();
+      expect(p.id).not.toBe(prev?.id);
+    }
+  });
   it('鍵盤：英文數字；繁中加注音、日文加假名、英文只有英數', () => {
     const labels = (l: 'zh_tw' | 'ja_jp' | 'en_us') => keyboardPrompts(l).map((p) => p.label);
     expect(labels('en_us')).toHaveLength(36);
@@ -431,6 +441,7 @@ describe('按鍵遊戲', () => {
     expect(padFamily('Pro Controller (STANDARD GAMEPAD Vendor: 057e)')).toBe('nintendo');
     expect(gamepadPrompts('playstation', 'zh_tw')[0]).toMatchObject({ id: '0', label: '✕', speak: '叉叉' });
     expect(gamepadPrompts('nintendo', 'en_us')[0].label).toBe('B');
+    expect(padFamily('Wireless Controller (STANDARD GAMEPAD)')).toBe('playstation');
   });
   it('最高紀錄', () => {
     const m = new Map<string, string>();
@@ -465,5 +476,26 @@ describe('聲音玩法的貼紙', () => {
     expect(matchesSticker('A Fire Engine', get('firetruck'), 'en_us')).toBe(true);
     expect(matchesSticker('', get('dog'), 'en_us')).toBe(false);
     expect(normalizeSpeech('バ ナ ナ。')).toBe('ばなな');
+  });
+});
+
+describe('各式變音器與貼紙簿', () => {
+  it('10 種聲音都能變，聲音不會爆掉', () => {
+    const rate = 24000;
+    const v = new Float32Array(rate);
+    for (let i = 0; i < v.length; i++) for (let h = 1; h <= 6; h++) v[i] += (Math.sin((2 * Math.PI * 130 * h * i) / rate) / h) * 0.2;
+    expect(VOICE_STYLES).toHaveLength(10);
+    for (const st of VOICE_STYLES) {
+      const out = transform(v, rate, st);
+      expect(out.length, st).toBeGreaterThan(rate * 0.6);
+      expect(out.every((x) => Number.isFinite(x)), st).toBe(true);
+      expect(Math.max(...out.map(Math.abs)), st).toBeLessThanOrEqual(0.91);
+    }
+  });
+  it('貼紙簿：字母、數字、注音、假名、動物、交通工具、食物全部都有', () => {
+    const items = stickerBookItems();
+    const n = (c: string) => items.filter((i) => i.cat === c).length;
+    expect([n('letter'), n('digit'), n('zhuyin'), n('kana'), n('animal'), n('vehicle'), n('food')]).toEqual([26, 10, 37, 45, 8, 8, 8]);
+    expect(new Set(items.map((i) => i.id)).size).toBe(items.length);
   });
 });
