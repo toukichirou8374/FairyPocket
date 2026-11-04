@@ -1,5 +1,12 @@
 // 小遊戲的畫面：遊戲選擇 → 精靈舞蹈的選單（玩法、歌曲）→ 遊戲中（題目、分數、歌曲進度）→ 結果。
-// 規則在 game/keyGame.ts；悅靈的動作、音樂、念名稱由 main.ts 提供。
+// 規則在 game/keyGame.ts；貼紙在 game/stickers.ts；悅靈的動作、音樂、鏡頭、麥克風由 main.ts 提供。
+//
+// 玩法：
+//   鍵盤／控制器：按出畫面上的按鍵
+//   點一下：點星星（手機測試用）
+//   聲音：畫面出現貼紙，大聲說出名字（語音辨識；一陣子沒答對悅靈會提示名字）
+//   體感：前鏡頭的畫面當背景，用手揮到悅靈所在的地方，悅靈開心後換地方
+// 設定的「開發選項」打開觸碰測試時，所有玩法都可以用點的代替。
 
 import {
   gamepadPrompts,
@@ -9,6 +16,7 @@ import {
   KeyRound,
   KG_SONGS,
   loadBest,
+  loadDevTap,
   PAD_BUTTONS,
   padFamily,
   saveBest,
@@ -16,7 +24,9 @@ import {
   type KgSong,
   type Prompt,
 } from '../game/keyGame';
+import { matchesSticker, STICKERS, stickerCanvas } from '../game/stickers';
 import { getLang, t } from '../i18n';
+import { Recognizer, speechSupported } from '../speech';
 
 export interface KeyGameHost {
   /** 小遊戲的畫面放在這裡（hud 的根元素） */
@@ -27,22 +37,40 @@ export interface KeyGameHost {
   playSong(path: string, onEnd: () => void): Promise<boolean>;
   stopSong(): void;
   songProgress(): number;
-  /** 悅靈 */
-  begin(): void;
+  /** 悅靈：開始（體感玩法不用舞台，改用鏡頭畫面）、答對、答錯、結算、結束 */
+  begin(mode: KeyGameMode): void;
   cheer(text: string): void;
   oops(): void;
   finish(score: number): void;
   end(): void;
-  /** 念出按鍵名稱 */
+  /** 念出文字（按鍵名稱、聲音玩法的提示） */
   speak(text: string): void;
+  /** 悅靈的叫聲（沒有語音檔的回饋先用這個） */
+  chirp(): void;
   /** 答錯的聲音 */
   wrong(): void;
+  /** 不支援語音辨識時：聽到有人說話就呼叫 onSpeech */
+  micStart(onSpeech: () => void): Promise<boolean>;
+  micStop(): void;
+  /** 體感：開關前鏡頭、悅靈在畫面上的位置（0–1）、那附近在動的比例、讓悅靈換地方 */
+  motionStart(): Promise<boolean>;
+  motionStop(): void;
+  allayScreen(): { x: number; y: number };
+  motionActivity(x: number, y: number, r: number): number;
+  moveAllay(): void;
 }
 
 const SPEAK_KEY = 'fairypocket.keygame.speak.v1';
 const MODE_KEY = 'fairypocket.keygame.mode.v1';
 /** 沒有歌的時候玩多久（秒） */
 const NO_SONG_TIME = 120;
+const SPEECH_LANG: Record<string, string> = { zh_tw: 'zh-TW', ja_jp: 'ja-JP', en_us: 'en-US' };
+/** 聲音玩法：出題後多久提示一次名字（毫秒） */
+const HINT_FIRST = 3500;
+const HINT_EVERY = 6000;
+/** 體感：悅靈周圍多大的範圍（畫面寬度的比例）、多少比例在動算碰到 */
+const RING = 0.1;
+const TOUCH = 0.2;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', parent?: HTMLElement): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -60,6 +88,9 @@ export class KeyGameUI {
   private scoreEl: HTMLElement | null = null;
   private barEl: HTMLElement | null = null;
   private waitEl: HTMLElement | null = null;
+  private noteEl: HTMLElement | null = null;
+  private ringEl: HTMLElement | null = null;
+  private rotateEl: HTMLElement | null = null;
   /** 這個時間之前不接受按鍵（答對後換題、答錯後懊惱時） */
   private lockUntil = 0;
   private raf = 0;
@@ -69,11 +100,23 @@ export class KeyGameUI {
   private padPrev: boolean[] = [];
   private padFam: ReturnType<typeof padFamily> | null = null;
   private speakOn: boolean;
+  /** 開發選項：用點的代替所有輸入 */
+  private devTap = false;
+  // 聲音玩法
+  private rec = new Recognizer();
+  private shownAt = 0;
+  private nextHint = 0;
+  /** 提示念名字時先不聽（避免聽到自己的聲音） */
+  private deafUntil = 0;
+  // 體感玩法
+  private camOk = false;
+  private motionReadyAt = 0;
+  private touchCount = 0;
 
   constructor(private host: KeyGameHost) {
     this.speakOn = localStorage.getItem(SPEAK_KEY) !== '0';
     const m = localStorage.getItem(MODE_KEY) as KeyGameMode | null;
-    if (m === 'keyboard' || m === 'gamepad' || m === 'tap') this.mode = m;
+    if (m === 'keyboard' || m === 'gamepad' || m === 'tap' || m === 'voice' || m === 'motion') this.mode = m;
   }
 
   get active(): boolean {
@@ -125,19 +168,34 @@ export class KeyGameUI {
     el('label', '', box).textContent = t('kg.mode');
     const mrow = el('div', 'pgrid', box);
     const modes: KeyGameMode[] = ['keyboard', 'gamepad', 'tap', 'voice', 'motion'];
-    const songRow = () => songs.querySelectorAll<HTMLElement>('.btn').forEach((b) => (b.querySelector('.best')!.textContent = t('kg.best', { n: loadBest(localStorage, this.mode, b.dataset.song as KgSong) })));
+    const help = el('div', 'info kghelp', box);
+    const sp = el('button', 'btn', box);
+    const refresh = () => {
+      songs.querySelectorAll<HTMLElement>('.btn').forEach((b) => (b.querySelector('.best')!.textContent = t('kg.best', { n: loadBest(localStorage, this.mode, b.dataset.song as KgSong) })));
+      help.textContent = t(`kg.help.${this.mode}`);
+      // 念出按鍵只有鍵盤玩法有
+      sp.textContent = `${t('kg.speak')}：${t(this.speakOn ? 'on' : 'off')}`;
+      sp.classList.toggle('on', this.speakOn);
+      sp.style.display = this.mode === 'keyboard' ? '' : 'none';
+    };
     for (const m of modes) {
       const b = el('button', 'btn' + (m === this.mode ? ' on' : ''), mrow);
       b.textContent = t(`kg.mode.${m}`);
-      if (m === 'voice' || m === 'motion') b.disabled = true;
       b.addEventListener('click', () => {
         this.mode = m;
         localStorage.setItem(MODE_KEY, m);
         mrow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
-        songRow();
-        showSp();
+        refresh();
       });
     }
+    // 說明放在玩法按鈕下面
+    mrow.after(help);
+    help.after(sp);
+    sp.addEventListener('click', () => {
+      this.speakOn = !this.speakOn;
+      localStorage.setItem(SPEAK_KEY, this.speakOn ? '1' : '0');
+      refresh();
+    });
 
     el('label', '', box).textContent = t('kg.song');
     const songs = el('div', 'kgsongs', box);
@@ -151,23 +209,9 @@ export class KeyGameUI {
         songs.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
       });
     });
-    songRow();
+    refresh();
     if (!KG_SONGS.some((s) => this.host.hasSong(s.path))) el('div', 'info', box).textContent = t('kg.noSong');
-
-    // 念出按鍵只有鍵盤玩法有
-    const sp = el('button', 'btn' + (this.speakOn ? ' on' : ''), box);
-    function showSp(this: void): void {
-      sp.textContent = `${t('kg.speak')}：${t(self.speakOn ? 'on' : 'off')}`;
-      sp.style.display = self.mode === 'keyboard' ? '' : 'none';
-    }
-    const self = this;
-    showSp();
-    sp.addEventListener('click', () => {
-      this.speakOn = !this.speakOn;
-      localStorage.setItem(SPEAK_KEY, this.speakOn ? '1' : '0');
-      sp.classList.toggle('on', this.speakOn);
-      showSp();
-    });
+    if (loadDevTap(localStorage)) el('div', 'info kgdev', box).textContent = t('dev.tapOn');
 
     const row = el('div', 'btnrow', box);
     const go = el('button', 'btn primary', row);
@@ -187,6 +231,8 @@ export class KeyGameUI {
     const lang = getLang();
     if (this.mode === 'gamepad') return gamepadPrompts(this.padFam ?? 'xbox', lang);
     if (this.mode === 'tap') return [{ id: 'tap', label: '★', name: t('kg.tapMe'), speak: t('kg.good') }];
+    if (this.mode === 'motion') return [{ id: 'motion', label: '', speak: t('kg.good') }];
+    if (this.mode === 'voice') return STICKERS.map((s) => ({ id: s.id, label: '', name: s.names[lang], speak: s.names[lang] }));
     return keyboardPrompts(lang);
   }
 
@@ -197,6 +243,7 @@ export class KeyGameUI {
     this.host.root.classList.add('kg-on');
     this.ended = false;
     this.lockUntil = 0;
+    this.devTap = loadDevTap(localStorage);
 
     const top = el('div', 'kg-top', layer);
     const exit = el('button', 'btn kg-exit', top);
@@ -213,28 +260,53 @@ export class KeyGameUI {
     this.barEl = el('div', 'kg-fill', bar);
     this.scoreEl = el('div', 'kg-score', top);
 
-    // 點一下模式：點到星星以外的地方算按錯
-    layer.addEventListener('pointerdown', (e) => {
-      if (this.mode !== 'tap' || this.ended) return;
-      if ((e.target as HTMLElement).closest('.kg-top, .kg-result')) return;
-      this.press((e.target as HTMLElement).closest('.kg-key') ? 'tap' : 'miss');
-    });
+    // 點一下玩法（或開發選項的觸碰測試）：點到題目算對，點到別的地方算錯
+    layer.addEventListener('pointerdown', (e) => this.onTap(e));
 
-    this.host.begin();
+    this.host.begin(this.mode);
     this.hasMusic = this.host.hasSong(song.path) && (await this.host.playSong(song.path, () => this.finish()));
+    if (!this.layer) return;
     this.started = performance.now();
 
     if (this.mode === 'gamepad') {
       const pad = this.findPad();
       if (pad) this.padFam = padFamily(pad.id);
-      else this.waitEl = el('div', 'kg-wait', layer);
-      if (this.waitEl) this.waitEl.textContent = t('kg.padWait');
+      else if (!this.devTap) {
+        this.waitEl = el('div', 'kg-wait', layer);
+        this.waitEl.textContent = t('kg.padWait');
+      }
     }
+    if (this.mode === 'voice') await this.startVoice();
+    if (this.mode === 'motion') await this.startMotion();
+    if (!this.layer) return;
     this.round = new KeyRound(this.prompts());
     this.updateScore();
-    if (!this.waitEl) this.nextPrompt();
+    if (this.mode === 'motion') this.round.next();
+    else if (!this.waitEl) this.nextPrompt();
     window.addEventListener('keydown', this.onKey, true);
     this.tick();
+  }
+
+  private note(text: string): void {
+    if (!this.layer) return;
+    if (!this.noteEl) this.noteEl = el('div', 'kg-note', this.layer);
+    this.noteEl.textContent = text;
+  }
+
+  private onTap(e: PointerEvent): void {
+    if (this.ended || !this.round) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.kg-top, .kg-result')) return;
+    if (this.mode !== 'tap' && !this.devTap) return;
+    if (this.mode === 'motion') {
+      // 點到悅靈附近算碰到
+      const a = this.host.allayScreen();
+      const d = Math.hypot(e.clientX - a.x * window.innerWidth, e.clientY - a.y * window.innerHeight);
+      if (d < RING * window.innerWidth * 1.3) this.motionTouched();
+      return;
+    }
+    if (this.mode === 'gamepad' && this.waitEl) return;
+    this.press(target.closest('.kg-key') ? this.round.current!.id : 'miss');
   }
 
   private findPad(): Gamepad | null {
@@ -257,10 +329,83 @@ export class KeyGameUI {
     this.press(keyId(e.code));
   };
 
+  // ---------- 聲音 ----------
+
+  private async startVoice(): Promise<void> {
+    const onHeard = (text: string, final: boolean) => {
+      const cur = this.round?.current;
+      if (!cur || this.ended || performance.now() < this.deafUntil) return;
+      const s = STICKERS.find((x) => x.id === cur.id);
+      if (s && matchesSticker(text, s, getLang())) this.press(cur.id);
+      else if (final && text.trim()) this.press('miss');
+    };
+    // 麥克風不能用：開發選項的觸碰測試打開時改用點的
+    const fail = () => this.note(this.devTap ? t('kg.voiceTapOnly') : t('micDenied'));
+    if (speechSupported() && this.rec.start(SPEECH_LANG[getLang()], onHeard, fail)) {
+      this.note(t('kg.voiceSay'));
+      return;
+    }
+    // 不支援語音辨識：聽到說話的聲音就算答對
+    const ok = await this.host.micStart(() => {
+      const cur = this.round?.current;
+      if (cur && performance.now() >= this.deafUntil) this.press(cur.id);
+    });
+    this.note(ok ? t('kg.voiceAny') : this.devTap ? t('kg.voiceTapOnly') : t('micDenied'));
+  }
+
+  // ---------- 體感 ----------
+
+  private async startMotion(): Promise<void> {
+    this.camOk = await this.host.motionStart();
+    if (!this.layer) return;
+    if (!this.camOk) this.note(this.devTap ? t('kg.noCamTap') : t('kg.noCam'));
+    else this.note(t('kg.motionSay'));
+    this.ringEl = el('div', 'kg-ring', this.layer);
+    this.rotateEl = el('div', 'kg-rotate', this.layer);
+    this.rotateEl.textContent = t('kg.rotate');
+    this.host.moveAllay();
+    this.motionReadyAt = performance.now() + 1500;
+  }
+
+  private motionTouched(): void {
+    if (!this.round || performance.now() < this.motionReadyAt) return;
+    this.round.press('motion');
+    this.updateScore();
+    this.host.chirp();
+    this.host.cheer(t('kg.good') + '！');
+    this.ringEl?.classList.add('hit');
+    this.motionReadyAt = performance.now() + 2600;
+    this.touchCount = 0;
+    window.setTimeout(() => {
+      if (!this.layer || this.ended) return;
+      this.ringEl?.classList.remove('hit');
+      this.host.moveAllay();
+    }, 1100);
+  }
+
+  private tickMotion(now: number): void {
+    const a = this.host.allayScreen();
+    const W = window.innerWidth;
+    if (this.ringEl) {
+      this.ringEl.style.left = `${a.x * 100}%`;
+      this.ringEl.style.top = `${a.y * 100}%`;
+      this.ringEl.style.width = this.ringEl.style.height = `${RING * 2 * W}px`;
+      this.ringEl.classList.toggle('wait', now < this.motionReadyAt);
+    }
+    // 手機直著拿：提示橫放
+    if (this.rotateEl) this.rotateEl.style.display = window.innerHeight > W && 'ontouchstart' in window ? '' : 'none';
+    if (!this.camOk || now < this.motionReadyAt) return;
+    const act = this.host.motionActivity(a.x, a.y, RING);
+    this.touchCount = act > TOUCH ? this.touchCount + 1 : 0;
+    // 連續兩次（約 0.2 秒）都有動才算，避免雜訊
+    if (this.touchCount >= 2) this.motionTouched();
+  }
+
   private tick = (): void => {
     if (!this.layer) return;
+    const now = performance.now();
     // 歌曲進度
-    const p = this.hasMusic ? this.host.songProgress() : Math.min(1, (performance.now() - this.started) / 1000 / NO_SONG_TIME);
+    const p = this.hasMusic ? this.host.songProgress() : Math.min(1, (now - this.started) / 1000 / NO_SONG_TIME);
     if (this.barEl) this.barEl.style.width = `${(p * 100).toFixed(1)}%`;
     if (!this.hasMusic && p >= 1 && !this.ended) this.finish();
     // 控制器：偵測按下的那一瞬間
@@ -277,12 +422,22 @@ export class KeyGameUI {
           this.nextPrompt();
         }
         PAD_BUTTONS.forEach((i) => {
-          const now = !!pad.buttons[i]?.pressed;
-          if (now && !this.padPrev[i]) this.press(String(i));
-          this.padPrev[i] = now;
+          const down = !!pad.buttons[i]?.pressed;
+          if (down && !this.padPrev[i]) this.press(String(i));
+          this.padPrev[i] = down;
         });
       }
     }
+    // 聲音：一陣子沒答對，悅靈提示名字
+    if (this.mode === 'voice' && !this.ended && this.round?.current && now > this.lockUntil && now - this.shownAt > this.nextHint) {
+      this.nextHint += HINT_EVERY;
+      this.deafUntil = now + 2200;
+      this.host.speak(this.round.current.speak);
+      this.keyEl?.classList.remove('hint');
+      void this.keyEl?.offsetWidth;
+      this.keyEl?.classList.add('hint');
+    }
+    if (this.mode === 'motion' && !this.ended) this.tickMotion(now);
     this.raf = requestAnimationFrame(this.tick);
   };
 
@@ -294,7 +449,9 @@ export class KeyGameUI {
       this.lockUntil = performance.now() + 900;
       this.updateScore();
       this.keyEl?.classList.add('hit');
-      if (this.speakOn && this.mode === 'keyboard') this.host.speak(p.speak);
+      // 鍵盤念出按鍵；其他玩法先用悅靈的叫聲
+      if (this.mode === 'keyboard' && this.speakOn) this.host.speak(p.speak);
+      else this.host.chirp();
       this.host.cheer(this.mode === 'tap' ? `${p.speak}！` : (p.name ?? p.label));
       const old = this.keyEl;
       window.setTimeout(() => {
@@ -315,9 +472,13 @@ export class KeyGameUI {
   private nextPrompt(): void {
     if (!this.layer || !this.round) return;
     const p = this.round.next();
-    const k = el('div', `kg-key kg-${this.mode === 'gamepad' ? 'pad' : this.mode === 'tap' ? 'tap' : 'cap'}`, this.layer);
+    const kind = this.mode === 'gamepad' ? 'pad' : this.mode === 'tap' ? 'tap' : this.mode === 'voice' ? 'sticker' : 'cap';
+    const k = el('div', `kg-key kg-${kind}`, this.layer);
     const face = el('div', 'kg-face', k);
-    face.textContent = p.label;
+    if (this.mode === 'voice') {
+      const s = STICKERS.find((x) => x.id === p.id)!;
+      face.appendChild(stickerCanvas(s, 8));
+    } else face.textContent = p.label;
     if (p.label.length > 2) face.classList.add('long');
     if (p.color) face.style.setProperty('--pad', p.color);
     if (p.name) el('div', 'kg-name', k).textContent = p.name;
@@ -335,6 +496,8 @@ export class KeyGameUI {
     k.style.left = `${x}%`;
     k.style.top = `${y}%`;
     this.keyEl = k;
+    this.shownAt = performance.now();
+    this.nextHint = HINT_FIRST;
   }
 
   private updateScore(): void {
@@ -346,6 +509,9 @@ export class KeyGameUI {
     this.ended = true;
     this.keyEl?.remove();
     this.waitEl?.remove();
+    this.ringEl?.remove();
+    this.rec.stop();
+    this.host.micStop();
     const score = this.round?.score ?? 0;
     const best = saveBest(localStorage, this.mode, this.song, score);
     this.host.finish(score);
@@ -381,12 +547,19 @@ export class KeyGameUI {
   stop(end: boolean): void {
     cancelAnimationFrame(this.raf);
     window.removeEventListener('keydown', this.onKey, true);
+    this.rec.stop();
+    this.host.micStop();
+    this.host.motionStop();
     if (this.layer) this.host.stopSong();
     this.layer?.remove();
     this.layer = null;
     this.keyEl = null;
     this.waitEl = null;
+    this.noteEl = null;
+    this.ringEl = null;
+    this.rotateEl = null;
     this.round = null;
+    this.camOk = false;
     this.host.root.classList.remove('kg-on');
     if (end) this.host.end();
   }

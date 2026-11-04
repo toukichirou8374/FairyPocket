@@ -7,6 +7,7 @@ import { VOLUME_KINDS, type SoundMode, type VolumeKind, type Volumes } from '../
 import { BIOMES, type Biome } from '../three/biome';
 import type { Pose } from '../three/allayController';
 import { getLang, itemName, LANGS, personalityText, t, type Lang, type UiKey } from '../i18n';
+import { loadDevTap, saveDevTap } from '../game/keyGame';
 import { bedIso, chestIso, isoCube } from './isoIcon';
 import { VOICE_STYLES, type VoiceStyle } from '../voicefx';
 
@@ -841,6 +842,22 @@ export class Hud {
     }
 
     this.replyEditor(box);
+
+    // 開發選項：測試用的設定集中在這裡
+    el('label', '', box).textContent = t('dev.title');
+    const dev = el('button', 'btn' + (loadDevTap(localStorage) ? ' on' : ''), box);
+    const devHelp = el('div', 'info', box);
+    const showDev = () => {
+      const on = loadDevTap(localStorage);
+      dev.textContent = `${t('dev.tap')}：${t(on ? 'on' : 'off')}`;
+      dev.classList.toggle('on', on);
+      devHelp.textContent = t('dev.tapHelp');
+    };
+    showDev();
+    dev.addEventListener('click', () => {
+      saveDevTap(localStorage, !loadDevTap(localStorage));
+      showDev();
+    });
 
     el('label', '', box).textContent = t('bedtime');
     const brow = el('div', 'btnrow', box);

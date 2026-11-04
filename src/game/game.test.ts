@@ -11,6 +11,7 @@ import { SFX, sfxPitch } from '../sfx';
 import { trimSilence } from '../voice';
 import { WaveDetector } from '../ar';
 import { trackPitch, transform } from '../voicefx';
+import { matchesSticker, normalizeSpeech, STICKERS } from './stickers';
 import { gamepadPrompts, isModifier, keyboardPrompts, keyId, KeyRound, loadBest, padFamily, saveBest } from './keyGame';
 import { emptyMemory, memoryTopic, mostEaten, rememberFood, takeMilestone, timeGreeting, visitDay } from './memory';
 
@@ -439,5 +440,30 @@ describe('按鍵遊戲', () => {
     expect(saveBest(st, 'tap', 'cat', 3)).toBe(false);
     expect(loadBest(st, 'tap', 'cat')).toBe(5);
     expect(loadBest(st, 'keyboard', 'cat')).toBe(0);
+  });
+});
+
+describe('聲音玩法的貼紙', () => {
+  it('動物、食物、交通工具各 8 個，圖都是 12 寬、顏色都有定義', () => {
+    for (const c of ['animal', 'food', 'vehicle']) expect(STICKERS.filter((s) => s.cat === c)).toHaveLength(8);
+    expect(new Set(STICKERS.map((s) => s.id)).size).toBe(STICKERS.length);
+    for (const s of STICKERS) {
+      expect(s.grid.length, s.id).toBeGreaterThanOrEqual(8);
+      for (const row of s.grid) {
+        expect(row.length, s.id).toBe(12);
+        for (const ch of row) if (ch !== '.') expect(s.pal[ch], `${s.id} ${ch}`).toBeTruthy();
+      }
+    }
+  });
+  it('聽到名字或常見說法就算答對（三種語言）', () => {
+    const get = (id: string) => STICKERS.find((s) => s.id === id)!;
+    expect(matchesSticker('是狗狗', get('dog'), 'zh_tw')).toBe(true);
+    expect(matchesSticker('胡萝卜', get('carrot'), 'zh_tw')).toBe(true);
+    expect(matchesSticker('貓', get('dog'), 'zh_tw')).toBe(false);
+    expect(matchesSticker('ネコ！', get('cat'), 'ja_jp')).toBe(true);
+    expect(matchesSticker('自転車', get('bicycle'), 'ja_jp')).toBe(true);
+    expect(matchesSticker('A Fire Engine', get('firetruck'), 'en_us')).toBe(true);
+    expect(matchesSticker('', get('dog'), 'en_us')).toBe(false);
+    expect(normalizeSpeech('バ ナ ナ。')).toBe('ばなな');
   });
 });

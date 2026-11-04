@@ -194,3 +194,16 @@ export function saveBest(storage: Pick<Storage, 'getItem' | 'setItem'>, mode: Ke
   storage.setItem(BEST_KEY, JSON.stringify(d));
   return true;
 }
+
+// ---------- 開發選項：觸碰測試 ----------
+
+const DEV_TAP_KEY = 'fairypocket.dev.tap.v1';
+
+/** 觸碰測試：所有玩法（鍵盤、控制器、聲音、體感）都可以用點的代替 */
+export function loadDevTap(storage: Pick<Storage, 'getItem'>): boolean {
+  return storage.getItem(DEV_TAP_KEY) === '1';
+}
+
+export function saveDevTap(storage: Pick<Storage, 'setItem'>, on: boolean): void {
+  storage.setItem(DEV_TAP_KEY, on ? '1' : '0');
+}

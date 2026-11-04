@@ -14,6 +14,8 @@ import { SFX, sfxPitch, type Sfx } from './sfx';
 import { Music } from './music';
 import { ArCamera, Composer, saveMedia, type ArEvents, type Facing } from './ar';
 import { KeyGameUI } from './ui/keyGameUI';
+import { MotionTracker } from './motion';
+import { STICKERS, stickerCanvas } from './game/stickers';
 import { buildCrown, buildDanceStage, DANCE_TEXTURES, type DanceImages } from './three/danceStage';
 import { clipBuffer, Listener, loadReplies, loadVoiceStyle, recordClip, saveReplies, saveVoiceStyle, type Clip } from './voice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
@@ -623,6 +625,11 @@ async function showDanceStage(on: boolean): Promise<void> {
   stage.showPlants(!danceOn);
 }
 
+/** 精靈舞蹈：不支援語音辨識時用的「聽到聲音」偵測，與體感用的前鏡頭 */
+const gameListener = new Listener();
+const motion = new MotionTracker(document.body);
+let lastSpot = { x: 0, y: 0 };
+
 const CHEERS = [
   ['happy', 0.9],
   ['dance', 1.2],
@@ -642,13 +649,67 @@ const keyGame = new KeyGameUI({
   },
   stopSong: () => music.stopSong(),
   songProgress: () => music.songProgress(),
-  begin: () => {
+  begin: (mode) => {
     sound.unlock();
-    void showDanceStage(true);
-    // 悅靈飛到畫面中間，專心陪玩
     ctrl.setPose('fly');
-    ctrl.posePos.set(0, 1.05, 0.6);
+    if (mode === 'motion') {
+      // 體感：不用舞台，悅靈變小、在鏡頭畫面上到處換位置
+      model.root.scale.setScalar(0.7);
+    } else {
+      void showDanceStage(true);
+      // 悅靈飛到舞台中間，專心陪玩
+      ctrl.posePos.set(0, 1.05, 0.6);
+    }
     requestAnimationFrame(resize);
+  },
+  chirp: () => sound.speak(pet.personality),
+  micStart: async (onSpeech) => {
+    sound.unlock();
+    const ctx = sound.context;
+    if (!ctx) return false;
+    try {
+      await gameListener.start(ctx, { start: () => {}, end: () => onSpeech() });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  micStop: () => gameListener.stop(),
+  motionStart: async () => {
+    const ok = await motion.start();
+    if (ok) {
+      document.body.classList.add('motion');
+      stage.setAR(true);
+    }
+    return ok;
+  },
+  motionStop: () => {
+    if (!motion.on && !document.body.classList.contains('motion')) return;
+    motion.stop();
+    document.body.classList.remove('motion');
+    if (!arCam.on) stage.setAR(false);
+  },
+  allayScreen: () => {
+    const v = ctrl.pos.clone().add(new THREE.Vector3(0, 0.15, 0)).project(stage.camera);
+    return { x: (v.x + 1) / 2, y: (1 - v.y) / 2 };
+  },
+  motionActivity: (x, y, r) => motion.activity(x, y, r),
+  moveAllay: () => {
+    // 換到畫面上另一個地方（跟上一個位置拉開距離），讓小朋友要移動身體
+    const cam = stage.camera;
+    let nx = 0;
+    let ny = 0;
+    for (let i = 0; i < 20; i++) {
+      nx = (Math.random() * 2 - 1) * 0.72;
+      ny = -0.4 + Math.random() * 0.9;
+      if (Math.hypot(nx - lastSpot.x, ny - lastSpot.y) > 0.6) break;
+    }
+    lastSpot = { x: nx, y: ny };
+    const p = new THREE.Vector3(nx, ny, 0.5).unproject(cam);
+    const dir = p.sub(cam.position).normalize();
+    const d = (-1.5 - cam.position.z) / dir.z;
+    ctrl.posePos.copy(cam.position).addScaledVector(dir, d);
+    sound.effect('sounds/mob/allay/item_thrown', 0.4, 1.2, 0, 'voice');
   },
   cheer: (text) => {
     // 答對：每次換一個不同的開心動作
@@ -669,6 +730,7 @@ const keyGame = new KeyGameUI({
   },
   end: () => {
     void showDanceStage(false);
+    model.root.scale.setScalar(1);
     ctrl.setPose(null);
     requestAnimationFrame(resize);
   },
@@ -1203,4 +1265,4 @@ function frame(now: number): void {
 requestAnimationFrame(frame);
 
 // 方便自動化測試與除錯
-Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound, music, keyGame } });
+Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound, music, keyGame, STICKERS, stickerCanvas } });
