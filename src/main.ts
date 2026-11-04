@@ -11,6 +11,7 @@ import { BACKUP_KEY, decodeLink, encodeLink, exportFileName, linkKind, loadPet, 
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
 import { SFX, sfxPitch, type Sfx } from './sfx';
+import { ArCamera, Composer, saveMedia, type Facing } from './ar';
 import { clipBuffer, Listener, loadReplies, recordClip, saveReplies, syllables, type Clip } from './voice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
@@ -88,6 +89,69 @@ async function answer(samples: Float32Array, rate: number): Promise<void> {
   stage.spawn('note', ctrl.headTop(new THREE.Vector3()), 2);
   cheer(pet, 3);
   lastSpoke = performance.now();
+}
+
+// ---------- 相機 AR 模式（拍照、錄影、前鏡頭揮手） ----------
+
+let lastGlance = 0;
+const arCam = new ArCamera(document.body, {
+  wave: () => {
+    ctrl.waveBack();
+    say('waveBack');
+    stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), 3);
+    cheer(pet, 5);
+  },
+  // 畫面裡有人在動：悅靈好奇地往那邊看（不要太頻繁）
+  motion: (x) => {
+    const now = performance.now();
+    if (now - lastGlance < 3000 || ctrl.mode !== 'idle') return;
+    lastGlance = now;
+    ctrl.lookAt(new THREE.Vector3(x * 1.6, 1.2, 0.4));
+  },
+});
+const composer = new Composer(arCam, canvas);
+let wantPhoto = false;
+
+function mediaName(ext: string): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `FairyPocket-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+}
+
+async function arOpen(facing: Facing = 'environment'): Promise<void> {
+  try {
+    await arCam.start(facing);
+  } catch {
+    hud.toast(t('camDenied'));
+    return;
+  }
+  wantPhoto = false;
+  hud.setAr(true);
+  stage.setAR(true);
+  if (facing === 'user') hud.showItem(t('arFront'));
+}
+
+async function arClose(): Promise<void> {
+  if (composer.recording) await arRecord();
+  arCam.stop();
+  hud.setAr(false);
+  stage.setAR(false);
+}
+
+async function arRecord(): Promise<void> {
+  if (composer.recording) {
+    hud.setRecording(false);
+    const blob = await composer.stopRecording();
+    if (blob) {
+      const r = await saveMedia(blob, mediaName(blob.type.includes('webm') ? 'webm' : 'mp4'));
+      if (r !== 'cancelled') hud.toast(t('arSaved'));
+    }
+    return;
+  }
+  sound.unlock();
+  composer.startRecording(sound.recordStream() ?? undefined);
+  hud.setRecording(true);
+  hud.toast(t('arRecording'));
 }
 
 /** 達成紀念次數時（第 100 次摸摸…），過一下再開心地說出來 */
@@ -297,6 +361,15 @@ const hud = new Hud(overlay, {
     location.reload();
   },
   bedtime: () => bedtime,
+  arOpen: () => void arOpen(),
+  arClose: () => void arClose(),
+  arPhoto: () => {
+    if (!arCam.on) return;
+    wantPhoto = true;
+    playSfx('click');
+  },
+  arRecord: () => void arRecord(),
+  arFlip: () => void arOpen(arCam.facing === 'user' ? 'environment' : 'user'),
   replies: () => replies.map((r) => !!r),
   recordReply: async (i) => {
     sound.unlock();
@@ -760,6 +833,16 @@ function frame(now: number): void {
   }
   stage.setShadow(ctrl.pos);
   stage.update(dt, elapsed);
+  // AR：3D 畫面剛畫好時，跟相機畫面合成（拍照、錄影）
+  if (arCam.on && (composer.recording || wantPhoto)) {
+    composer.compose();
+    if (wantPhoto) {
+      wantPhoto = false;
+      void composer.photo().then(async (b) => {
+        if (b && (await saveMedia(b, mediaName('jpg'))) !== 'cancelled') hud.toast(t('arSaved'));
+      });
+    }
+  }
   hud.setShardReady(ctrl.dancing);
 
   // 主動發言：每 15 秒檢查一次，距離上次發言超過 45 秒才說話

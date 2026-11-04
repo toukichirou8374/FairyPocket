@@ -555,6 +555,15 @@ export class Stage {
     this.motes.visible = !style.weather;
   }
 
+  /** AR 模式：相機畫面當背景，藏起地面、植物與天氣（保留悅靈的影子） */
+  setAR(on: boolean): void {
+    if (this.ground) this.ground.visible = !on;
+    this.plants.visible = !on;
+    this.motes.visible = !on && !this.weather;
+    this.arMode = on;
+  }
+  private arMode = false;
+
   private spawnWeather(): void {
     const w = this.weather!;
     const frame = this.tex.dust[w.kind === 'snow' ? 2 : 4];
@@ -621,7 +630,7 @@ export class Stage {
     }
     if (this.noteBlock) this.noteBlock.scale.lerp(new THREE.Vector3(1, 1, 1), 1 - Math.exp(-10 * dt));
     this.motes.position.y = Math.sin(t * 0.2) * 0.1;
-    if (this.weather) {
+    if (this.weather && !this.arMode) {
       this.weatherIn -= dt;
       while (this.weatherIn <= 0) {
         this.weatherIn += this.weather.every;

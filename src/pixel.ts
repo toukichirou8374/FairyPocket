@@ -159,6 +159,22 @@ export const ITEM_ICONS: Record<string, { grid: string[]; pal: Palette }> = {
     ],
     pal: { k: '#3a2410', b: '#7a4a24', B: '#9a6234', n: '#2a1608' },
   },
+  // 原創的像素相機（AR 模式按鈕）
+  camera: {
+    grid: [
+      '...kkkk.....',
+      'kkkkkkkkkkkk',
+      'kggggggggrgk',
+      'kgggkkkkgggk',
+      'kggkwbbkkggk',
+      'kggkbbbbkggk',
+      'kggkbbbbkggk',
+      'kgggkkkkgggk',
+      'kggggggggggk',
+      'kkkkkkkkkkkk',
+    ],
+    pal: { k: '#1d2b4a', g: '#a8b4c8', r: '#e04848', w: '#ffffff', b: '#4a7ab8' },
+  },
   // 原創的像素麥克風（原版沒有麥克風）
   mic: {
     grid: [

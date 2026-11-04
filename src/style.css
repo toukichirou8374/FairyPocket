@@ -88,6 +88,48 @@ html, body {
 }
 .bubble.show { opacity: 1; }
 
+/* ---- 相機 AR 模式 ---- */
+#cam { display: none; position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+#cam.mirror { transform: scaleX(-1); }
+body.ar #cam { display: block; }
+body.ar #sky { display: none; }
+.gear.camera { right: auto; left: calc(env(safe-area-inset-left) + 12px); display: grid; place-items: center; padding: 0; }
+.gear.camera img { width: 30px; image-rendering: pixelated; }
+.ar .gear.camera { display: none; }
+.artools {
+  display: none;
+  position: absolute;
+  right: calc(env(safe-area-inset-right) + 14px);
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+}
+.ar .artools { display: flex; }
+.artool {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font: 22px/1 var(--font);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.artool.shutter { width: 68px; height: 68px; background: #fff; border: 5px solid rgba(255, 255, 255, 0.5); background-clip: padding-box; }
+.artool.record::after { content: ''; display: block; width: 22px; height: 22px; margin: auto; border-radius: 50%; background: #e83838; }
+.artool.record.on::after { border-radius: 4px; animation: rec 0.8s ease-in-out infinite alternate; }
+.artool:active { transform: scale(0.92); }
+.ar .gear { display: none; }
+@media (max-height: 460px) {
+  .artools { gap: 8px; }
+  .artool { width: 42px; height: 42px; font-size: 18px; }
+  .artool.shutter { width: 54px; height: 54px; }
+  .artool.record::after { width: 16px; height: 16px; }
+}
+
 .gear {
   position: absolute;
   top: calc(env(safe-area-inset-top) + 10px);

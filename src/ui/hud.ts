@@ -53,6 +53,12 @@ export interface HudActions {
   setLang(l: Lang): void;
   glow(): boolean;
   bedtime(): Bedtime;
+  /** 相機 AR 模式 */
+  arOpen(): void;
+  arClose(): void;
+  arPhoto(): void;
+  arRecord(): void;
+  arFlip(): void;
   /** 設定頁錄的回應（目前語言 5 句）：哪幾格有錄、錄音、試聽、刪除 */
   replies(): boolean[];
   recordReply(i: number): Promise<{ stop: () => void; done: Promise<boolean> } | null>;
@@ -97,6 +103,7 @@ export class Hud {
   food: Food | null = null;
   private foodURL = {} as Record<Food, string>;
   private foodBadge!: HTMLImageElement;
+  private recBtn!: HTMLButtonElement;
   private shardBadge!: HTMLImageElement;
   private chargeEl!: HTMLDivElement;
   private lastStat = '';
@@ -119,6 +126,26 @@ export class Hud {
       this.actions.sfx('click');
       this.openSettings();
     });
+
+    // 相機 AR 模式的按鈕（左上）與 AR 工具列（右側）
+    const cam = el('button', 'gear camera', root);
+    cam.setAttribute('aria-label', t('ar'));
+    el('img', '', cam).src = gridURL(ITEM_ICONS.camera.grid, ITEM_ICONS.camera.pal, 3);
+    cam.addEventListener('click', () => {
+      this.actions.sfx('click');
+      this.actions.arOpen();
+    });
+    const tools = el('div', 'artools', root);
+    const tool = (cls: string, label: string, fn: () => void) => {
+      const b = el('button', 'artool ' + cls, tools);
+      b.setAttribute('aria-label', label);
+      b.addEventListener('click', fn);
+      return b;
+    };
+    tool('shutter', t('arPhoto'), () => this.actions.arPhoto());
+    this.recBtn = tool('record', t('arRecord'), () => this.actions.arRecord());
+    tool('flip', t('arFlip'), () => this.actions.arFlip()).textContent = '⇄';
+    tool('exit', t('close'), () => this.actions.arClose()).textContent = '✕';
 
     const hud = el('div', 'hud', root);
     this.itemName = el('div', 'itemname', hud);
@@ -178,6 +205,16 @@ export class Hud {
       this.showItem(`${slot === 'food' && this.food ? itemName(this.food) : s.label}　${slot === 'food' && this.food === 'cake' ? t('hint.cake') : s.hint}`);
     }
     this.actions.select(slot);
+  }
+
+  /** AR 模式開關：顯示相機工具列、藏起相機按鈕 */
+  setAr(on: boolean): void {
+    this.root.classList.toggle('ar', on);
+    document.body.classList.toggle('ar', on);
+  }
+
+  setRecording(on: boolean): void {
+    this.recBtn.classList.toggle('on', on);
   }
 
   /** 悅靈正在跳舞：可以給牠紫水晶碎片 */

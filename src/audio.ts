@@ -157,7 +157,7 @@ export class Sound {
       p.pan.value = pan;
       node = node.connect(p);
     }
-    node.connect(ctx.destination);
+    node.connect(this.output(ctx));
     src.start();
   }
 
@@ -172,6 +172,25 @@ export class Sound {
    */
   effectAt(path: string, dist: number, x: number, volume = 1, rate = 1): void {
     this.effect(path, volume * distanceGain(dist), rate, Math.max(-0.8, Math.min(0.8, x / 2.5)));
+  }
+
+  /** 所有聲音都先經過這個節點，錄影時才能一起錄進去 */
+  private out: GainNode | null = null;
+  private output(ctx: AudioContext): GainNode {
+    if (!this.out) {
+      this.out = ctx.createGain();
+      this.out.connect(ctx.destination);
+    }
+    return this.out;
+  }
+
+  /** 錄影用：悅靈聲音的音訊串流 */
+  recordStream(): MediaStream | null {
+    const ctx = this.ctx;
+    if (!ctx) return null;
+    const dest = ctx.createMediaStreamDestination();
+    this.output(ctx).connect(dest);
+    return dest.stream;
   }
 
   get context(): AudioContext | null {
@@ -203,7 +222,7 @@ export class Sound {
       g.gain.linearRampToValueAtTime(m.allay, at + 0.02);
       g.gain.setValueAtTime(m.allay, at + dur - 0.04);
       g.gain.linearRampToValueAtTime(0, at + dur);
-      src.connect(g).connect(ctx.destination);
+      src.connect(g).connect(this.output(ctx));
       const offset = Math.random() * Math.max(0, Math.min(0.35, buf.duration - dur * src.playbackRate.value - 0.05));
       src.start(at, offset, dur * src.playbackRate.value + 0.02);
       end = Math.max(end, s.t * 0.9 + dur);
@@ -223,7 +242,7 @@ export class Sound {
     src.buffer = buf;
     const g = ctx.createGain();
     g.gain.value = Math.min(1.5, m.allay * 1.4);
-    src.connect(g).connect(ctx.destination);
+    src.connect(g).connect(this.output(ctx));
     src.start(ctx.currentTime + 0.15);
     return buf.duration + 0.3;
   }

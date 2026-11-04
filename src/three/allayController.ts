@@ -13,7 +13,7 @@ const SPARSE_CHANCE = 0.4;
 export type Mode =
   | 'idle' | 'wander' | 'approach' | 'called' | 'rest' | 'sleep'
   | 'play' | 'eat' | 'happy' | 'tickled' | 'startled' | 'curious' | 'waking' | 'dance'
-  | 'observe' | 'flourish' | 'cake' | 'listen';
+  | 'observe' | 'flourish' | 'cake' | 'listen' | 'wave';
 
 /** 聽到音符後跳舞的秒數（每次彈奏都會重新計時） */
 const DANCE_TIME = 10;
@@ -216,6 +216,13 @@ export class AllayController {
       this.setMode('listen', 30);
     } else if (this.mode === 'listen') this.setMode('happy', 0.9);
   }
+  /** 有人對著前鏡頭揮手：飛到面前揮手回應 */
+  waveBack(): void {
+    if (this.mode === 'eat') return;
+    this.wake();
+    this.setMode('wave', 2.4);
+  }
+
   /** 聽到的音量 0–1（說話時頭會跟著點） */
   hearing = 0;
 
@@ -347,6 +354,13 @@ export class AllayController {
         if (this.pos.distanceTo(this.target) < 0.25) this.hooks.atCake?.();
         else if (this.modeTime > this.modeDur) this.toIdle();
         break;
+      case 'wave': {
+        const cam = this.world.camera.position;
+        this.target.set(0, cam.y - 0.45, cam.z - this.tr.nearDist);
+        speed *= 1.4;
+        if (this.modeTime > this.modeDur) this.setMode('happy', 0.9);
+        break;
+      }
       case 'listen': {
         const cam = this.world.camera.position;
         this.target.set(0, cam.y - 0.5, cam.z - 2.6);
@@ -557,6 +571,11 @@ export class AllayController {
     m.armR.rotation.z = -m.armL.rotation.z;
     m.armL.rotation.y = 0.2793 * h;
     m.armR.rotation.y = -0.2793 * h;
+    // 揮手：舉起一隻手左右搖
+    if (this.mode === 'wave') {
+      m.armR.rotation.x = -2.5;
+      m.armR.rotation.z = -0.3 + Math.sin(this.modeTime * 13) * 0.55;
+    }
 
     // 頭：自動看向玩家
     const cam = this.world.camera.position;
@@ -577,7 +596,7 @@ export class AllayController {
     // 眼睛：眨眼 / 睡覺 / 開心
     this.blinkIn -= dt;
     if (sleeping || this.mode === 'rest' && this.modeTime > 4) m.setEyes('closed');
-    else if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'eat' || dancing) m.setEyes('happy');
+    else if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'eat' || this.mode === 'wave' || dancing) m.setEyes('happy');
     else if (this.blinkIn < 0) {
       m.setEyes('closed');
       if (this.blinkIn < -0.13) this.blinkIn = rand(2, 5);

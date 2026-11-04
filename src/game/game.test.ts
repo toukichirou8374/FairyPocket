@@ -9,6 +9,7 @@ import { packFile, parseLegacyPack, parseZipPack } from './assets';
 import { allayRate, distanceGain, loadSoundMode, SOUND_MODES } from '../audio';
 import { SFX, sfxPitch } from '../sfx';
 import { syllables, trimSilence } from '../voice';
+import { WaveDetector } from '../ar';
 import { emptyMemory, memoryTopic, mostEaten, rememberFood, takeMilestone, timeGreeting, visitDay } from './memory';
 
 function memStorage() {
@@ -290,6 +291,19 @@ describe('voice', () => {
     expect(syl.length).toBe(3);
     expect(syl[2].rel).toBeGreaterThan(1.3);
     expect(syl[0].t).toBeCloseTo(0.1, 1);
+  });
+});
+
+describe('ar wave', () => {
+  it('detects a hand waving left and right, but not one sweep', () => {
+    const w = new WaveDetector();
+    let hit = false;
+    [-0.4, -0.1, 0.3, 0.0, -0.4, 0.0, 0.4].forEach((x, i) => (hit = w.push(1000 + i * 100, x) || hit));
+    expect(hit).toBe(true);
+    const w2 = new WaveDetector();
+    let hit2 = false;
+    [-0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6].forEach((x, i) => (hit2 = w2.push(1000 + i * 100, x) || hit2));
+    expect(hit2).toBe(false);
   });
 });
 
