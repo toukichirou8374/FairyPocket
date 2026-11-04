@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyElapsed, createPet, feed, play, tickPet, toIcons, MAX_HUNGER } from './state';
-import { loadPet, parseSave, serialize, storePet, SAVE_KEY, BACKUP_KEY } from './save';
+import { applyElapsed, createPet, feed, isNight, moodLevel, play, reunionKind, tickPet, toIcons, MAX_HUNGER } from './state';
+import { decodeLink, encodeLink, linkKind, loadPet, parseSave, serialize, storePet, SAVE_KEY, BACKUP_KEY } from './save';
 import { pickLine } from './dialogue';
 import { loadLang, uiKeys } from '../i18n';
 import { packFile, parseLegacyPack, parseZipPack } from './assets';
@@ -58,6 +58,56 @@ describe('pet state', () => {
     expect(toIcons(20)).toEqual(Array(10).fill(2));
     expect(toIcons(7)).toEqual([2, 2, 2, 1, 0, 0, 0, 0, 0, 0]);
     expect(toIcons(0)).toEqual(Array(10).fill(0));
+  });
+});
+
+describe('daily life', () => {
+  it('follows the bedtime schedule', () => {
+    const at = (h: number) => new Date(2026, 10, 4, h, 30);
+    expect(isNight(at(22), 22)).toBe(true);
+    expect(isNight(at(5), 22)).toBe(true);
+    expect(isNight(at(6), 22)).toBe(false);
+    expect(isNight(at(20), 20)).toBe(true);
+    expect(isNight(at(4), 20)).toBe(false);
+  });
+  it('misses you while away and cheers up with care', () => {
+    const s = createPet();
+    s.mood = 70;
+    applyElapsed(s, 24 * 3600_000);
+    expect(s.mood).toBe(25);
+    expect(moodLevel(s.mood)).toBe(0);
+    play(s);
+    feed(s, 'cookie');
+    expect(s.mood).toBeGreaterThan(25);
+    expect(reunionKind(10 * 60_000)).toBe('greet');
+    expect(reunionKind(3 * 3600_000)).toBe('welcomeBack');
+    expect(reunionKind(24 * 3600_000)).toBe('missed');
+    expect(reunionKind(5 * 86400_000)).toBe('longAway');
+  });
+});
+
+describe('link', () => {
+  it('round-trips a link code and keeps the pet id', async () => {
+    const s = createPet(5);
+    s.name = '連動測試';
+    const code = await encodeLink(s);
+    expect(code.startsWith('FP1:')).toBe(true);
+    const back = await decodeLink(code);
+    expect(back.id).toBe(s.id);
+    expect(back.name).toBe('連動測試');
+    await expect(decodeLink('hello')).rejects.toThrow();
+  });
+  it('tells the same pet from another one', () => {
+    const a = createPet(1);
+    const b = { ...a, lastSeen: a.lastSeen + 10 };
+    expect(linkKind(a, b)).toBe('same-newer');
+    expect(linkKind(b, a)).toBe('same-older');
+    expect(linkKind(a, createPet(1))).toBe('other');
+  });
+  it('gives old saves an id', () => {
+    const old = createPet(1) as Partial<ReturnType<typeof createPet>>;
+    delete old.id;
+    expect(parseSave(JSON.stringify({ app: 'FairyPocket', format: 1, pet: old })).id).toMatch(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
   });
 });
 

@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import type { AllayModel } from './allayModel';
 import type { LineKind } from '../game/dialogue';
-import { PERSONALITY_COLOR, type Personality, type PetState } from '../game/state';
+import { moodLevel, PERSONALITY_COLOR, type Personality, type PetState } from '../game/state';
 
 /** 性格粒子：每 2 秒在身邊冒出代表色粉塵；每 6 秒檢查一次，偶爾灑出一圈稀疏的粉塵 */
 const AURA_EVERY = 2;
@@ -17,6 +17,8 @@ export type Mode =
 
 /** 聽到音符後跳舞的秒數（每次彈奏都會重新計時） */
 const DANCE_TIME = 10;
+/** 晚上被叫醒後再醒著多久（秒） */
+const BEDTIME_GRACE = 120;
 
 interface Traits {
   speed: number; // 最高飛行速度
@@ -129,6 +131,7 @@ export class AllayController {
   /** 叫醒；回傳是否原本在睡覺 */
   wake(): boolean {
     if (this.mode !== 'sleep') return false;
+    this.wokeAt = this.t;
     const startled = Math.random() < this.tr.startle;
     this.setMode(startled ? 'startled' : 'waking', startled ? 1 : 1.2);
     this.pet.energy = Math.max(this.pet.energy, 35);
@@ -261,9 +264,11 @@ export class AllayController {
           this.zzzIn = 1.6;
           this.hooks.particle('zzz', this.headTop(tmp));
         }
+        // 到了起床時間（而且睡飽了）就自己醒來說早安
         if (this.pet.energy >= 100 && !this.world.night()) {
+          this.wokeAt = this.t;
           this.setMode('waking', 1.2);
-          this.hooks.say('wake');
+          this.hooks.say('morning');
         }
         break;
       }
@@ -331,12 +336,12 @@ export class AllayController {
     if (this.auraIn <= 0) {
       this.auraIn = AURA_EVERY;
       // 睡覺時不冒性格粒子，只留下 Zzz
-      if (this.awake) this.hooks.particle('dust', body, 1 + Math.floor(Math.random() * 2), color, 0.3);
+      if (this.awake) this.hooks.particle('dust', body, 1 + Math.floor(Math.random() * 2), color, 0.32);
     }
     this.sparseIn -= dt;
     if (this.sparseIn <= 0) {
       this.sparseIn = SPARSE_EVERY;
-      if (Math.random() < SPARSE_CHANCE) this.hooks.particle('dust', body, 3, color, 0.7);
+      if (Math.random() < SPARSE_CHANCE) this.hooks.particle('dust', body, 3, color, 0.6);
     }
   }
 
@@ -348,12 +353,20 @@ export class AllayController {
 
   private decide(): void {
     const tr = this.tr;
+    // 作息：到了就寢時間就自己去睡（被叫醒後會再陪你 2 分鐘）
+    if (this.world.night() && this.t - this.wokeAt > BEDTIME_GRACE) {
+      this.anchor.set(rand(-0.3, 0.3), 0, rand(-0.4, 0.6));
+      this.setMode('sleep');
+      this.hooks.say('bedtime');
+      return;
+    }
     if (this.pet.energy < 25) {
       this.anchor.set(rand(-0.3, 0.3), 0, rand(-0.4, 0.6));
       this.setMode('rest', rand(10, 20));
       if (Math.random() < 0.5) this.hooks.say('sleepy');
       return;
     }
+    const mood = moodLevel(this.pet.mood);
     const opts: [number, () => void][] = [
       [tr.wander, () => {
         const b = this.world.bounds();
@@ -361,8 +374,9 @@ export class AllayController {
         this.target.set(rand(b.minX, b.maxX) * r, rand(b.minY + 0.3, b.maxY), rand(b.minZ * r, b.maxZ));
         this.setMode('wander', 7);
       }],
-      [tr.approach, () => this.setMode('approach', tr.stay)],
-      [tr.spin, () => {
+      // 心情低落時比較黏人，開心時比較常轉圈
+      [tr.approach * (mood === 0 ? 2 : 1), () => this.setMode('approach', tr.stay)],
+      [tr.spin * (mood === 2 ? 1.6 : 1), () => {
         this.setMode('happy', 0.9);
         this.hooks.particle('note', this.headTop(tmp), 1);
       }],
@@ -390,6 +404,8 @@ export class AllayController {
   }
 
   private lookDir = 1;
+  /** 上次醒來的時間（晚上被叫醒後，會再陪玩一陣子才去睡） */
+  private wokeAt = 0;
 
   private clampVec(v: THREE.Vector3): void {
     const b = this.world.bounds();
@@ -471,7 +487,7 @@ export class AllayController {
     if (this.mode === 'rest') flapRate = 4;
     if (sleeping) flapRate = 1.2;
     if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'called' || this.mode === 'flourish') flapRate += 4;
-    if (!sleeping) flapRate *= this.tr.tempo;
+    if (!sleeping) flapRate *= this.tr.tempo * (moodLevel(this.pet.mood) === 0 ? 0.85 : 1);
     this.flapPhase += flapRate * dt;
     const amp = sleeping ? 0.03 : this.mode === 'rest' ? 0.25 : Math.PI * 0.15;
     const open = sleeping ? 0.12 : Math.PI / 4 - mv * 0.3;
@@ -500,6 +516,8 @@ export class AllayController {
     let headX = -THREE.MathUtils.clamp(Math.atan2(cam.y - this.pos.y - 0.25, Math.hypot(cam.x - this.pos.x, cam.z - this.pos.z)), -0.6, 0.6);
     if (this.mode === 'eat') headX = 0.25 + Math.sin(this.modeTime * 14) * 0.12;
     if (sleeping) { headX = 0.35 + Math.sin(this.t * 1.2) * 0.03; headY = 0; }
+    // 心情低落：垂著頭
+    else if (moodLevel(this.pet.mood) === 0 && (this.mode === 'idle' || this.mode === 'approach' || this.mode === 'wander')) headX += 0.2;
     if (dancing) { headY = sway * 0.244; headX = 0; } // 頭左右轉 14°
     // 觀察：左右慢慢（或快速）張望，微微低頭
     if (this.mode === 'observe') { headY = this.lookDir * Math.sin(this.modeTime * this.tr.sweep) * 0.9; headX = 0.12; }

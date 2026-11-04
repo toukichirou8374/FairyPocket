@@ -57,6 +57,8 @@ interface Particle {
   gravity: number;
   /** 依存活時間換圖（粉塵粒子會越變越小） */
   frames?: THREE.Texture[];
+  /** 飄落時左右擺動的相位 */
+  sway?: number;
 }
 
 export class Stage {
@@ -249,7 +251,10 @@ export class Stage {
     }
   }
 
-  /** 原版彩色粉塵粒子：顏色每顆略有明暗差、慢慢飄、越變越小 */
+  /**
+   * 原版彩色粉塵粒子，像靈粉或細雪：從身體外圍灑出，慢慢飄落、輕輕左右擺，
+   * 越變越小後消失（落到地面也會消失，不會一直堆著）。
+   */
   private spawnDust(at: THREE.Vector3, count: number, color: THREE.ColorRepresentation, spread: number): void {
     const base = new THREE.Color(color);
     for (let i = 0; i < count; i++) {
@@ -257,12 +262,14 @@ export class Stage {
       const mat = new THREE.SpriteMaterial({ map: frames[0], transparent: true, depthWrite: false });
       mat.color.copy(base).multiplyScalar(0.8 + Math.random() * 0.2);
       const s = new THREE.Sprite(mat);
-      s.scale.setScalar(0.1 + Math.random() * 0.04);
-      const r = () => (Math.random() - 0.5) * 2 * spread;
-      s.position.copy(at).add(new THREE.Vector3(r(), r() * 0.8, r() * 0.6));
-      const vel = new THREE.Vector3((Math.random() - 0.5) * 0.08, 0.06 + Math.random() * 0.1, (Math.random() - 0.5) * 0.08);
-      const max = 0.8 + Math.random() * 1.2;
-      this.particles.push({ sprite: s, vel, life: max, max, gravity: 0, frames });
+      s.scale.setScalar(0.08 + Math.random() * 0.04);
+      // 灑在身體外圍一圈，而不是身體裡面
+      const a = Math.random() * Math.PI * 2;
+      const r = spread * (0.75 + Math.random() * 0.5);
+      s.position.copy(at).add(new THREE.Vector3(Math.cos(a) * r, (Math.random() - 0.3) * 0.35, Math.sin(a) * r * 0.6));
+      const vel = new THREE.Vector3((Math.random() - 0.5) * 0.06, -(0.12 + Math.random() * 0.12), (Math.random() - 0.5) * 0.04);
+      const max = 2.6 + Math.random() * 1.6;
+      this.particles.push({ sprite: s, vel, life: max, max, gravity: 0, frames, sway: Math.random() * Math.PI * 2 });
       this.scene.add(s);
     }
   }
@@ -348,6 +355,11 @@ export class Stage {
       p.life -= dt;
       p.vel.y -= p.gravity * dt;
       p.sprite.position.addScaledVector(p.vel, dt);
+      if (p.sway !== undefined) {
+        p.sway += dt * 2.2;
+        p.sprite.position.x += Math.cos(p.sway) * 0.05 * dt;
+        if (p.sprite.position.y < 0.03) p.life = 0; // 落地就消失
+      }
       if (p.frames) {
         const f = p.frames[Math.min(p.frames.length - 1, Math.floor((1 - p.life / p.max) * p.frames.length))];
         if (p.sprite.material.map !== f) {

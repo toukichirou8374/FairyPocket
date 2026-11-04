@@ -6,8 +6,8 @@ import { AllayModel } from './three/allayModel';
 import { AllayController, TRAITS } from './three/allayController';
 import { Hud } from './ui/hud';
 import { pickLine, type LineKind } from './game/dialogue';
-import { applyElapsed, createPet, FAVORITE_FOOD, feed, FOOD_IDS, isNight, MAX_FRIENDS, PERSONALITY_COLOR, PERSONALITY_IDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
-import { BACKUP_KEY, exportFileName, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
+import { applyElapsed, BEDTIMES, cheer, createPet, moodLevel, reunionKind, type Bedtime, FAVORITE_FOOD, feed, FOOD_IDS, FRIEND_STAY_MS, isNight, MAX_FRIENDS, PERSONALITY_COLOR, PERSONALITY_IDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
+import { BACKUP_KEY, decodeLink, encodeLink, exportFileName, linkKind, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
 import { itemName, loadLang, saveLang, setLang, t } from './i18n';
@@ -23,7 +23,9 @@ const pet = loadPet(localStorage) ?? createPet();
 const awayMs = Date.now() - pet.lastSeen;
 applyElapsed(pet, awayMs);
 
-let night = isNight();
+const BEDTIME_KEY = 'fairypocket.bedtime.v1';
+let bedtime: Bedtime = (BEDTIMES as readonly number[]).includes(Number(localStorage.getItem(BEDTIME_KEY))) ? (Number(localStorage.getItem(BEDTIME_KEY)) as Bedtime) : 22;
+let night = isNight(new Date(), bedtime);
 const model = new AllayModel();
 stage.scene.add(model.root);
 
@@ -71,11 +73,13 @@ interface Friend {
   model: AllayModel;
   ctrl: AllayController;
   pet: PetState;
+  /** 什麼時候飛走（performance.now） */
+  leaveAt: number;
 }
 const friends: Friend[] = [];
 let skin: CanvasImageSource | null = null;
 
-function addFriend(at?: THREE.Vector3): void {
+function addFriend(at: THREE.Vector3): void {
   const m = new AllayModel();
   if (skin) m.setSkin(skin);
   stage.scene.add(m.root);
@@ -87,18 +91,23 @@ function addFriend(at?: THREE.Vector3): void {
     particle: (kind, pos, count, color, spread) => stage.spawn(kind, pos, count, color, spread),
     caught: () => {},
   });
-  if (at) {
-    c.pos.copy(at);
-    c.anchor.copy(at);
-  } else c.pos.set((Math.random() - 0.5) * 1.5, 1 + Math.random() * 0.6, -0.5 - Math.random());
-  friends.push({ model: m, ctrl: c, pet: p });
+  c.pos.copy(at);
+  c.anchor.copy(at);
+  friends.push({ model: m, ctrl: c, pet: p, leaveAt: performance.now() + FRIEND_STAY_MS });
   applyGlow();
 }
 
-/** 讓畫面上的夥伴數量跟存檔一致（重新開始、還原存檔時） */
-function syncFriends(): void {
-  while (friends.length > pet.friends) stage.scene.remove(friends.pop()!.model.root);
-  while (friends.length < pet.friends) addFriend();
+/** 夥伴飛走：化成一陣閃光消失 */
+function removeFriend(f: Friend): void {
+  stage.spawn('sparkle', f.ctrl.pos, 10);
+  stage.spawn('dust', f.ctrl.pos, 8, PERSONALITY_COLOR[f.pet.personality], 0.4);
+  stage.scene.remove(f.model.root);
+  friends.splice(friends.indexOf(f), 1);
+}
+
+/** 重新開始、還原存檔時，暫時的夥伴都先飛走 */
+function clearFriends(): void {
+  while (friends.length) removeFriend(friends[0]);
 }
 
 /** 原版複製冷卻 5 分鐘 */
@@ -107,16 +116,14 @@ let lastDuplicate = -Infinity;
 
 /** 跳舞中的悅靈收到紫水晶碎片：複製出一隻新夥伴 */
 function giveShard(): void {
-  if (pet.friends >= MAX_FRIENDS) return hud.showItem(t('friendsMax', { n: MAX_FRIENDS }));
+  if (friends.length >= MAX_FRIENDS) return hud.showItem(t('friendsMax'));
   const wait = lastDuplicate + DUPLICATE_COOLDOWN - performance.now();
   if (wait > 0) return hud.showItem(t('friendsWait', { n: Math.ceil(wait / 60_000) }));
   lastDuplicate = performance.now();
-  pet.friends++;
   addFriend(ctrl.pos.clone().add(new THREE.Vector3(0.4, 0, 0)));
   stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), 4);
   stage.spawn('sparkle', ctrl.pos, 12);
   sound.effect('sounds/block/amethyst/shimmer', 1, 1);
-  save();
   say('duplicate');
 }
 
@@ -140,6 +147,7 @@ function useNoteBlock(ray: THREE.Ray, hitBlock: boolean): void {
   // 悅靈與夥伴飛過來跳舞
   const wasDancing = ctrl.dancing;
   const top = block.position.clone().add(new THREE.Vector3(0, 0.95, 0));
+  if (!ctrl.dancing) cheer(pet, 4);
   ctrl.dance(top);
   friends.forEach((f, i) => f.ctrl.dance(top.clone().add(new THREE.Vector3(Math.cos(i * 2.1) * 0.7, 0.15 * i, Math.sin(i * 2.1) * 0.5))));
   if (!wasDancing && ctrl.dancing) say('dance');
@@ -167,6 +175,12 @@ const hud = new Hud(overlay, {
     save();
     location.reload();
   },
+  bedtime: () => bedtime,
+  setBedtime: (b) => {
+    bedtime = b;
+    localStorage.setItem(BEDTIME_KEY, String(b));
+    updateSky();
+  },
   glow: () => glowOn,
   setGlow: (on) => {
     glowOn = on;
@@ -181,11 +195,13 @@ const hud = new Hud(overlay, {
   soundAvailable: () => sound.available,
   exportSave,
   importSave,
+  shareLink,
+  pasteLink,
   reset: () => {
     localStorage.removeItem(SAVE_KEY);
     localStorage.removeItem(BACKUP_KEY);
     Object.assign(pet, createPet());
-    syncFriends();
+    clearFriends();
     stage.removeBall();
     ctrl.setMode('idle');
     hud.setName(pet.name);
@@ -278,8 +294,18 @@ hud.updateStats(pet);
   if (!pet.onboarded) hud.openOnboarding();
   await localPack().catch(() => {});
 })();
-if (pet.onboarded) setTimeout(() => say(awayMs > 3600_000 ? 'welcomeBack' : 'greet'), 1200);
-for (let i = 0; i < pet.friends; i++) addFriend();
+// 重逢：離開越久，回來時越開心（離開時心情會慢慢變差，見到你就好起來）
+if (pet.onboarded) {
+  const kind = reunionKind(awayMs);
+  setTimeout(() => {
+    if (kind === 'missed' || kind === 'longAway') {
+      ctrl.call();
+      cheer(pet, kind === 'longAway' ? 30 : 20);
+      stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), kind === 'longAway' ? 6 : 3);
+    } else if (kind === 'welcomeBack') cheer(pet, 10);
+    say(kind);
+  }, 1200);
+}
 
 // ---------- 存檔 ----------
 
@@ -310,20 +336,56 @@ async function exportSave(): Promise<void> {
 
 async function importSave(file: File): Promise<void> {
   try {
-    const data = parseSave(await file.text());
-    if (!confirm(t('saveConfirm', { n: data.name }))) return;
-    Object.assign(pet, data, { onboarded: true });
-    syncFriends();
-    applyGlow();
-    stage.removeBall();
-    ctrl.setMode(pet.asleep ? 'sleep' : 'idle');
-    hud.setName(pet.name);
-    hud.updateStats(pet);
-    save();
-    hud.toast(t('saveRestored'));
+    receive(parseSave(await file.text()));
   } catch (e) {
     hud.toast((e as Error).message);
   }
+}
+
+/** 送出連動碼：用分享選單傳到另一台裝置（不支援時複製到剪貼簿） */
+async function shareLink(): Promise<void> {
+  save();
+  const code = await encodeLink(pet);
+  try {
+    if (navigator.share) {
+      await navigator.share({ text: code });
+      return;
+    }
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') return;
+  }
+  try {
+    await navigator.clipboard.writeText(code);
+    hud.toast(t('linkCopied'));
+  } catch {
+    prompt(t('linkCopyManual'), code);
+  }
+}
+
+async function pasteLink(): Promise<void> {
+  const code = prompt(t('linkPrompt'));
+  if (!code) return;
+  try {
+    receive(await decodeLink(code));
+  } catch {
+    hud.toast(t('linkBad'));
+  }
+}
+
+/** 收到另一台裝置的存檔（連動碼或存檔檔案）：同一隻就同步，另一隻要先確認 */
+function receive(data: PetState): void {
+  const kind = linkKind(pet, data);
+  if (kind === 'other' && !confirm(t('linkOther', { n: data.name }))) return;
+  if (kind === 'same-older' && !confirm(t('linkOlder'))) return;
+  Object.assign(pet, data, { onboarded: true });
+  clearFriends();
+  applyGlow();
+  stage.removeBall();
+  ctrl.setMode(pet.asleep ? 'sleep' : 'idle');
+  hud.setName(pet.name);
+  hud.updateStats(pet);
+  save();
+  hud.toast(t(kind === 'other' ? 'saveRestored' : 'linkSynced'));
 }
 
 setInterval(save, 5000);
@@ -457,7 +519,7 @@ new ResizeObserver(resize).observe(hudEl);
 resize();
 
 function updateSky(): void {
-  night = isNight();
+  night = isNight(new Date(), bedtime);
   sky.classList.toggle('night', night);
 }
 updateSky();
@@ -477,7 +539,11 @@ function frame(now: number): void {
   tickPet(pet, dt, night);
   ctrl.ballPos = stage.ball ? stage.ball.mesh.position : null;
   ctrl.update(dt);
-  for (const f of friends) {
+  for (const f of [...friends]) {
+    if (now > f.leaveAt) {
+      removeFriend(f);
+      continue;
+    }
     tickPet(f.pet, dt, night);
     f.pet.hunger = 20; // 夥伴不需要照顧飽食度
     f.ctrl.update(dt);
@@ -492,7 +558,8 @@ function frame(now: number): void {
     if (talkIn <= 0) {
       talkIn = 15;
       if (now - lastSpoke > 45_000 && (ctrl.mode === 'idle' || ctrl.mode === 'approach' || ctrl.mode === 'wander')) {
-        say(pet.hunger < 6 ? 'hungry' : pet.energy < 25 ? 'sleepy' : night && Math.random() < 0.3 ? 'night' : 'idle');
+        const mood = moodLevel(pet.mood);
+        say(pet.hunger < 6 ? 'hungry' : pet.energy < 25 ? 'sleepy' : mood === 0 ? 'lonely' : night && Math.random() < 0.3 ? 'night' : mood === 2 && Math.random() < 0.5 ? 'happyIdle' : 'idle');
       }
     }
   }

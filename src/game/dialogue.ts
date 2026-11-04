@@ -6,7 +6,8 @@ import { getLang, type Lang } from '../i18n';
 export type LineKind =
   | 'greet' | 'welcomeBack' | 'idle' | 'hungry' | 'sleepy' | 'wake' | 'fed' | 'full'
   | 'pet' | 'tickle' | 'play' | 'call' | 'night' | 'curious'
-  | 'fedFood' | 'favorite' | 'fullFood' | 'dance' | 'duplicate';
+  | 'fedFood' | 'favorite' | 'fullFood' | 'dance' | 'duplicate'
+  | 'missed' | 'longAway' | 'lonely' | 'happyIdle' | 'bedtime' | 'morning';
 
 type Table = Partial<Record<LineKind, string[]>>;
 
@@ -31,6 +32,12 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     fullFood: ['是{f}…可是我吃不下了啦～', '{f}先留著，等等再吃好嗎？'],
     dance: ['是音樂！我要跳舞～♪', '♪～這個聲音好好聽！', '一起跳舞吧！'],
     duplicate: ['哇！多了一個好朋友！', '紫水晶亮晶晶～新夥伴誕生了！', '我們變成兩個了耶！'],
+    missed: ['你終於回來了！我好想你！', '等你等了好久喔…可是你回來了就好！', '{n}一直在這裡等你喔！'],
+    longAway: ['真的是你！好久好久不見了！', '我還以為你忘記我了…嗚嗚，好開心！', '你回來了！今天要陪我很久喔！'],
+    lonely: ['陪我一下好不好…', '有點寂寞…', '你在忙嗎？我想跟你玩…', '摸摸我嘛…'],
+    happyIdle: ['今天好開心喔～♪', '跟你在一起最快樂了！', '嘿嘿，心情超好！'],
+    bedtime: ['到睡覺時間了…晚安～', '呼啊…我先去睡囉，你也早點睡', '晚安，明天見！'],
+    morning: ['早安！新的一天開始了！', '早安～睡得好飽！', '天亮了！今天要做什麼呢？'],
   },
   ja_jp: {
     greet: ['こんにちは！{n}だよ～', '今日もよろしくね！'],
@@ -52,6 +59,12 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     fullFood: ['{f}だ…でももう食べられないよ～', '{f}はあとで食べてもいい？'],
     dance: ['音楽だ！踊っちゃう～♪', '♪～いい音！', 'いっしょに踊ろう！'],
     duplicate: ['わぁ！友だちが増えた！', 'アメジストがキラキラ～新しい仲間だ！', 'ふたりになったよ！'],
+    missed: ['やっと帰ってきた！会いたかったよ！', 'ずっと待ってたんだよ…でも帰ってきてくれてよかった！', '{n}はずっとここで待ってたよ！'],
+    longAway: ['ほんとにあなただ！ひさしぶり！', '忘れられちゃったかと思った…うれしい！', 'おかえり！今日はいっぱいいっしょにいてね！'],
+    lonely: ['ちょっとだけいっしょにいて…', 'なんだかさみしいな…', 'いそがしい？遊びたいな…', 'なでてほしいな…'],
+    happyIdle: ['今日はすごく楽しい～♪', 'あなたといると一番しあわせ！', 'えへへ、ごきげんだよ！'],
+    bedtime: ['もう寝る時間…おやすみ～', 'ふわぁ…先に寝るね、あなたも早く寝てね', 'おやすみ、また明日！'],
+    morning: ['おはよう！新しい一日だね！', 'おはよう～よく寝た！', '朝だ！今日はなにする？'],
   },
   en_us: {
     greet: ["Hi there! I'm {n}~", 'Nice to see you today!'],
@@ -73,6 +86,12 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     fullFood: ["{f}… but I'm too full~", 'Can I save the {f} for later?'],
     dance: ["Music! Let's dance~♪", '♪~ What a nice sound!', 'Dance with me!'],
     duplicate: ['Wow! A new friend!', 'The amethyst sparkles~ a new friend is born!', 'Now there are two of us!'],
+    missed: ["You're finally back! I missed you!", 'I waited so long… but I\'m glad you\'re here!', '{n} was waiting right here for you!'],
+    longAway: ["It's really you! It's been so long!", 'I thought you forgot me… I\'m so happy!', 'Welcome back! Stay with me a long time today!'],
+    lonely: ['Stay with me a little?', "I'm a bit lonely…", 'Are you busy? I want to play…', 'Pet me, please…'],
+    happyIdle: ["I'm so happy today~♪", "Being with you is the best!", "Hehe, I'm in a great mood!"],
+    bedtime: ["It's bedtime… good night~", "Yawn… I'll sleep first, you sleep early too", 'Good night, see you tomorrow!'],
+    morning: ['Good morning! A new day!', 'Morning~ I slept so well!', "It's morning! What shall we do today?"],
   },
 };
 

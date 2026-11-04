@@ -1,7 +1,7 @@
 // 畫面上的 HTML 介面：名字、對話泡泡、愛心 / 飽食度、快捷欄、設定與開場。
 
 import { foodIcon, gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, statGrid } from '../pixel';
-import { affectionLevel, FOOD_IDS, NAME_MAX, PERSONALITY_COLOR, PERSONALITY_IDS, toIcons, type Food, type Personality, type PetState } from '../game/state';
+import { affectionLevel, BEDTIMES, FOOD_IDS, moodLevel, NAME_MAX, wakeHour, type Bedtime, PERSONALITY_COLOR, PERSONALITY_IDS, toIcons, type Food, type Personality, type PetState } from '../game/state';
 import type { AssetImages } from '../game/assets';
 import { SOUND_MODES, type SoundMode } from '../audio';
 import { getLang, itemName, LANGS, personalityText, t, type Lang } from '../i18n';
@@ -50,9 +50,13 @@ export interface HudActions {
   setPersonality(p: Personality): void;
   setLang(l: Lang): void;
   glow(): boolean;
+  bedtime(): Bedtime;
+  setBedtime(b: Bedtime): void;
   setGlow(on: boolean): void;
   exportSave(): void;
   importSave(file: File): void;
+  shareLink(): void;
+  pasteLink(): void;
   reset(): void;
   onboard(name: string, p: Personality): void;
   importAssets(file: File): void;
@@ -419,12 +423,44 @@ export class Hud {
       });
     }
 
+    el('label', '', box).textContent = t('bedtime');
+    const brow = el('div', 'btnrow', box);
+    const bhelp = el('div', 'info', box);
+    const showBed = (b: Bedtime) => (bhelp.textContent = t('bedtimeHelp', { b, w: wakeHour(b) }));
+    for (const b of BEDTIMES) {
+      const btn = el('button', 'btn' + (b === this.actions.bedtime() ? ' on' : ''), brow);
+      btn.dataset.bed = String(b);
+      btn.textContent = `${b}:00`;
+      btn.addEventListener('click', () => {
+        brow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === btn));
+        this.actions.setBedtime(b);
+        showBed(b);
+      });
+    }
+    showBed(this.actions.bedtime());
+
     const info = el('div', 'info', box);
     const days = Math.max(1, Math.ceil((Date.now() - s.createdAt) / 86400000));
     for (const line of [
+      t('mood', { m: t(`mood.${moodLevel(s.mood)}`) }),
       t('days', { d: days, lv: t(`aff.${affectionLevel(s.affection)}`) }),
       t('counts', { f: s.stats.fed, p: s.stats.petted, g: s.stats.played }),
     ]) el('div', '', info).textContent = line;
+
+    el('label', '', box).textContent = t('link');
+    const linfo = el('div', 'info', box);
+    el('div', '', linfo).textContent = t('linkInfo', { id: s.id });
+    el('div', '', linfo).textContent = t('linkHelp');
+    const lrow = el('div', 'btnrow', box);
+    const ls = el('button', 'btn', lrow);
+    ls.textContent = t('linkSend');
+    ls.addEventListener('click', () => this.actions.shareLink());
+    const lp = el('button', 'btn', lrow);
+    lp.textContent = t('linkPaste');
+    lp.addEventListener('click', () => {
+      close();
+      this.actions.pasteLink();
+    });
 
     el('label', '', box).textContent = t('saveLabel');
     const row = el('div', 'btnrow', box);
