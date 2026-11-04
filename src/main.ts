@@ -37,7 +37,7 @@ const model = new AllayModel();
 stage.scene.add(model.root);
 
 const sound = new Sound(localStorage);
-const music = new Music(sound, localStorage);
+const music = new Music(sound);
 let lastSpoke = 0;
 const say = (kind: LineKind, food?: Food | null, d: number | string = '') => {
   hud.say(pickLine(kind, pet.personality, pet.name, Math.random, food ? itemName(food) : '', undefined, d));
@@ -381,7 +381,7 @@ function useNoteBlock(ray: THREE.Ray, hitBlock: boolean): void {
   const block = stage.noteBlock!;
   stage.bumpNoteBlock();
   const note = SCALE[Math.floor(Math.random() * SCALE.length)];
-  sound.effect('sounds/note/harp', 0.9, Math.pow(2, (note - 12) / 12));
+  sound.effect('sounds/note/harp', 0.9, Math.pow(2, (note - 12) / 12), 0, 'records');
   stage.spawn('note', block.position.clone().add(new THREE.Vector3(0, 0.35, 0)), 1);
   // 悅靈與夥伴飛過來跳舞
   const wasDancing = ctrl.dancing;
@@ -507,13 +507,25 @@ const hud = new Hud(overlay, {
   soundMode: () => sound.mode,
   setSoundMode: (m) => {
     sound.setMode(m);
-    if (m !== 'off') sound.speak(pet.personality);
+    sound.speak(pet.personality);
   },
   soundAvailable: () => sound.available,
-  bgm: () => music.enabled,
-  setBgm: (on) => {
+  volumes: () => ({ vol: { ...sound.vol }, muted: sound.muted }),
+  setVolume: (k, v) => {
     sound.unlock();
-    music.setEnabled(on);
+    sound.setVolume(k, v);
+    music.refresh();
+  },
+  previewVolume: (k) => {
+    // 放開滑桿時播一聲聽聽看
+    if (k === 'voice' || k === 'master') sound.speak(pet.personality);
+    else if (k === 'records') sound.effect('sounds/note/harp', 0.9, 1, 0, 'records');
+    else if (k === 'effects') playSfx('click');
+  },
+  setMuted: (on) => {
+    sound.unlock();
+    sound.setMuted(on);
+    music.refresh();
   },
   musicAvailable: () => music.available,
   exportSave,

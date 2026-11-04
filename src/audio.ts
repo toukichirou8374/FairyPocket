@@ -38,6 +38,35 @@ export function distanceGain(dist: number): number {
   return Math.max(0.25, Math.min(1, 3 / Math.max(dist, 0.01)));
 }
 
+/** 音量分類（像原版的「音樂與音效」設定） */
+export type VolumeKind = 'master' | 'music' | 'records' | 'voice' | 'effects';
+export const VOLUME_KINDS: VolumeKind[] = ['master', 'music', 'records', 'voice', 'effects'];
+export type Volumes = Record<VolumeKind, number>;
+
+const VOLUME_KEY = 'fairypocket.volume.v1';
+const DEFAULT_VOLUMES: Volumes = { master: 1, music: 1, records: 1, voice: 1, effects: 1 };
+
+/** 讀取音量設定；舊版的「聲音：關閉」與「背景音樂：關」會轉成新的設定 */
+export function loadVolumes(storage: Pick<Storage, 'getItem'>): { vol: Volumes; muted: boolean } {
+  try {
+    const d = JSON.parse(storage.getItem(VOLUME_KEY) ?? 'null') as { vol?: Partial<Volumes>; muted?: boolean } | null;
+    if (d) {
+      const vol = { ...DEFAULT_VOLUMES };
+      for (const k of VOLUME_KINDS) {
+        const v = Number(d.vol?.[k]);
+        if (Number.isFinite(v)) vol[k] = Math.max(0, Math.min(1, v));
+      }
+      return { vol, muted: !!d.muted };
+    }
+  } catch {
+    // 壞掉就用預設
+  }
+  return {
+    vol: { ...DEFAULT_VOLUMES, music: storage.getItem('fairypocket.bgm.v1') === '0' ? 0 : 1 },
+    muted: storage.getItem(MODE_KEY) === 'off',
+  };
+}
+
 export function loadSoundMode(storage: Pick<Storage, 'getItem'>): SoundMode {
   const m = storage.getItem(MODE_KEY);
   return m === 'soft' || m === 'off' ? m : 'bright';
@@ -64,8 +93,16 @@ export class Sound {
   private pack: AssetPack | null = null;
   private cache = new Map<string, Promise<AudioBuffer | null>>();
 
+  /** 各分類的音量 0–1 與全部靜音 */
+  vol: Volumes;
+  muted: boolean;
+
   constructor(private storage: Pick<Storage, 'getItem' | 'setItem'>) {
-    this.mode = loadSoundMode(storage);
+    const v = loadVolumes(storage);
+    this.vol = v.vol;
+    this.muted = v.muted;
+    // 舊版的「關閉」改成全部靜音；聲音模式只剩悅靈聲音的明亮／柔和
+    this.mode = loadSoundMode(storage) === 'soft' ? 'soft' : 'bright';
     // 遵循 iPhone 靜音模式，並可與其他 App 的音訊混合
     const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
     if (session) session.type = 'ambient';
@@ -78,6 +115,48 @@ export class Sound {
   setMode(m: SoundMode): void {
     this.mode = m;
     this.storage.setItem(MODE_KEY, m);
+  }
+
+  setVolume(k: VolumeKind, v: number): void {
+    this.vol[k] = Math.max(0, Math.min(1, v));
+    this.saveVolumes();
+  }
+
+  setMuted(on: boolean): void {
+    this.muted = on;
+    this.saveVolumes();
+  }
+
+  /** 某一類實際的音量（含主音量與全部靜音） */
+  level(k: Exclude<VolumeKind, 'master'>): number {
+    return this.muted ? 0 : this.vol.master * this.vol[k];
+  }
+
+  private saveVolumes(): void {
+    this.storage.setItem(VOLUME_KEY, JSON.stringify({ vol: this.vol, muted: this.muted }));
+    this.applyVolumes();
+  }
+
+  /** 音量改了立刻生效（正在播的音樂也會跟著變） */
+  private applyVolumes(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.output(ctx).gain.setTargetAtTime(this.muted ? 0 : this.vol.master, t, 0.05);
+    for (const [k, g] of this.buses) g.gain.setTargetAtTime(this.vol[k], t, 0.05);
+  }
+
+  private buses = new Map<Exclude<VolumeKind, 'master'>, GainNode>();
+  /** 每一類聲音各有一個音量節點，再接到總輸出 */
+  private bus(ctx: AudioContext, k: Exclude<VolumeKind, 'master'>): GainNode {
+    let g = this.buses.get(k);
+    if (!g) {
+      g = ctx.createGain();
+      g.gain.value = this.vol[k];
+      g.connect(this.output(ctx));
+      this.buses.set(k, g);
+    }
+    return g;
   }
 
   usePack(p: AssetPack | null): void {
@@ -143,9 +222,9 @@ export class Sound {
   private variants = new Map<string, string[]>();
 
   /** 播放任一原版音效，例如 play('sounds/random/pop', 0.5, 1.2)；pan -1（左）～ 1（右） */
-  async play(path: string, volume: number, rate = 1, pan = 0): Promise<void> {
+  async play(path: string, volume: number, rate = 1, pan = 0, kind: Exclude<VolumeKind, 'master'> = 'effects'): Promise<void> {
     const ctx = this.ctx;
-    if (!ctx || volume <= 0) return;
+    if (!ctx || volume <= 0 || this.level(kind) <= 0) return;
     const buf = await this.buffer(this.resolve(path));
     if (!buf || ctx.state !== 'running') return;
     const src = ctx.createBufferSource();
@@ -159,25 +238,20 @@ export class Sound {
       p.pan.value = pan;
       node = node.connect(p);
     }
-    node.connect(this.output(ctx));
+    node.connect(this.bus(ctx, kind));
     src.start();
   }
 
-  /** 一般音效（音符盒等），音量跟著聲音模式；整體偏安靜（原音量的 7 成） */
-  effect(path: string, volume = 1, rate = 1, pan = 0): void {
-    void this.play(path, volume * SOUND_MODES[this.mode].allay * EFFECT_LEVEL, rate, pan);
+  /** 一般音效；整體偏安靜（原音量的 7 成）。kind 決定用哪一類的音量 */
+  effect(path: string, volume = 1, rate = 1, pan = 0, kind: Exclude<VolumeKind, 'master'> = 'effects'): void {
+    void this.play(path, volume * EFFECT_LEVEL, rate, pan, kind);
   }
 
   // ---------- 音樂用 ----------
 
-  /** 音樂接到這裡（錄影時也錄得到） */
-  musicOut(): GainNode | null {
-    return this.ctx ? this.output(this.ctx) : null;
-  }
-
-  /** 音樂音量倍率：跟著聲音模式（關閉時為 0） */
-  musicVolume(): number {
-    return SOUND_MODES[this.mode].allay;
+  /** 音樂接到這裡（錄影時也錄得到）：背景音樂用 music，唱片用 records */
+  musicOut(kind: 'music' | 'records'): GainNode | null {
+    return this.ctx ? this.bus(this.ctx, kind) : null;
   }
 
   /** 整首解碼並混成單聲道（瀏覽器不能串流播放 OGG 時用，省一半記憶體） */
@@ -218,6 +292,7 @@ export class Sound {
   private output(ctx: AudioContext): GainNode {
     if (!this.out) {
       this.out = ctx.createGain();
+      this.out.gain.value = this.muted ? 0 : this.vol.master;
       this.out.connect(ctx.destination);
     }
     return this.out;
@@ -240,13 +315,13 @@ export class Sound {
   playClip(buf: AudioBuffer): number {
     const ctx = this.ctx;
     const m = SOUND_MODES[this.mode];
-    if (!ctx || ctx.state !== 'running' || m.allay <= 0) return 0;
-    void this.play(CHIME, m.chime, m.chimePitch);
+    if (!ctx || ctx.state !== 'running' || this.level('voice') <= 0) return 0;
+    void this.play(CHIME, m.chime, m.chimePitch, 0, 'voice');
     const src = ctx.createBufferSource();
     src.buffer = buf;
     const g = ctx.createGain();
     g.gain.value = Math.min(1.5, m.allay * 1.2);
-    src.connect(g).connect(this.output(ctx));
+    src.connect(g).connect(this.bus(ctx, 'voice'));
     src.start(ctx.currentTime + 0.15);
     return buf.duration + 0.3;
   }
@@ -254,7 +329,7 @@ export class Sound {
   /** 悅靈發言：悅靈叫聲 + 紫水晶鈴聲 */
   speak(p: Personality): void {
     const m = SOUND_MODES[this.mode];
-    void this.play(VOICES[Math.floor(Math.random() * VOICES.length)], m.allay, allayRate(p));
-    void this.play(CHIME, m.chime, m.chimePitch);
+    void this.play(VOICES[Math.floor(Math.random() * VOICES.length)], m.allay, allayRate(p), 0, 'voice');
+    void this.play(CHIME, m.chime, m.chimePitch, 0, 'voice');
   }
 }

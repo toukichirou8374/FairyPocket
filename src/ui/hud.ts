@@ -3,7 +3,7 @@
 import { foodIcon, gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, statGrid } from '../pixel';
 import { affectionLevel, BEDTIMES, FOOD_IDS, moodLevel, NAME_MAX, wakeHour, type Bedtime, PERSONALITY_COLOR, PERSONALITY_IDS, toIcons, type Food, type Personality, type PetState } from '../game/state';
 import type { AssetImages } from '../game/assets';
-import { SOUND_MODES, type SoundMode } from '../audio';
+import { VOLUME_KINDS, type SoundMode, type VolumeKind, type Volumes } from '../audio';
 import { BIOMES, type Biome } from '../three/biome';
 import type { Pose } from '../three/allayController';
 import { getLang, itemName, LANGS, personalityText, t, type Lang, type UiKey } from '../i18n';
@@ -98,8 +98,11 @@ export interface HudActions {
   /** 素材包裡有沒有音效 */
   soundAvailable(): boolean;
   /** 背景音樂 */
-  bgm(): boolean;
-  setBgm(on: boolean): void;
+  /** 音量：各分類 0–1 與全部靜音 */
+  volumes(): { vol: Volumes; muted: boolean };
+  setVolume(k: VolumeKind, v: number): void;
+  previewVolume(k: VolumeKind): void;
+  setMuted(on: boolean): void;
   musicAvailable(): boolean;
   /** 介面音效：按鈕、打開／關上物品欄 */
   sfx(e: 'click' | 'open' | 'close'): void;
@@ -638,6 +641,47 @@ export class Hud {
     });
   }
 
+  /** 設定頁：音樂與音效（像原版的設定畫面：全部靜音 + 各分類的音量滑桿） */
+  private volumeEditor(box: HTMLElement): void {
+    el('label', '', box).textContent = t('sound');
+    const { vol, muted } = this.actions.volumes();
+    const mute = el('button', 'btn mute' + (muted ? ' on' : ''), box);
+    const help = el('div', 'info', box);
+    const sliders: HTMLElement[] = [];
+    const showMute = (on: boolean) => {
+      mute.textContent = on ? t('muteAllOn') : t('muteAll');
+      mute.classList.toggle('on', on);
+      help.textContent = on ? t('muteHelpOn') : t('muteHelp');
+      sliders.forEach((s) => s.classList.toggle('dim', on));
+    };
+    mute.addEventListener('click', () => {
+      const on = !mute.classList.contains('on');
+      this.actions.setMuted(on);
+      showMute(on);
+    });
+    for (const k of VOLUME_KINDS) {
+      const row = el('div', 'vol', box);
+      const top = el('div', 'vtop', row);
+      el('span', '', top).textContent = t(`vol.${k}`);
+      const val = el('span', 'vval', top);
+      const r = el('input', '', row);
+      r.type = 'range';
+      r.min = '0';
+      r.max = '100';
+      r.step = '5';
+      r.value = String(Math.round(vol[k] * 100));
+      const show = () => (val.textContent = r.value === '0' ? t('off') : `${r.value}%`);
+      show();
+      r.addEventListener('input', () => {
+        show();
+        this.actions.setVolume(k, Number(r.value) / 100);
+      });
+      r.addEventListener('change', () => this.actions.previewVolume(k));
+      sliders.push(row);
+    }
+    showMute(muted);
+  }
+
   /** 設定頁：錄 5 句回應（目前語言）。按「錄音」開始，說完會自動停止 */
   private replyEditor(box: HTMLElement): void {
     el('label', '', box).textContent = t('replies', { l: LANGS[getLang()] });
@@ -741,9 +785,11 @@ export class Hud {
     el('label', '', box).textContent = t('language');
     this.langPicker(box);
 
-    el('label', '', box).textContent = t('sound');
+    this.volumeEditor(box);
+
+    el('label', '', box).textContent = t('voiceTone');
     const srow = el('div', 'btnrow', box);
-    (Object.keys(SOUND_MODES) as SoundMode[]).forEach((m) => {
+    (['bright', 'soft'] as SoundMode[]).forEach((m) => {
       const b = el('button', 'btn' + (m === this.actions.soundMode() ? ' on' : ''), srow);
       b.dataset.sound = m;
       b.textContent = t(`sound.${m}`);
@@ -754,17 +800,6 @@ export class Hud {
     });
     if (!this.actions.soundAvailable()) el('div', 'info', box).textContent = t('soundNeed');
 
-    el('label', '', box).textContent = t('bgm');
-    const mrow = el('div', 'btnrow', box);
-    for (const on of [true, false]) {
-      const b = el('button', 'btn' + (on === this.actions.bgm() ? ' on' : ''), mrow);
-      b.dataset.bgm = on ? 'on' : 'off';
-      b.textContent = t(on ? 'on' : 'off');
-      b.addEventListener('click', () => {
-        mrow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
-        this.actions.setBgm(on);
-      });
-    }
     if (!this.actions.musicAvailable()) el('div', 'info', box).textContent = t('bgmNeed');
 
     el('label', '', box).textContent = t('glow');

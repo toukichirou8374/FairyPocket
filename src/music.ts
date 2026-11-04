@@ -16,7 +16,6 @@ export const DISCS = [
   { id: 'relic', path: 'sounds/records/relic', tex: 'textures/item/music_disc_relic.png', title: 'Aaron Cherof - Relic' },
 ] as const;
 
-const BGM_KEY = 'fairypocket.bgm.v1';
 /** 背景音樂與唱片的音量（再乘上聲音模式），偏安靜 */
 const BGM_VOL = 0.22;
 const DISC_VOL = 0.45;
@@ -32,10 +31,12 @@ export class Music {
   private timer = 0;
   /** 目前唱片機放的唱片（-1 = 沒有） */
   discIndex = -1;
-  enabled: boolean;
 
-  constructor(private sound: Sound, private storage: Pick<Storage, 'getItem' | 'setItem'>) {
-    this.enabled = storage.getItem(BGM_KEY) !== '0';
+  constructor(private sound: Sound) {}
+
+  /** 背景音樂的音量不是 0 才播 */
+  get enabled(): boolean {
+    return this.sound.level('music') > 0;
   }
 
   get available(): boolean {
@@ -47,13 +48,12 @@ export class Music {
     this.schedule(15);
   }
 
-  setEnabled(on: boolean): void {
-    this.enabled = on;
-    this.storage.setItem(BGM_KEY, on ? '1' : '0');
-    if (!on) {
+  /** 音量設定改了：背景音樂關掉就停，打開就準備播 */
+  refresh(): void {
+    if (!this.enabled) {
       this.bgm?.stop();
       this.bgm = null;
-    } else this.schedule(2);
+    } else if (!this.bgm) this.schedule(2);
   }
 
   /** 過一段時間再播下一首背景音樂 */
@@ -67,7 +67,7 @@ export class Music {
     const ready = BGM.filter((p) => this.pack && packFile(this.pack, p));
     if (!ready.length) return;
     const path = ready[Math.floor(Math.random() * ready.length)];
-    this.bgm = await this.play(path, BGM_VOL, () => {
+    this.bgm = await this.play(path, BGM_VOL, 'music', () => {
       this.bgm = null;
       // 一首放完安靜 1～2 分鐘
       this.schedule(60 + Math.random() * 60);
@@ -87,7 +87,7 @@ export class Music {
     this.bgm?.stop();
     this.bgm = null;
     const d = DISCS[this.discIndex];
-    this.disc = await this.play(d.path, DISC_VOL, () => {
+    this.disc = await this.play(d.path, DISC_VOL, 'records', () => {
       this.disc = null;
       this.discIndex = -1;
       this.schedule(30);
@@ -114,13 +114,13 @@ export class Music {
     } else this.schedule(10);
   }
 
-  private async play(path: string, volume: number, onEnd: () => void): Promise<Track | null> {
+  private async play(path: string, volume: number, kind: 'music' | 'records', onEnd: () => void): Promise<Track | null> {
     const ctx = this.sound.context;
-    const out = this.sound.musicOut();
+    const out = this.sound.musicOut(kind);
     const blob = this.pack && packFile(this.pack, path);
     if (!ctx || !out || !blob) return null;
     const gain = ctx.createGain();
-    gain.gain.value = volume * this.sound.musicVolume();
+    gain.gain.value = volume;
     gain.connect(out);
     let ended = false;
     const finish = () => {
