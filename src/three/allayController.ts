@@ -13,7 +13,9 @@ const SPARSE_CHANCE = 0.4;
 export type Mode =
   | 'idle' | 'wander' | 'approach' | 'called' | 'rest' | 'sleep'
   | 'play' | 'eat' | 'happy' | 'tickled' | 'startled' | 'curious' | 'waking' | 'dance'
-  | 'observe' | 'flourish' | 'cake' | 'listen' | 'wave' | 'toBed' | 'bath' | 'watch';
+  | 'observe' | 'flourish' | 'cake' | 'listen' | 'wave' | 'toBed' | 'bath' | 'watch'
+  /** 小遊戲：答錯時懊惱（抱頭搖頭）、答對時翻跟斗 */
+  | 'oops' | 'flip';
 
 /** 聽到音符後跳舞的秒數（每次彈奏都會重新計時） */
 const DANCE_TIME = 10;
@@ -233,7 +235,23 @@ export class AllayController {
   /** 固定姿勢時額外轉的角度（0 = 面向鏡頭） */
   poseYaw = 0;
 
+  /** 小遊戲：在原地做一個短暫的反應動作，做完回到原本的樣子 */
+  private performing = false;
+  perform(m: 'happy' | 'dance' | 'wave' | 'tickled' | 'oops' | 'flip', dur: number): void {
+    if (!this.posed) {
+      this.posePos.copy(this.pos);
+      this.posed = 'fly';
+    }
+    this.mode = m;
+    this.modeTime = 0;
+    this.modeDur = dur;
+    this.performing = true;
+    if (m === 'wave') this.waveAt.copy(this.posePos);
+    if (m === 'dance') this.danceAt.copy(this.posePos);
+  }
+
   setPose(p: Pose | null): void {
+    this.performing = false;
     if (!p) {
       if (this.posed) {
         this.posed = null;
@@ -316,6 +334,13 @@ export class AllayController {
     if (this.posed) {
       // 固定姿勢：停在玩家放的位置，只播動作
       this.target.copy(this.posePos);
+      if (this.performing && this.modeTime > this.modeDur) {
+        this.performing = false;
+        this.mode = POSE_MODE[this.posed];
+        this.modeTime = 0;
+        this.modeDur = Infinity;
+      }
+      if (this.performing && this.mode === 'dance' && Math.floor(this.modeTime / 0.7) !== Math.floor((this.modeTime - dt) / 0.7)) this.hooks.particle('note', this.headTop(tmp), 1);
       this.move(dt, tr.speed * 1.5);
       this.animate(dt);
       if (this.posed === 'sleep' && Math.floor(this.modeTime / 1.6) !== Math.floor((this.modeTime - dt) / 1.6)) this.hooks.particle('zzz', this.headTop(tmp));
@@ -661,6 +686,19 @@ export class AllayController {
     this.pitch = THREE.MathUtils.lerp(this.pitch, lying ? -Math.PI / 2 : sleeping ? 0.2 : 0, k(lying ? 4 : 3));
     const shake = this.mode === 'bath' && this.modeTime > 0.4 ? Math.sin(this.modeTime * 42) * 0.35 * Math.max(0, 1 - (this.modeTime - 0.4) / 1.4) : 0;
     m.tilt.rotation.set(this.pitch, 0, this.roll + sway * 0.279 + shake); // 跳舞時全身左右搖 16°；洗澡時甩水
+    const pk = Math.min(1, this.modeTime / this.modeDur);
+    if (this.mode === 'flip') {
+      // 往後翻一圈，同時往上跳
+      const e = pk < 0.5 ? 2 * pk * pk : 1 - Math.pow(-2 * pk + 2, 2) / 2;
+      m.tilt.rotation.x = -e * Math.PI * 2;
+      m.root.position.y += Math.sin(pk * Math.PI) * 0.35;
+    }
+    const oops = this.mode === 'oops' ? Math.sin(Math.min(1, pk * 4) * Math.PI / 2) * (pk > 0.8 ? (1 - pk) / 0.2 : 1) : 0;
+    if (oops) {
+      // 垂頭喪氣、往下沉一點
+      m.root.position.y -= 0.12 * oops;
+      m.tilt.rotation.z += Math.sin(this.modeTime * 3) * 0.08 * oops;
+    }
     // 飛行時只有身體前傾，頭保持
     m.body.rotation.x = mv * (Math.PI / 4);
 
@@ -668,7 +706,8 @@ export class AllayController {
     let flapRate = 7 + mv * 3;
     if (this.mode === 'rest') flapRate = 4;
     if (sleeping) flapRate = 1.2;
-    if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'called' || this.mode === 'flourish') flapRate += 4;
+    if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'called' || this.mode === 'flourish' || this.mode === 'flip') flapRate += 4;
+    if (this.mode === 'oops') flapRate *= 0.5;
     if (!sleeping) flapRate *= this.tr.tempo * (moodLevel(this.pet.mood) === 0 ? 0.85 : 1);
     this.flapPhase += flapRate * dt;
     const amp = sleeping ? 0.03 : this.mode === 'rest' ? 0.25 : Math.PI * 0.15;
@@ -687,6 +726,9 @@ export class AllayController {
     let armZ = 0.4363 - Math.cos(this.tt * Math.PI + Math.PI * 1.5) * Math.PI * 0.075 * still * (1 - h);
     if (this.mode === 'happy' || this.mode === 'tickled') { armX = -0.6 + Math.sin(this.t * 18) * 0.4; armZ = 0.7; }
     if (sleeping) { armX = 0; armZ = 0.15; }
+    // 懊惱：雙手抱頭
+    if (oops) { armX = THREE.MathUtils.lerp(armX, -2.5, oops); armZ = THREE.MathUtils.lerp(armZ, 0.35, oops); }
+    if (this.mode === 'flip') { armX = -2.8; armZ = 0.9; }
     m.armL.rotation.x = THREE.MathUtils.lerp(m.armL.rotation.x, armX, k(10));
     m.armR.rotation.x = m.armL.rotation.x;
     m.armL.rotation.z = THREE.MathUtils.lerp(m.armL.rotation.z, armZ, k(10));
@@ -722,14 +764,16 @@ export class AllayController {
     }
     // 觀察：左右慢慢（或快速）張望，微微低頭
     if (this.mode === 'observe') { headY = this.lookDir * Math.sin(this.modeTime * this.tr.sweep) * 0.9; headX = 0.12; }
+    // 懊惱：低頭、左右搖頭
+    if (oops) { headX += 0.4 * oops; headY = Math.sin(this.modeTime * 13) * 0.45 * oops; }
     m.head.rotation.x = THREE.MathUtils.lerp(m.head.rotation.x, headX, k(6));
-    m.head.rotation.y = dancing ? headY : THREE.MathUtils.lerp(m.head.rotation.y, headY, k(6));
+    m.head.rotation.y = dancing || oops ? headY : THREE.MathUtils.lerp(m.head.rotation.y, headY, k(6));
     m.head.rotation.z = dancing ? sway * 0.524 : this.mode === 'curious' || this.mode === 'observe' ? Math.sin(this.t * 2) * 0.2 : this.mode === 'listen' ? 0.35 : this.mode === 'wave' ? Math.sin(this.modeTime * 9 + 0.8) * 0.18 * this.waveAmount() : 0; // 頭歪 30°
 
     // 眼睛：眨眼 / 睡覺 / 開心
     this.blinkIn -= dt;
-    if (sleeping || this.mode === 'rest' && this.modeTime > 4) m.setEyes('closed');
-    else if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'eat' || this.mode === 'wave' || this.mode === 'bath' || dancing) m.setEyes('happy');
+    if (sleeping || this.mode === 'rest' && this.modeTime > 4 || oops > 0.3) m.setEyes('closed');
+    else if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'eat' || this.mode === 'wave' || this.mode === 'bath' || this.mode === 'flip' || dancing) m.setEyes('happy');
     else if (this.blinkIn < 0) {
       m.setEyes('closed');
       if (this.blinkIn < -0.13) this.blinkIn = rand(2, 5);

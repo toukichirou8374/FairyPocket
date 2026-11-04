@@ -41,6 +41,7 @@ export const IMAGE_PATHS = {
   crafting_table_front: 'textures/block/crafting_table_front.png',
   crafting_table_side: 'textures/block/crafting_table_side.png',
   spyglass: 'textures/item/spyglass.png',
+  book: 'textures/item/book.png',
   music_disc_creator_music_box: 'textures/item/music_disc_creator_music_box.png',
   music_disc_far: 'textures/item/music_disc_far.png',
   music_disc_relic: 'textures/item/music_disc_relic.png',

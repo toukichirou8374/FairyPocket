@@ -13,6 +13,7 @@ import { Sound } from './audio';
 import { SFX, sfxPitch, type Sfx } from './sfx';
 import { Music } from './music';
 import { ArCamera, Composer, saveMedia, type ArEvents, type Facing } from './ar';
+import { KeyGameUI } from './ui/keyGameUI';
 import { clipBuffer, Listener, loadReplies, loadVoiceStyle, recordClip, saveReplies, saveVoiceStyle, type Clip } from './voice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
@@ -468,6 +469,7 @@ const hud = new Hud(overlay, {
     voiceStyle = v;
     saveVoiceStyle(localStorage, v);
   },
+  games: () => keyGame.openMenu(),
   arFlip: () => void arOpen(arCam.facing === 'user' ? 'environment' : 'user'),
   arPose: (p) => {
     if (p === 'turn') {
@@ -573,6 +575,76 @@ const hud = new Hud(overlay, {
     location.reload();
   },
   assetSource: () => pack?.source ?? null,
+});
+
+// ---------- 小遊戲：按鍵遊戲 ----------
+
+const SPEECH_LANG: Record<string, string> = { zh_tw: 'zh-TW', ja_jp: 'ja-JP', en_us: 'en-US' };
+
+/** 用裝置內建的語音念出按鍵名稱（聲音偏高、偏可愛；音量跟著「悅靈的叫聲與回應」） */
+function speakText(text: string): void {
+  const s = window.speechSynthesis;
+  const vol = sound.level('voice');
+  if (!s || vol <= 0) return;
+  s.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = SPEECH_LANG[getLang()];
+  u.pitch = 1.7;
+  u.rate = 0.95;
+  u.volume = Math.min(1, vol);
+  const v = s.getVoices().find((x) => x.lang.replace('_', '-').toLowerCase() === u.lang.toLowerCase());
+  if (v) u.voice = v;
+  s.speak(u);
+}
+
+const CHEERS = [
+  ['happy', 0.9],
+  ['dance', 1.2],
+  ['wave', 1.3],
+  ['tickled', 1.0],
+  ['flip', 0.8],
+] as const;
+let lastCheer = -1;
+
+const keyGame = new KeyGameUI({
+  root: overlay,
+  click: () => playSfx('click'),
+  hasSong: (p) => music.hasSong(p),
+  playSong: (p, end) => {
+    sound.unlock();
+    return music.playSong(p, end);
+  },
+  stopSong: () => music.stopSong(),
+  songProgress: () => music.songProgress(),
+  begin: () => {
+    sound.unlock();
+    // 悅靈飛到畫面中間，專心陪玩
+    ctrl.setPose('fly');
+    ctrl.posePos.set(0, 1.25, 0.6);
+    requestAnimationFrame(resize);
+  },
+  cheer: (text) => {
+    // 答對：每次換一個不同的開心動作
+    let i = Math.floor(Math.random() * CHEERS.length);
+    if (i === lastCheer) i = (i + 1) % CHEERS.length;
+    lastCheer = i;
+    ctrl.perform(CHEERS[i][0], CHEERS[i][1]);
+    hud.say(text);
+    stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), 2);
+    sound.effect('sounds/block/amethyst/shimmer', 0.9, 1.3, 0, 'voice');
+  },
+  oops: () => ctrl.perform('oops', 1.2),
+  wrong: () => sound.effect('sounds/mob/allay/hurt', 0.35, 0.95, 0, 'voice'),
+  finish: (score) => {
+    ctrl.perform('dance', 8);
+    stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), 6);
+    if (score > 0) playSfx('levelup');
+  },
+  end: () => {
+    ctrl.setPose(null);
+    requestAnimationFrame(resize);
+  },
+  speak: speakText,
 });
 
 // ---------- 發光輪廓（個性代表色） ----------
@@ -983,7 +1055,9 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 const hudEl = overlay.querySelector('.hud') as HTMLElement;
 function resize(): void {
   const h = window.innerHeight;
-  stage.resize(window.innerWidth, h, h - hudEl.getBoundingClientRect().top);
+  // 快捷欄藏起來時（小遊戲中）不用替它留位置
+  const r = hudEl.getBoundingClientRect();
+  stage.resize(window.innerWidth, h, r.height ? h - r.top : 0);
 }
 window.addEventListener('resize', resize);
 new ResizeObserver(resize).observe(hudEl);
@@ -1098,4 +1172,4 @@ function frame(now: number): void {
 requestAnimationFrame(frame);
 
 // 方便自動化測試與除錯
-Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound } });
+Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound, music, keyGame } });

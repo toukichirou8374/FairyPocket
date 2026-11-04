@@ -11,6 +11,7 @@ import { SFX, sfxPitch } from '../sfx';
 import { trimSilence } from '../voice';
 import { WaveDetector } from '../ar';
 import { trackPitch, transform } from '../voicefx';
+import { gamepadPrompts, isModifier, keyboardPrompts, keyId, KeyRound, loadBest, padFamily, saveBest } from './keyGame';
 import { emptyMemory, memoryTopic, mostEaten, rememberFood, takeMilestone, timeGreeting, visitDay } from './memory';
 
 function memStorage() {
@@ -390,5 +391,47 @@ describe('變聲', () => {
     const fairy = transform(voice, rate, 'fairy');
     expect(fairy.length).toBeGreaterThan(voice.length * 0.9);
     expect(Math.max(...fairy.map(Math.abs))).toBeLessThanOrEqual(0.91);
+  });
+});
+
+describe('按鍵遊戲', () => {
+  it('答對才換題、答錯題目不變', () => {
+    const r = new KeyRound(keyboardPrompts('zh_tw'));
+    const p = r.next();
+    expect(r.press('nope')).toBe(false);
+    expect(r.current).toBe(p);
+    expect(r.misses).toBe(1);
+    expect(r.press(p.id)).toBe(true);
+    expect(r.score).toBe(1);
+    for (let i = 0; i < 50; i++) {
+      const prev = r.current!;
+      expect(r.next().id).not.toBe(prev.id);
+    }
+  });
+  it('鍵盤：字母、數字、方向鍵，數字鍵盤也算', () => {
+    const ids = keyboardPrompts('ja_jp').map((p) => p.id);
+    expect(ids).toContain('KeyA');
+    expect(ids).toContain('Digit7');
+    expect(ids).toContain('ArrowLeft');
+    expect(keyId('Numpad7')).toBe('Digit7');
+    expect(keyId('NumpadEnter')).toBe('Enter');
+    expect(isModifier('ShiftLeft')).toBe(true);
+    expect(isModifier('KeyA')).toBe(false);
+  });
+  it('控制器：依廠牌顯示按鈕名稱', () => {
+    expect(padFamily('Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e)')).toBe('xbox');
+    expect(padFamily('DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c)')).toBe('playstation');
+    expect(padFamily('Pro Controller (STANDARD GAMEPAD Vendor: 057e)')).toBe('nintendo');
+    expect(gamepadPrompts('playstation', 'zh_tw')[0]).toMatchObject({ id: '0', label: '✕', speak: '叉叉' });
+    expect(gamepadPrompts('nintendo', 'en_us')[0].label).toBe('B');
+  });
+  it('最高紀錄', () => {
+    const m = new Map<string, string>();
+    const st = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+    expect(loadBest(st, 'tap', 'cat')).toBe(0);
+    expect(saveBest(st, 'tap', 'cat', 5)).toBe(true);
+    expect(saveBest(st, 'tap', 'cat', 3)).toBe(false);
+    expect(loadBest(st, 'tap', 'cat')).toBe(5);
+    expect(loadBest(st, 'keyboard', 'cat')).toBe(0);
   });
 });

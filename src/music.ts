@@ -22,12 +22,18 @@ const DISC_VOL = 0.45;
 
 interface Track {
   stop(): void;
+  /** 播到哪裡了 0–1 */
+  progress(): number;
 }
+
+/** 小遊戲歌曲的音量 */
+const SONG_VOL = 0.5;
 
 export class Music {
   private pack: AssetPack | null = null;
   private bgm: Track | null = null;
   private disc: Track | null = null;
+  private song: Track | null = null;
   private timer = 0;
   /** 目前唱片機放的唱片（-1 = 沒有） */
   discIndex = -1;
@@ -63,7 +69,7 @@ export class Music {
   }
 
   private async nextBgm(): Promise<void> {
-    if (!this.enabled || this.disc || this.bgm || document.hidden) return this.schedule(30);
+    if (!this.enabled || this.disc || this.bgm || this.song || document.hidden) return this.schedule(30);
     const ready = BGM.filter((p) => this.pack && packFile(this.pack, p));
     if (!ready.length) return;
     const path = ready[Math.floor(Math.random() * ready.length)];
@@ -100,6 +106,38 @@ export class Music {
     this.disc = null;
     this.discIndex = -1;
     this.schedule(20);
+  }
+
+  // ---------- 小遊戲的歌 ----------
+
+  /** 素材包裡有沒有這首歌 */
+  hasSong(path: string): boolean {
+    return !!this.pack && !!packFile(this.pack, path);
+  }
+
+  /** 播放小遊戲的歌（背景音樂與唱片先停）；播不了回傳 false */
+  async playSong(path: string, onEnd: () => void): Promise<boolean> {
+    this.stopSong();
+    this.stopDisc();
+    this.bgm?.stop();
+    this.bgm = null;
+    window.clearTimeout(this.timer);
+    const t = await this.play(path, SONG_VOL, 'music', () => {
+      this.song = null;
+      onEnd();
+    });
+    this.song = t;
+    return !!t;
+  }
+
+  stopSong(): void {
+    this.song?.stop();
+    this.song = null;
+    this.schedule(20);
+  }
+
+  songProgress(): number {
+    return this.song?.progress() ?? 0;
   }
 
   get playingDisc(): boolean {
@@ -155,6 +193,7 @@ export class Music {
           ended = true;
           gain.disconnect();
         },
+        progress: () => (audio.duration ? audio.currentTime / audio.duration : 0),
       };
     }
     // 不行就解碼成單聲道再播
@@ -168,7 +207,9 @@ export class Music {
     src.connect(gain);
     src.onended = finish;
     src.start();
+    const t0 = ctx.currentTime;
     return {
+      progress: () => Math.min(1, (ctx.currentTime - t0) / buf.duration),
       stop: () => {
         ended = true;
         src.onended = null;

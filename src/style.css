@@ -538,3 +538,115 @@ body.ar #sky { display: none; }
   border: 2px solid;
   border-color: #ffffff #555555 #555555 #ffffff;
 }
+
+/* ---- 小遊戲 ---- */
+.gear.book { right: calc(env(safe-area-inset-right) + 64px); display: grid; place-items: center; padding: 0; width: 44px; height: 44px; box-sizing: border-box; overflow: hidden; }
+.gear.book img { width: 30px; height: 30px; image-rendering: pixelated; }
+.gear.book img:not([src]) { display: none; }
+.gear.book:has(img:not([src]))::after { content: '?'; font-size: 22px; }
+.kgcard-title { text-align: center; font-size: 20px; margin-top: 4px; }
+.kgsongs { display: grid; gap: 6px; }
+.kgsongs .btn { display: flex; justify-content: space-between; align-items: center; margin-top: 0; }
+.kgsongs .best { font-size: 14px; opacity: 0.8; }
+.kgmenu .btn.on { outline: 3px solid #ffff55; outline-offset: -3px; }
+
+/* 遊戲中：只留下悅靈、泡泡與小遊戲畫面 */
+.kg-on > :not(.kg):not(.bubble):not(.nametag):not(.toast):not(.modal-back) { display: none !important; }
+.kg { position: absolute; inset: 0; pointer-events: auto; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+.kg-top {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 8px);
+  left: calc(env(safe-area-inset-left) + 8px);
+  right: calc(env(safe-area-inset-right) + 8px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.kg-exit { flex: 0 0 44px; width: 44px; height: 44px; margin: 0; padding: 0; }
+.kg-info { flex: 1; min-width: 0; text-shadow: var(--shadow); color: #fff; }
+.kg-song { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kg-bar { height: 8px; margin-top: 4px; background: rgba(0, 0, 0, 0.5); border: 2px solid #000; }
+.kg-fill { height: 100%; width: 0; background: #80ff20; }
+.kg-score { font-size: 22px; color: #ffff55; text-shadow: var(--shadow); white-space: nowrap; }
+.kg-wait {
+  position: absolute;
+  left: 50%;
+  bottom: 18%;
+  transform: translateX(-50%);
+  width: min(90%, 420px);
+  text-align: center;
+  font-size: 20px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 12px;
+  text-shadow: var(--shadow);
+}
+
+/* 題目 */
+.kg-key {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  animation: kg-pop 0.35s ease-out;
+}
+.kg-face {
+  min-width: 92px;
+  height: 92px;
+  padding: 0 14px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  font-size: 54px;
+  line-height: 1;
+}
+.kg-face.long { font-size: 30px; }
+.kg-cap .kg-face {
+  color: #3a3a3a;
+  background: #e8e8e8;
+  border: 4px solid #2a2a2a;
+  box-shadow: inset -6px -8px 0 #b8b8b8, inset 4px 4px 0 #ffffff, 0 6px 0 #2a2a2a;
+}
+.kg-pad .kg-face {
+  width: 96px;
+  min-width: 96px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--pad, #555);
+  border: 4px solid #1a1a1a;
+  box-shadow: inset -6px -8px 0 rgba(0, 0, 0, 0.25), 0 6px 0 #1a1a1a;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.45);
+}
+.kg-tap .kg-face {
+  width: 110px;
+  height: 110px;
+  font-size: 70px;
+  color: #ffe14a;
+  background: #3b6fd8;
+  border: 4px solid #1d2b4a;
+  border-radius: 50%;
+  box-shadow: 0 6px 0 #1d2b4a;
+  cursor: pointer;
+}
+.kg-name { font-size: 18px; color: #fff; text-shadow: var(--shadow); background: rgba(0, 0, 0, 0.45); padding: 2px 8px; white-space: nowrap; }
+.kg-key.hit { animation: kg-hit 0.6s ease-out forwards; }
+.kg-key.miss { animation: kg-miss 0.45s ease-in-out; }
+@keyframes kg-pop { from { transform: translate(-50%, -50%) scale(0.3); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+@keyframes kg-hit { 0% { transform: translate(-50%, -50%) scale(1); } 40% { transform: translate(-50%, -50%) scale(1.35); filter: brightness(1.3); } 100% { transform: translate(-50%, -70%) scale(1.1); opacity: 0; } }
+@keyframes kg-miss {
+  0%, 100% { transform: translate(-50%, -50%); }
+  20% { transform: translate(-58%, -50%); }
+  40% { transform: translate(-42%, -50%); }
+  60% { transform: translate(-56%, -50%); }
+  80% { transform: translate(-46%, -50%); }
+}
+.kg-result { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.35); }
+.kg-big { text-align: center; font-size: 30px; margin: 10px 0; }
+.kg-best { text-align: center; font-size: 20px; color: #e0a000; }
+@media (max-height: 500px) {
+  .kg-face { min-width: 72px; height: 72px; font-size: 42px; }
+  .kg-pad .kg-face { width: 76px; min-width: 76px; }
+  .kg-tap .kg-face { width: 86px; height: 86px; font-size: 54px; }
+}

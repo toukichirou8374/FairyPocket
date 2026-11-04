@@ -69,6 +69,8 @@ export interface HudActions {
   arPhoto(): void;
   arRecord(): void;
   arFlip(): void;
+  /** 打開小遊戲選單 */
+  games(): void;
   /** 設定頁錄的回應（目前語言 5 句）：哪幾格有錄、錄音、試聽、刪除 */
   replies(): boolean[];
   recordReply(i: number): Promise<{ stop: () => void; done: Promise<boolean> } | null>;
@@ -150,6 +152,16 @@ export class Hud {
     gear.addEventListener('click', () => {
       this.actions.sfx('click');
       this.openSettings();
+    });
+
+    // 小遊戲（書本，在設定按鈕旁邊）
+    const book = el('button', 'gear book', root);
+    book.setAttribute('aria-label', t('games'));
+    this.bookImg = el('img', '', book);
+    this.bookImg.alt = '';
+    book.addEventListener('click', () => {
+      this.actions.sfx('click');
+      this.actions.games();
     });
 
     // 相機 AR 模式的按鈕（左上）與 AR 工具列（右側）
@@ -247,6 +259,7 @@ export class Hud {
   private toolURL = {} as Record<Slot, string>;
   private gearBtn!: HTMLButtonElement;
   private camImg!: HTMLImageElement;
+  private bookImg!: HTMLImageElement;
 
   setSelected(slot: Slot | null): void {
     this.selected = slot;
@@ -414,6 +427,7 @@ export class Hud {
       el('img', '', this.gearBtn).src = isoCube(img.crafting_table_top, img.crafting_table_front, img.crafting_table_side);
     }
     if (img.spyglass) this.camImg.src = img.spyglass.src;
+    if (img.book) this.bookImg.src = img.book.src;
     this.slots.forEach((b) => {
       b.querySelector('img')!.src = this.toolURL[this.current[b.dataset.slot as Group]];
     });
