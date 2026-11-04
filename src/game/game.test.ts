@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyElapsed, createPet, feed, play, tickPet, toIcons, MAX_HUNGER } from './state';
 import { loadPet, parseSave, serialize, storePet, SAVE_KEY, BACKUP_KEY } from './save';
 import { pickLine } from './dialogue';
+import { loadLang, uiKeys } from '../i18n';
 import { packFile, parseLegacyPack, parseZipPack } from './assets';
 import { allayRate, loadSoundMode, SOUND_MODES } from '../audio';
 
@@ -178,5 +179,23 @@ describe('sound spec', () => {
 describe('dialogue', () => {
   it('fills in the name', () => {
     expect(pickLine('greet', 'brave', '小藍', () => 0)).toContain('小藍');
+  });
+  it('speaks every language', () => {
+    expect(pickLine('greet', 'brave', 'Ally', () => 0, '', 'en_us')).toContain('Ally');
+    expect(pickLine('fedFood', 'cautious', 'x', () => 0, 'パン', 'ja_jp')).toContain('パン');
+  });
+});
+
+describe('i18n', () => {
+  it('has the same UI keys in every language', () => {
+    expect(uiKeys('ja_jp')).toEqual(uiKeys('zh_tw'));
+    expect(uiKeys('en_us')).toEqual(uiKeys('zh_tw'));
+  });
+  it('picks a default language', () => {
+    const empty = { getItem: () => null };
+    expect(loadLang(empty, 'ja-JP')).toBe('ja_jp');
+    expect(loadLang(empty, 'en-US')).toBe('en_us');
+    expect(loadLang(empty, 'ja-JP', true)).toBe('zh_tw');
+    expect(loadLang({ getItem: () => 'en_us' }, 'zh-TW')).toBe('en_us');
   });
 });

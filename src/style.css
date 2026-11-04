@@ -256,6 +256,17 @@ html, body {
   line-height: 1.35;
 }
 .pcard b { display: block; font-size: 16px; margin-bottom: 2px; }
+/* 個性代表色（粒子與發光輪廓的顏色） */
+.pcard b::before {
+  content: '';
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  background: var(--pc);
+  border: 2px solid rgba(29, 43, 74, 0.5);
+  vertical-align: 0;
+}
 .pcard.on { border-color: var(--accent); background: #e4f4ff; box-shadow: 0 0 0 2px var(--accent); }
 .btn {
   border: 3px solid #1d2b4a;

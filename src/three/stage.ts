@@ -28,7 +28,20 @@ function textCanvas(text: string, color: string): HTMLCanvasElement {
   return c;
 }
 
-export type ParticleKind = 'heart' | 'zzz' | 'crumb' | 'note' | 'sparkle';
+export type ParticleKind = 'heart' | 'zzz' | 'crumb' | 'note' | 'sparkle' | 'dust';
+
+/** 暫用的粉塵粒子：8 張由大到小的白色方點（原版是 generic_7 → generic_0） */
+function dustFrames(): THREE.Texture[] {
+  return Array.from({ length: 8 }, (_, i) => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 8;
+    const ctx = c.getContext('2d')!;
+    const s = Math.max(1, Math.round(((8 - i) / 8) * 6));
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(4 - s / 2, 4 - s / 2, s, s);
+    return spriteTex(c);
+  });
+}
 
 /** 可以丟出去的東西：史萊姆球或背包裡的食物 */
 export type Throwable = 'slime' | Food;
@@ -42,6 +55,8 @@ interface Particle {
   life: number;
   max: number;
   gravity: number;
+  /** 依存活時間換圖（粉塵粒子會越變越小） */
+  frames?: THREE.Texture[];
 }
 
 export class Stage {
@@ -130,6 +145,7 @@ export class Stage {
       zzz: [spriteTex(textCanvas('Z', '#ffffff')), spriteTex(textCanvas('z', '#dfe8ff'))],
       crumb: [crumb('#e8b864'), crumb('#c48a3a'), crumb('#e0303a')],
       sparkle: [spark],
+      dust: dustFrames(),
     };
 
     this.ballTex = spriteTex(drawGrid(ITEM_ICONS.slime.grid, ITEM_ICONS.slime.pal, 4));
@@ -147,8 +163,8 @@ export class Stage {
     }
   }
 
-  /** 套用原版素材（丟出去的史萊姆球、愛心與音符粒子） */
-  useImages(img: { slime_ball?: CanvasImageSource; particle_heart?: CanvasImageSource; particle_note?: CanvasImageSource }): void {
+  /** 套用原版素材（丟出去的史萊姆球、愛心、音符與粉塵粒子） */
+  useImages(img: { slime_ball?: CanvasImageSource; particle_heart?: CanvasImageSource; particle_note?: CanvasImageSource } & Partial<Record<`generic_${number}`, CanvasImageSource>>): void {
     const t = (src: CanvasImageSource) => {
       const c = document.createElement('canvas');
       const s = src as HTMLImageElement;
@@ -163,6 +179,9 @@ export class Stage {
       this.tex.note = [t(img.particle_note)];
       this.tintNotes = true;
     }
+    // 原版彩色粉塵（dust）用 generic_7 → generic_0，由大到小
+    const generic = [7, 6, 5, 4, 3, 2, 1, 0].map((i) => img[`generic_${i}`]);
+    if (generic.every(Boolean)) this.tex.dust = generic.map((g) => t(g!));
   }
   private tintNotes = false;
 
@@ -207,7 +226,9 @@ export class Stage {
     this.shadow.scale.setScalar(s);
   }
 
-  spawn(kind: ParticleKind, at: THREE.Vector3, count = 1): void {
+  /** color 只用在粉塵粒子；spread 是散開的範圍 */
+  spawn(kind: ParticleKind, at: THREE.Vector3, count = 1, color?: THREE.ColorRepresentation, spread = 0.35): void {
+    if (kind === 'dust') return this.spawnDust(at, count, color ?? '#ffffff', spread);
     for (let i = 0; i < count; i++) {
       const list = this.tex[kind];
       const mat = new THREE.SpriteMaterial({ map: list[Math.floor(Math.random() * list.length)], transparent: true, depthWrite: false });
@@ -224,6 +245,24 @@ export class Stage {
         : new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.5, 0);
       const max = kind === 'zzz' ? 2.2 : kind === 'crumb' ? 0.8 : 1.3;
       this.particles.push({ sprite: s, vel, life: max, max, gravity: kind === 'crumb' ? 3 : 0 });
+      this.scene.add(s);
+    }
+  }
+
+  /** 原版彩色粉塵粒子：顏色每顆略有明暗差、慢慢飄、越變越小 */
+  private spawnDust(at: THREE.Vector3, count: number, color: THREE.ColorRepresentation, spread: number): void {
+    const base = new THREE.Color(color);
+    for (let i = 0; i < count; i++) {
+      const frames = this.tex.dust;
+      const mat = new THREE.SpriteMaterial({ map: frames[0], transparent: true, depthWrite: false });
+      mat.color.copy(base).multiplyScalar(0.8 + Math.random() * 0.2);
+      const s = new THREE.Sprite(mat);
+      s.scale.setScalar(0.1 + Math.random() * 0.04);
+      const r = () => (Math.random() - 0.5) * 2 * spread;
+      s.position.copy(at).add(new THREE.Vector3(r(), r() * 0.8, r() * 0.6));
+      const vel = new THREE.Vector3((Math.random() - 0.5) * 0.08, 0.06 + Math.random() * 0.1, (Math.random() - 0.5) * 0.08);
+      const max = 0.8 + Math.random() * 1.2;
+      this.particles.push({ sprite: s, vel, life: max, max, gravity: 0, frames });
       this.scene.add(s);
     }
   }
@@ -309,7 +348,13 @@ export class Stage {
       p.life -= dt;
       p.vel.y -= p.gravity * dt;
       p.sprite.position.addScaledVector(p.vel, dt);
-      p.sprite.material.opacity = Math.min(1, (p.life / p.max) * 2);
+      if (p.frames) {
+        const f = p.frames[Math.min(p.frames.length - 1, Math.floor((1 - p.life / p.max) * p.frames.length))];
+        if (p.sprite.material.map !== f) {
+          p.sprite.material.map = f;
+          p.sprite.material.needsUpdate = true;
+        }
+      } else p.sprite.material.opacity = Math.min(1, (p.life / p.max) * 2);
       if (p.life <= 0) {
         this.scene.remove(p.sprite);
         p.sprite.material.dispose();

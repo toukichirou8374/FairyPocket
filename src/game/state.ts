@@ -2,11 +2,14 @@
 
 export type Personality = 'guardian' | 'brave' | 'cautious' | 'playful';
 
-export const PERSONALITIES: Record<Personality, { label: string; desc: string }> = {
-  guardian: { label: '守護', desc: '總是待在你身邊，呼喚時第一個飛來' },
-  brave: { label: '勇敢', desc: '飛得又快又遠，喜歡到處探險' },
-  cautious: { label: '謹慎', desc: '動作輕柔、容易受驚，也比較愛睡' },
-  playful: { label: '愛玩', desc: '最愛追史萊姆球和轉圈圈，話也最多' },
+export const PERSONALITY_IDS: Personality[] = ['guardian', 'brave', 'cautious', 'playful'];
+
+/** 個性代表色：用於原版彩色粉塵粒子與發光輪廓 */
+export const PERSONALITY_COLOR: Record<Personality, string> = {
+  guardian: '#8fd6ff', // 淺藍
+  brave: '#ffb238', // 金橘
+  cautious: '#9fe89a', // 淺綠
+  playful: '#e6a2ff', // 粉紫
 };
 
 export const MAX_HEALTH = 20;
@@ -35,21 +38,21 @@ export interface PetState {
 /** 最多能複製出幾隻悅靈夥伴 */
 export const MAX_FRIENDS = 3;
 
-/** 背包裡的食物；飢餓度回復量與原版相同，圖示為 textures/item/<id>.png */
+/** 背包裡的食物；飢餓度回復量與原版相同，圖示為 textures/item/<id>.png，名稱見 i18n.ts */
 export const FOODS = {
-  apple: { label: '蘋果', hunger: 4, health: 2, color: '#e0303a' },
-  bread: { label: '麵包', hunger: 5, health: 1, color: '#c48a3a' },
-  cookie: { label: '餅乾', hunger: 2, health: 1, color: '#b0743a' },
-  carrot: { label: '胡蘿蔔', hunger: 3, health: 1, color: '#f08a20' },
-  baked_potato: { label: '烤馬鈴薯', hunger: 5, health: 1, color: '#d8a850' },
-  sweet_berries: { label: '甜莓', hunger: 2, health: 1, color: '#c02040' },
-  glow_berries: { label: '發光漿果', hunger: 2, health: 1, color: '#f8b030' },
-  melon_slice: { label: '西瓜片', hunger: 2, health: 1, color: '#e04848' },
-  cooked_chicken: { label: '烤雞', hunger: 6, health: 2, color: '#d89048' },
-  pumpkin_pie: { label: '南瓜派', hunger: 8, health: 2, color: '#e09030' },
-  honey_bottle: { label: '蜂蜜瓶', hunger: 6, health: 2, color: '#f8c030' },
-  golden_carrot: { label: '金胡蘿蔔', hunger: 6, health: 4, color: '#f8d848' },
-  golden_apple: { label: '金蘋果', hunger: 4, health: 10, color: '#f8d020' },
+  apple: { hunger: 4, health: 2, color: '#e0303a' },
+  bread: { hunger: 5, health: 1, color: '#c48a3a' },
+  cookie: { hunger: 2, health: 1, color: '#b0743a' },
+  carrot: { hunger: 3, health: 1, color: '#f08a20' },
+  baked_potato: { hunger: 5, health: 1, color: '#d8a850' },
+  sweet_berries: { hunger: 2, health: 1, color: '#c02040' },
+  glow_berries: { hunger: 2, health: 1, color: '#f8b030' },
+  melon_slice: { hunger: 2, health: 1, color: '#e04848' },
+  cooked_chicken: { hunger: 6, health: 2, color: '#d89048' },
+  pumpkin_pie: { hunger: 8, health: 2, color: '#e09030' },
+  honey_bottle: { hunger: 6, health: 2, color: '#f8c030' },
+  golden_carrot: { hunger: 6, health: 4, color: '#f8d848' },
+  golden_apple: { hunger: 4, health: 10, color: '#f8d020' },
 } as const;
 export type Food = keyof typeof FOODS;
 export const FOOD_IDS = Object.keys(FOODS) as Food[];
@@ -149,9 +152,10 @@ export function toIcons(value: number): number[] {
   return Array.from({ length: 10 }, (_, i) => clamp(v - i * 2, 0, 2));
 }
 
-export function affectionLevel(a: number): string {
-  if (a >= 80) return '形影不離';
-  if (a >= 50) return '好朋友';
-  if (a >= 20) return '熟悉';
-  return '初識';
+/** 關係階段 0–3（初識、熟悉、好朋友、形影不離） */
+export function affectionLevel(a: number): 0 | 1 | 2 | 3 {
+  if (a >= 80) return 3;
+  if (a >= 50) return 2;
+  if (a >= 20) return 1;
+  return 0;
 }

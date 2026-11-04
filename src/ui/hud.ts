@@ -1,21 +1,27 @@
 // 畫面上的 HTML 介面：名字、對話泡泡、愛心 / 飽食度、快捷欄、設定與開場。
 
 import { foodIcon, gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, statGrid } from '../pixel';
-import { affectionLevel, FOOD_IDS, FOODS, NAME_MAX, PERSONALITIES, toIcons, type Food, type Personality, type PetState } from '../game/state';
+import { affectionLevel, FOOD_IDS, NAME_MAX, PERSONALITY_COLOR, PERSONALITY_IDS, toIcons, type Food, type Personality, type PetState } from '../game/state';
 import type { AssetImages } from '../game/assets';
 import { SOUND_MODES, type SoundMode } from '../audio';
+import { getLang, itemName, LANGS, personalityText, t, type Lang } from '../i18n';
 
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
 
 export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'call';
-export const SLOTS: { id: Slot; label: string; hint: string }[] = [
-  { id: 'food', label: '背包', hint: '點畫面丟給悅靈' },
-  { id: 'feather', label: '羽毛', hint: '點悅靈搔癢' },
-  { id: 'slime', label: '史萊姆球', hint: '按住蓄力，放開丟球' },
-  { id: 'note', label: '音符盒', hint: '點地面放下，點它彈奏' },
-  { id: 'call', label: '呼喚', hint: '' },
-];
+export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'call'];
+
+/** 快捷欄名稱（Java 版譯名）與操作提示 */
+function slotText(s: Slot): { label: string; hint: string } {
+  switch (s) {
+    case 'food': return { label: itemName('inventory'), hint: t('hint.food') };
+    case 'feather': return { label: itemName('feather'), hint: t('hint.feather') };
+    case 'slime': return { label: itemName('slime_ball'), hint: t('hint.slime') };
+    case 'note': return { label: itemName('note_block'), hint: t('hint.note') };
+    case 'call': return { label: t('call'), hint: '' };
+  }
+}
 
 /** 用原版箱子材質（textures/entity/chest/normal.png）拼出箱子正面圖示 */
 function chestIcon(tex: HTMLImageElement): string {
@@ -42,6 +48,9 @@ export interface HudActions {
   call(): void;
   rename(name: string): void;
   setPersonality(p: Personality): void;
+  setLang(l: Lang): void;
+  glow(): boolean;
+  setGlow(on: boolean): void;
   exportSave(): void;
   importSave(file: File): void;
   reset(): void;
@@ -89,7 +98,7 @@ export class Hud {
     this.shankURL = [0, 1, 2].map((l) => gridURL(statGrid(SHANK, l, 4, true), SHANK_PAL));
 
     const gear = el('button', 'gear', root);
-    gear.setAttribute('aria-label', '設定');
+    gear.setAttribute('aria-label', t('settings'));
     gear.textContent = '⚙';
     gear.addEventListener('click', () => this.openSettings());
 
@@ -108,31 +117,32 @@ export class Hud {
     for (const f of FOOD_IDS) this.foodURL[f] = foodIcon(f, 4).toDataURL();
     SLOTS.forEach((s) => {
       const b = el('button', 'slot', bar);
-      b.dataset.slot = s.id;
+      b.dataset.slot = s;
       this.slots.push(b);
-      b.setAttribute('aria-label', s.label);
-      const icon = ITEM_ICONS[{ food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', call: 'bell' }[s.id]];
+      const label = slotText(s).label;
+      b.setAttribute('aria-label', label);
+      const icon = ITEM_ICONS[{ food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', call: 'bell' }[s]];
       const img = el('img', '', b);
       img.src = gridURL(icon.grid, icon.pal, 4);
-      img.alt = s.label;
-      if (s.id === 'food') {
+      img.alt = label;
+      if (s === 'food') {
         this.foodBadge = el('img', 'badge', b);
         this.foodBadge.hidden = true;
       }
-      if (s.id === 'note') {
+      if (s === 'note') {
         // 悅靈跳舞時，音符盒格右下角出現紫水晶碎片
         this.shardBadge = el('img', 'badge', b);
         this.shardBadge.src = gridURL(ITEM_ICONS.amethyst.grid, ITEM_ICONS.amethyst.pal, 4);
         this.shardBadge.hidden = true;
       }
       b.addEventListener('click', () => {
-        if (s.id === 'call') {
-          this.showItem('呼喚');
+        if (s === 'call') {
+          this.showItem(label);
           this.actions.call();
           return;
         }
-        if (s.id === 'food') return this.openBag();
-        this.setSelected(this.selected === s.id ? null : s.id);
+        if (s === 'food') return this.openBag();
+        this.setSelected(this.selected === s ? null : s);
       });
     });
     this.chargeEl = el('div', 'charge', hud);
@@ -144,9 +154,10 @@ export class Hud {
     this.selected = slot;
     this.slots.forEach((b) => b.classList.toggle('selected', b.dataset.slot === slot));
     this.layout();
-    const s = SLOTS.find((x) => x.id === slot);
-    if (slot === 'food' && this.food) this.showItem(`${FOODS[this.food].label}　${s!.hint}`);
-    else if (s) this.showItem(`${s.label}　${s.hint}`);
+    if (slot) {
+      const s = slotText(slot);
+      this.showItem(`${slot === 'food' && this.food ? itemName(this.food) : s.label}　${s.hint}`);
+    }
     this.actions.select(slot);
   }
 
@@ -154,7 +165,7 @@ export class Hud {
   setShardReady(on: boolean): void {
     if (this.shardBadge.hidden !== on) return;
     this.shardBadge.hidden = !on;
-    if (on && this.selected === 'note') this.showItem('紫水晶碎片　點跳舞中的悅靈送給牠');
+    if (on && this.selected === 'note') this.showItem(`${itemName('amethyst_shard')}　${t('shardReady')}`);
   }
 
   /** 史萊姆球蓄力條；null 代表隱藏 */
@@ -165,15 +176,15 @@ export class Hud {
 
   /** 背包：選一種食物，選好後就可以丟給悅靈 */
   private openBag(): void {
-    const { box, close } = this.modal('背包');
+    const { box, close } = this.modal(itemName('inventory'));
     box.classList.add('bag');
     const name = el('div', 'bagname', box);
-    name.textContent = this.food ? FOODS[this.food].label : '選一樣食物丟給悅靈吧';
+    name.textContent = this.food ? itemName(this.food) : t('bagEmpty');
     const grid = el('div', 'baggrid', box);
     for (const f of FOOD_IDS) {
       const b = el('button', 'bagslot' + (f === this.food ? ' on' : ''), grid);
       b.dataset.food = f;
-      b.setAttribute('aria-label', FOODS[f].label);
+      b.setAttribute('aria-label', itemName(f));
       el('img', '', b).src = this.foodURL[f];
       b.addEventListener('click', () => {
         this.food = f;
@@ -184,7 +195,7 @@ export class Hud {
       });
     }
     const cancel = el('button', 'btn', box);
-    cancel.textContent = '關閉';
+    cancel.textContent = t('close');
     cancel.addEventListener('click', close);
   }
 
@@ -255,7 +266,7 @@ export class Hud {
     const r = this.root.style;
     r.setProperty('--s', `${s}px`);
     r.setProperty('--u', `${(this.mc.hotbarW * s - 8) / 162}px`);
-    const i = SLOTS.findIndex((x) => x.id === this.selected);
+    const i = this.selected ? SLOTS.indexOf(this.selected) : -1;
     this.selFrame.style.display = i < 0 ? 'none' : 'block';
     this.selFrame.style.left = `${(i * 20 - 1) * s}px`;
     this.selFrame.style.width = `${this.mc.selW * s}px`;
@@ -307,11 +318,13 @@ export class Hud {
 
   private personalityPicker(parent: HTMLElement, current: Personality, onPick: (p: Personality) => void): void {
     const grid = el('div', 'pgrid', parent);
-    (Object.keys(PERSONALITIES) as Personality[]).forEach((p) => {
+    PERSONALITY_IDS.forEach((p) => {
       const b = el('button', 'pcard' + (p === current ? ' on' : ''), grid);
       b.dataset.p = p;
-      el('b', '', b).textContent = PERSONALITIES[p].label;
-      el('span', '', b).textContent = PERSONALITIES[p].desc;
+      b.style.setProperty('--pc', PERSONALITY_COLOR[p]);
+      const txt = personalityText(p);
+      el('b', '', b).textContent = txt.label;
+      el('span', '', b).textContent = txt.desc;
       b.addEventListener('click', () => {
         grid.querySelectorAll('.pcard').forEach((x) => x.classList.toggle('on', x === b));
         onPick(p);
@@ -319,16 +332,29 @@ export class Hud {
     });
   }
 
-  openOnboarding(defaultName: string): void {
-    const { box, close } = this.modal('認識你的悅靈');
-    el('p', '', box).textContent = '幫牠取個名字，並選擇牠的個性吧！';
+  /** 語言選擇（換語言後會重新載入畫面） */
+  private langPicker(parent: HTMLElement): void {
+    const row = el('div', 'btnrow', parent);
+    (Object.keys(LANGS) as Lang[]).forEach((l) => {
+      const b = el('button', 'btn' + (l === getLang() ? ' on' : ''), row);
+      b.dataset.lang = l;
+      b.textContent = LANGS[l];
+      b.addEventListener('click', () => l !== getLang() && this.actions.setLang(l));
+    });
+  }
+
+  openOnboarding(): void {
+    const { box, close } = this.modal(t('onboardTitle'));
+    this.langPicker(box);
+    el('p', '', box).textContent = t('onboardText');
     const input = el('input', 'name-input', box);
     input.maxLength = NAME_MAX;
+    const defaultName = t('defaultName');
     input.value = defaultName;
     let p: Personality = 'playful';
     this.personalityPicker(box, p, (x) => (p = x));
     const go = el('button', 'btn primary', box);
-    go.textContent = '開始！';
+    go.textContent = t('start');
     go.addEventListener('click', () => {
       this.actions.onboard(input.value.trim() || defaultName, p);
       close();
@@ -336,9 +362,9 @@ export class Hud {
     if (!this.actions.assetSource()) {
       // 新裝置上先提示匯入原版素材包（網站本身不含原版檔案）
       const hint = el('div', 'info', box);
-      hint.textContent = '有「原版素材包」嗎？匯入後就是 Minecraft 原版外觀。';
+      hint.textContent = t('packHint');
       const ai = el('button', 'btn', box);
-      ai.textContent = '匯入原版素材';
+      ai.textContent = t('packImport');
       const afile = el('input', '', box);
       afile.type = 'file';
       afile.accept = PACK_ACCEPT;
@@ -356,42 +382,57 @@ export class Hud {
 
   private openSettings(): void {
     const s = this.getPet();
-    const { box, close } = this.modal('設定');
-    el('label', '', box).textContent = '名字';
+    const { box, close } = this.modal(t('settings'));
+    el('label', '', box).textContent = t('name');
     const input = el('input', 'name-input', box);
     input.maxLength = NAME_MAX;
     input.value = s.name;
     input.addEventListener('change', () => input.value.trim() && this.actions.rename(input.value.trim()));
-    el('label', '', box).textContent = '個性';
+    el('label', '', box).textContent = t('personality');
     this.personalityPicker(box, s.personality, (p) => this.actions.setPersonality(p));
 
-    el('label', '', box).textContent = '聲音';
+    el('label', '', box).textContent = t('language');
+    this.langPicker(box);
+
+    el('label', '', box).textContent = t('sound');
     const srow = el('div', 'btnrow', box);
     (Object.keys(SOUND_MODES) as SoundMode[]).forEach((m) => {
       const b = el('button', 'btn' + (m === this.actions.soundMode() ? ' on' : ''), srow);
       b.dataset.sound = m;
-      b.textContent = SOUND_MODES[m].label;
+      b.textContent = t(`sound.${m}`);
       b.addEventListener('click', () => {
         srow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
         this.actions.setSoundMode(m);
       });
     });
-    if (!this.actions.soundAvailable()) el('div', 'info', box).textContent = '匯入含音效的原版素材包後才會有悅靈的聲音。';
+    if (!this.actions.soundAvailable()) el('div', 'info', box).textContent = t('soundNeed');
+
+    el('label', '', box).textContent = t('glow');
+    const grow = el('div', 'btnrow', box);
+    for (const on of [true, false]) {
+      const b = el('button', 'btn' + (on === this.actions.glow() ? ' on' : ''), grow);
+      b.dataset.glow = on ? 'on' : 'off';
+      b.textContent = t(on ? 'on' : 'off');
+      b.addEventListener('click', () => {
+        grow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
+        this.actions.setGlow(on);
+      });
+    }
 
     const info = el('div', 'info', box);
     const days = Math.max(1, Math.ceil((Date.now() - s.createdAt) / 86400000));
     for (const line of [
-      `相處第 ${days} 天　關係：${affectionLevel(s.affection)}`,
-      `餵食 ${s.stats.fed} 次　摸摸 ${s.stats.petted} 次　玩耍 ${s.stats.played} 次`,
+      t('days', { d: days, lv: t(`aff.${affectionLevel(s.affection)}`) }),
+      t('counts', { f: s.stats.fed, p: s.stats.petted, g: s.stats.played }),
     ]) el('div', '', info).textContent = line;
 
-    el('label', '', box).textContent = '存檔（自動儲存在本機）';
+    el('label', '', box).textContent = t('saveLabel');
     const row = el('div', 'btnrow', box);
     const ex = el('button', 'btn', row);
-    ex.textContent = '匯出存檔';
+    ex.textContent = t('saveExport');
     ex.addEventListener('click', () => this.actions.exportSave());
     const im = el('button', 'btn', row);
-    im.textContent = '還原存檔';
+    im.textContent = t('saveImport');
     const file = el('input', '', box);
     file.type = 'file';
     file.accept = 'application/json,.json';
@@ -405,11 +446,11 @@ export class Hud {
       }
     });
     const src = this.actions.assetSource();
-    el('label', '', box).textContent = '原版素材';
-    el('div', 'info', box).textContent = src ? `已套用 Minecraft ${src} 原版素材（只存在這台裝置）` : '目前使用暫用素材。匯入「原版素材包」即可換成 Minecraft 原版外觀。';
+    el('label', '', box).textContent = t('packLabel');
+    el('div', 'info', box).textContent = src ? t('packApplied', { v: src }) : t('packNone');
     const arow = el('div', 'btnrow', box);
     const ai = el('button', 'btn', arow);
-    ai.textContent = src ? '重新匯入' : '匯入原版素材';
+    ai.textContent = src ? t('packReimport') : t('packImport');
     const afile = el('input', '', box);
     afile.type = 'file';
     afile.accept = PACK_ACCEPT;
@@ -424,7 +465,7 @@ export class Hud {
     });
     if (src) {
       const ac = el('button', 'btn', arow);
-      ac.textContent = '移除原版素材';
+      ac.textContent = t('packRemove');
       ac.addEventListener('click', () => {
         close();
         this.actions.clearAssets();
@@ -432,16 +473,16 @@ export class Hud {
     }
 
     const reset = el('button', 'btn danger', box);
-    reset.textContent = '重新開始（清除存檔）';
+    reset.textContent = t('reset');
     reset.addEventListener('click', () => {
-      if (confirm('確定要清除存檔並重新開始嗎？建議先匯出存檔。')) {
+      if (confirm(t('resetConfirm'))) {
         close();
         this.actions.reset();
       }
     });
     el('div', 'ver', box).textContent = `FairyPocket v${__APP_VERSION__}`;
     const done = el('button', 'btn primary', box);
-    done.textContent = '完成';
+    done.textContent = t('done');
     done.addEventListener('click', () => {
       if (input.value.trim()) this.actions.rename(input.value.trim());
       close();

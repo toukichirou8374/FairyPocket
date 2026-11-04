@@ -23,6 +23,15 @@ export const IMAGE_PATHS = {
   chest: 'textures/entity/chest/normal.png',
   bell: 'textures/item/bell.png',
   amethyst_shard: 'textures/item/amethyst_shard.png',
+  // 彩色粉塵粒子（dust）的 8 張圖
+  generic_0: 'textures/particle/generic_0.png',
+  generic_1: 'textures/particle/generic_1.png',
+  generic_2: 'textures/particle/generic_2.png',
+  generic_3: 'textures/particle/generic_3.png',
+  generic_4: 'textures/particle/generic_4.png',
+  generic_5: 'textures/particle/generic_5.png',
+  generic_6: 'textures/particle/generic_6.png',
+  generic_7: 'textures/particle/generic_7.png',
 } as const;
 export type AssetKey = keyof typeof IMAGE_PATHS;
 

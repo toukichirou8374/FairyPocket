@@ -3,11 +3,17 @@
 import * as THREE from 'three';
 import type { AllayModel } from './allayModel';
 import type { LineKind } from '../game/dialogue';
-import type { Personality, PetState } from '../game/state';
+import { PERSONALITY_COLOR, type Personality, type PetState } from '../game/state';
+
+/** 性格粒子：每 2 秒在身邊冒出代表色粉塵；每 6 秒檢查一次，偶爾灑出一圈稀疏的粉塵 */
+const AURA_EVERY = 2;
+const SPARSE_EVERY = 6;
+const SPARSE_CHANCE = 0.4;
 
 export type Mode =
   | 'idle' | 'wander' | 'approach' | 'called' | 'rest' | 'sleep'
-  | 'play' | 'eat' | 'happy' | 'tickled' | 'startled' | 'curious' | 'waking' | 'dance';
+  | 'play' | 'eat' | 'happy' | 'tickled' | 'startled' | 'curious' | 'waking' | 'dance'
+  | 'observe' | 'flourish';
 
 /** 聽到音符後跳舞的秒數（每次彈奏都會重新計時） */
 const DANCE_TIME = 10;
@@ -19,15 +25,24 @@ interface Traits {
   wander: number; // 以下為 decide() 的權重
   approach: number;
   spin: number;
+  observe: number; // 停下來東張西望
+  flourish: number; // 即興繞圈飛舞
   stay: number; // 靠近玩家後停留秒數
   startle: number; // 被突然叫醒時受驚的機率
+  tempo: number; // 動作節奏（翅膀、上下浮動、手臂擺動的快慢）
+  look: [min: number, max: number]; // 每次觀察的秒數
+  sweep: number; // 觀察時轉頭的速度
 }
 
+// 守護：溫柔沉穩、常待在主人身邊，預設節奏
+// 勇敢：積極探索、平時飛得較遠，動作節奏較快
+// 謹慎：傾向靠近主人、飛得較慢，觀察時間長而細心
+// 愛玩：活潑調皮好奇，觀察動作頻繁、偶爾即興飛舞
 export const TRAITS: Record<Personality, Traits> = {
-  guardian: { speed: 1.5, range: 0.6, nearDist: 3.2, wander: 1, approach: 3, spin: 0.4, stay: 10, startle: 0.1 },
-  brave: { speed: 2.3, range: 1.0, nearDist: 3.6, wander: 3, approach: 1, spin: 0.8, stay: 4, startle: 0 },
-  cautious: { speed: 1.1, range: 0.55, nearDist: 4.2, wander: 1.2, approach: 0.6, spin: 0.2, stay: 5, startle: 0.7 },
-  playful: { speed: 1.9, range: 0.9, nearDist: 3.4, wander: 2, approach: 1.5, spin: 2.2, stay: 5, startle: 0.15 },
+  guardian: { speed: 1.6, range: 0.65, nearDist: 3.3, wander: 1, approach: 2.6, spin: 0.4, observe: 0.6, flourish: 0, stay: 10, startle: 0.1, tempo: 1, look: [2.5, 3.5], sweep: 1.8 },
+  brave: { speed: 2.4, range: 1.0, nearDist: 3.6, wander: 3.2, approach: 0.8, spin: 0.6, observe: 0.5, flourish: 0, stay: 4, startle: 0, tempo: 1.25, look: [1.5, 2.5], sweep: 2.4 },
+  cautious: { speed: 1.05, range: 0.5, nearDist: 3.0, wander: 0.8, approach: 2.6, spin: 0.2, observe: 1.4, flourish: 0, stay: 9, startle: 0.7, tempo: 0.8, look: [4, 6], sweep: 1.1 },
+  playful: { speed: 1.9, range: 0.85, nearDist: 3.4, wander: 1.8, approach: 1.3, spin: 1.4, observe: 1.8, flourish: 1, stay: 5, startle: 0.15, tempo: 1.1, look: [1.2, 2.2], sweep: 3.6 },
 };
 
 export interface World {
@@ -38,7 +53,7 @@ export interface World {
 
 export interface Hooks {
   say(kind: LineKind): void;
-  particle(kind: 'heart' | 'zzz' | 'crumb' | 'note' | 'sparkle', at: THREE.Vector3, count?: number): void;
+  particle(kind: 'heart' | 'zzz' | 'crumb' | 'note' | 'sparkle' | 'dust', at: THREE.Vector3, count?: number, color?: string, spread?: number): void;
   caught(): void;
 }
 
@@ -77,6 +92,8 @@ export class AllayController {
   private pitch = 0;
   private roll = 0;
   private zzzIn = 0;
+  /** 依個性節奏流動的時間（勇敢較快、謹慎較慢） */
+  private tt = 0;
 
   constructor(
     readonly model: AllayModel,
@@ -148,7 +165,6 @@ export class AllayController {
   /** 玩家點了空白處：好奇飛過去看 */
   lookAt(p: THREE.Vector3): void {
     if (!this.awake || this.mode === 'play' || this.mode === 'eat') return;
-    if (this.pet.personality === 'cautious' && Math.random() < 0.5) return;
     this.target.copy(p);
     this.clampTarget();
     this.setMode('curious', 4);
@@ -182,6 +198,7 @@ export class AllayController {
     this.t += dt;
     this.modeTime += dt;
     const tr = this.tr;
+    this.tt += dt * tr.tempo;
     const b = this.world.bounds();
     let speed = tr.speed;
 
@@ -197,9 +214,28 @@ export class AllayController {
         break;
       }
       case 'wander':
-      case 'curious':
         if (this.pos.distanceTo(this.target) < 0.2 || this.modeTime > 7) this.toIdle();
         break;
+      case 'curious':
+        // 謹慎、愛玩的悅靈飛到後會停下來東張西望
+        if (this.pos.distanceTo(this.target) < 0.2 || this.modeTime > 7) {
+          if (tr.observe >= 1.4) this.observe();
+          else this.toIdle();
+        }
+        break;
+      case 'observe':
+        this.target.set(this.anchor.x, this.anchor.y + Math.sin(this.t * 1.1) * 0.06, this.anchor.z);
+        speed *= 0.4;
+        if (this.modeTime > this.modeDur) this.toIdle();
+        break;
+      case 'flourish': {
+        // 繞一圈小小的 8 字飛舞
+        const a = (this.modeTime / this.modeDur) * Math.PI * 2;
+        this.target.set(this.anchor.x + Math.sin(a) * 0.55, this.anchor.y + Math.sin(a * 2) * 0.18, this.anchor.z + (1 - Math.cos(a)) * 0.3);
+        speed *= 1.6;
+        if (this.modeTime > this.modeDur) this.toIdle();
+        break;
+      }
       case 'approach':
       case 'called': {
         const cam = this.world.camera.position;
@@ -282,6 +318,26 @@ export class AllayController {
     if (this.mode !== 'play') this.clampTarget();
     this.move(dt, speed);
     this.animate(dt);
+    this.aura(dt);
+  }
+
+  private auraIn = Math.random() * AURA_EVERY;
+  private sparseIn = Math.random() * SPARSE_EVERY;
+
+  private aura(dt: number): void {
+    const color = PERSONALITY_COLOR[this.pet.personality];
+    const body = tmp.copy(this.model.root.position).add(new THREE.Vector3(0, -0.15, 0));
+    this.auraIn -= dt;
+    if (this.auraIn <= 0) {
+      this.auraIn = AURA_EVERY;
+      // 睡覺時不冒性格粒子，只留下 Zzz
+      if (this.awake) this.hooks.particle('dust', body, 1 + Math.floor(Math.random() * 2), color, 0.3);
+    }
+    this.sparseIn -= dt;
+    if (this.sparseIn <= 0) {
+      this.sparseIn = SPARSE_EVERY;
+      if (Math.random() < SPARSE_CHANCE) this.hooks.particle('dust', body, 3, color, 0.7);
+    }
   }
 
   private toIdle(): void {
@@ -310,6 +366,12 @@ export class AllayController {
         this.setMode('happy', 0.9);
         this.hooks.particle('note', this.headTop(tmp), 1);
       }],
+      [tr.observe, () => this.observe()],
+      [tr.flourish, () => {
+        this.anchor.copy(this.pos);
+        this.clampVec(this.anchor);
+        this.setMode('flourish', 2.6 / tr.tempo);
+      }],
       [1.2, () => this.setMode('idle', rand(2, 5))],
     ];
     let r = Math.random() * opts.reduce((s, o) => s + o[0], 0);
@@ -318,6 +380,16 @@ export class AllayController {
       if (r <= 0) return f();
     }
   }
+
+  /** 停在原地左右轉頭觀察四周 */
+  private observe(): void {
+    this.anchor.copy(this.pos);
+    this.clampVec(this.anchor);
+    this.lookDir = Math.random() < 0.5 ? 1 : -1;
+    this.setMode('observe', rand(...this.tr.look));
+  }
+
+  private lookDir = 1;
 
   private clampVec(v: THREE.Vector3): void {
     const b = this.world.bounds();
@@ -382,7 +454,7 @@ export class AllayController {
     const still = 1 - mv;
 
     m.root.position.copy(this.pos);
-    const bob = sleeping ? Math.sin(this.t * 1.2) * 0.02 : Math.sin(this.t * 2.2) * 0.03 + Math.cos(this.t * Math.PI) * 0.025 * still;
+    const bob = sleeping ? Math.sin(this.t * 1.2) * 0.02 : Math.sin(this.tt * 2.2) * 0.03 + Math.cos(this.tt * Math.PI) * 0.025 * still;
     m.root.position.y += bob + (this.mode === 'happy' ? Math.sin(Math.min(1, this.modeTime / this.modeDur) * Math.PI) * 0.18 : 0);
     m.root.rotation.y = this.yaw + this.spin;
 
@@ -398,7 +470,8 @@ export class AllayController {
     let flapRate = 7 + mv * 3;
     if (this.mode === 'rest') flapRate = 4;
     if (sleeping) flapRate = 1.2;
-    if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'called') flapRate += 4;
+    if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'called' || this.mode === 'flourish') flapRate += 4;
+    if (!sleeping) flapRate *= this.tr.tempo;
     this.flapPhase += flapRate * dt;
     const amp = sleeping ? 0.03 : this.mode === 'rest' ? 0.25 : Math.PI * 0.15;
     const open = sleeping ? 0.12 : Math.PI / 4 - mv * 0.3;
@@ -411,7 +484,7 @@ export class AllayController {
     this.holdAmt = THREE.MathUtils.lerp(this.holdAmt, hold, k(8));
     const h = this.holdAmt;
     let armX = h * THREE.MathUtils.lerp(-Math.PI / 3, -1.134, mv) + (this.mode === 'eat' ? Math.sin(this.modeTime * 14) * 0.1 : 0);
-    let armZ = 0.4363 - Math.cos(this.t * Math.PI + Math.PI * 1.5) * Math.PI * 0.075 * still * (1 - h);
+    let armZ = 0.4363 - Math.cos(this.tt * Math.PI + Math.PI * 1.5) * Math.PI * 0.075 * still * (1 - h);
     if (this.mode === 'happy' || this.mode === 'tickled') { armX = -0.6 + Math.sin(this.t * 18) * 0.4; armZ = 0.7; }
     if (sleeping) { armX = 0; armZ = 0.15; }
     m.armL.rotation.x = THREE.MathUtils.lerp(m.armL.rotation.x, armX, k(10));
@@ -428,9 +501,11 @@ export class AllayController {
     if (this.mode === 'eat') headX = 0.25 + Math.sin(this.modeTime * 14) * 0.12;
     if (sleeping) { headX = 0.35 + Math.sin(this.t * 1.2) * 0.03; headY = 0; }
     if (dancing) { headY = sway * 0.244; headX = 0; } // 頭左右轉 14°
+    // 觀察：左右慢慢（或快速）張望，微微低頭
+    if (this.mode === 'observe') { headY = this.lookDir * Math.sin(this.modeTime * this.tr.sweep) * 0.9; headX = 0.12; }
     m.head.rotation.x = THREE.MathUtils.lerp(m.head.rotation.x, headX, k(6));
     m.head.rotation.y = dancing ? headY : THREE.MathUtils.lerp(m.head.rotation.y, headY, k(6));
-    m.head.rotation.z = dancing ? sway * 0.524 : this.mode === 'curious' ? Math.sin(this.t * 2) * 0.2 : 0; // 頭歪 30°
+    m.head.rotation.z = dancing ? sway * 0.524 : this.mode === 'curious' || this.mode === 'observe' ? Math.sin(this.t * 2) * 0.2 : 0; // 頭歪 30°
 
     // 眼睛：眨眼 / 睡覺 / 開心
     this.blinkIn -= dt;

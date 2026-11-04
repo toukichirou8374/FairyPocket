@@ -6,14 +6,17 @@ import { AllayModel } from './three/allayModel';
 import { AllayController, TRAITS } from './three/allayController';
 import { Hud } from './ui/hud';
 import { pickLine, type LineKind } from './game/dialogue';
-import { applyElapsed, createPet, FAVORITE_FOOD, feed, FOOD_IDS, FOODS, isNight, MAX_FRIENDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
+import { applyElapsed, createPet, FAVORITE_FOOD, feed, FOOD_IDS, isNight, MAX_FRIENDS, PERSONALITY_COLOR, PERSONALITY_IDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
 import { BACKUP_KEY, exportFileName, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
 import { Sound } from './audio';
+import { itemName, loadLang, saveLang, setLang, t } from './i18n';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const overlay = document.getElementById('overlay') as HTMLDivElement;
 const sky = document.getElementById('sky') as HTMLDivElement;
+
+setLang(loadLang(localStorage, navigator.language, !!localStorage.getItem(SAVE_KEY)));
 
 const stage = new Stage(canvas);
 const pet = loadPet(localStorage) ?? createPet();
@@ -27,7 +30,7 @@ stage.scene.add(model.root);
 const sound = new Sound(localStorage);
 let lastSpoke = 0;
 const say = (kind: LineKind, food?: Food) => {
-  hud.say(pickLine(kind, pet.personality, pet.name, Math.random, food ? FOODS[food].label : ''));
+  hud.say(pickLine(kind, pet.personality, pet.name, Math.random, food ? itemName(food) : ''));
   sound.speak(pet.personality);
   lastSpoke = performance.now();
 };
@@ -57,7 +60,7 @@ const ctrl = new AllayController(
   pet,
   {
     say,
-    particle: (kind, at, count) => stage.spawn(kind, at, count),
+    particle: (kind, at, count, color, spread) => stage.spawn(kind, at, count, color, spread),
     caught,
   },
 );
@@ -77,11 +80,11 @@ function addFriend(at?: THREE.Vector3): void {
   if (skin) m.setSkin(skin);
   stage.scene.add(m.root);
   const p = createPet();
-  p.personality = (['guardian', 'brave', 'cautious', 'playful'] as const)[Math.floor(Math.random() * 4)];
+  p.personality = PERSONALITY_IDS[Math.floor(Math.random() * PERSONALITY_IDS.length)];
   p.onboarded = true;
   const c = new AllayController(m, { camera: stage.camera, bounds: () => stage.bounds(), night: () => night }, p, {
     say: () => {},
-    particle: (kind, pos, count) => stage.spawn(kind, pos, count),
+    particle: (kind, pos, count, color, spread) => stage.spawn(kind, pos, count, color, spread),
     caught: () => {},
   });
   if (at) {
@@ -89,6 +92,7 @@ function addFriend(at?: THREE.Vector3): void {
     c.anchor.copy(at);
   } else c.pos.set((Math.random() - 0.5) * 1.5, 1 + Math.random() * 0.6, -0.5 - Math.random());
   friends.push({ model: m, ctrl: c, pet: p });
+  applyGlow();
 }
 
 /** 讓畫面上的夥伴數量跟存檔一致（重新開始、還原存檔時） */
@@ -103,9 +107,9 @@ let lastDuplicate = -Infinity;
 
 /** 跳舞中的悅靈收到紫水晶碎片：複製出一隻新夥伴 */
 function giveShard(): void {
-  if (pet.friends >= MAX_FRIENDS) return hud.showItem(`最多只能有 ${MAX_FRIENDS} 隻夥伴喔`);
+  if (pet.friends >= MAX_FRIENDS) return hud.showItem(t('friendsMax', { n: MAX_FRIENDS }));
   const wait = lastDuplicate + DUPLICATE_COOLDOWN - performance.now();
-  if (wait > 0) return hud.showItem(`紫水晶的力量還在恢復，再等 ${Math.ceil(wait / 60_000)} 分鐘`);
+  if (wait > 0) return hud.showItem(t('friendsWait', { n: Math.ceil(wait / 60_000) }));
   lastDuplicate = performance.now();
   pet.friends++;
   addFriend(ctrl.pos.clone().add(new THREE.Vector3(0.4, 0, 0)));
@@ -154,8 +158,20 @@ const hud = new Hud(overlay, {
   },
   setPersonality: (p) => {
     pet.personality = p;
+    applyGlow();
     save();
     say('greet');
+  },
+  setLang: (l) => {
+    saveLang(localStorage, l);
+    save();
+    location.reload();
+  },
+  glow: () => glowOn,
+  setGlow: (on) => {
+    glowOn = on;
+    localStorage.setItem(GLOW_KEY, on ? '1' : '0');
+    applyGlow();
   },
   soundMode: () => sound.mode,
   setSoundMode: (m) => {
@@ -173,24 +189,25 @@ const hud = new Hud(overlay, {
     stage.removeBall();
     ctrl.setMode('idle');
     hud.setName(pet.name);
-    hud.openOnboarding(pet.name);
+    hud.openOnboarding();
   },
   onboard: (name, p) => {
     pet.name = name;
     pet.personality = p;
     pet.onboarded = true;
+    applyGlow();
     hud.setName(name);
     save();
     setTimeout(() => say('greet'), 600);
   },
   importAssets: async (file) => {
-    hud.toast('正在匯入素材包…');
+    hud.toast(t('packImporting'));
     try {
       const p = await readPackFile(file);
       await savePack(p);
       localStorage.removeItem(OPT_OUT_KEY);
       await applyPack(p);
-      hud.toast(`已套用 Minecraft ${p.source} 原版素材`);
+      hud.toast(t('packDone', { v: p.source }));
     } catch (e) {
       hud.toast((e as Error).message);
     }
@@ -203,6 +220,16 @@ const hud = new Hud(overlay, {
   },
   assetSource: () => pack?.source ?? null,
 });
+
+// ---------- 發光輪廓（個性代表色） ----------
+
+const GLOW_KEY = 'fairypocket.glow.v1';
+let glowOn = localStorage.getItem(GLOW_KEY) !== '0';
+
+function applyGlow(): void {
+  model.setGlow(glowOn ? PERSONALITY_COLOR[pet.personality] : null);
+  for (const f of friends) f.model.setGlow(glowOn ? PERSONALITY_COLOR[f.pet.personality] : null);
+}
 
 // ---------- 原版素材 ----------
 
@@ -241,13 +268,14 @@ async function localPack(): Promise<void> {
 
 hud.getPet = () => pet;
 hud.setName(pet.name);
+applyGlow();
 hud.updateStats(pet);
 
 (async () => {
   const p = await loadPack();
   if (p) await applyPack(p);
   // 先讀完素材包，開場畫面才知道要不要提示匯入
-  if (!pet.onboarded) hud.openOnboarding(pet.name);
+  if (!pet.onboarded) hud.openOnboarding();
   await localPack().catch(() => {});
 })();
 if (pet.onboarded) setTimeout(() => say(awayMs > 3600_000 ? 'welcomeBack' : 'greet'), 1200);
@@ -265,8 +293,8 @@ async function exportSave(): Promise<void> {
   const file = new File([serialize(pet)], name, { type: 'application/json' });
   try {
     if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ files: [file], title: 'FairyPocket 存檔' });
-      hud.toast('已匯出存檔');
+      await navigator.share({ files: [file], title: t('saveTitle') });
+      hud.toast(t('saveExported'));
       return;
     }
   } catch (e) {
@@ -277,21 +305,22 @@ async function exportSave(): Promise<void> {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  hud.toast('已下載存檔');
+  hud.toast(t('saveDownloaded'));
 }
 
 async function importSave(file: File): Promise<void> {
   try {
     const data = parseSave(await file.text());
-    if (!confirm(`要用「${data.name}」的存檔覆蓋目前進度嗎？`)) return;
+    if (!confirm(t('saveConfirm', { n: data.name }))) return;
     Object.assign(pet, data, { onboarded: true });
     syncFriends();
+    applyGlow();
     stage.removeBall();
     ctrl.setMode(pet.asleep ? 'sleep' : 'idle');
     hud.setName(pet.name);
     hud.updateStats(pet);
     save();
-    hud.toast('存檔已還原');
+    hud.toast(t('saveRestored'));
   } catch (e) {
     hud.toast((e as Error).message);
   }
@@ -312,7 +341,7 @@ navigator.storage?.persist?.().catch(() => {});
 
 registerSW({
   immediate: true,
-  onOfflineReady: () => hud.toast('已可離線遊玩'),
+  onOfflineReady: () => hud.toast(t('offline')),
 });
 
 // ---------- 觸控 ----------
@@ -359,7 +388,7 @@ function tap(x: number, y: number): void {
     return;
   }
   if (sel === 'feather') {
-    if (!hit) return hud.showItem('點一下悅靈來搔癢');
+    if (!hit) return hud.showItem(t('featherMiss'));
     play(pet);
     ctrl.tickled();
     say('tickle');
@@ -371,8 +400,8 @@ function tap(x: number, y: number): void {
     return;
   }
   // 點空白處：悅靈好奇地飛過去
-  const t = (ctrl.pos.z - ray.origin.z) / ray.direction.z;
-  if (t > 0) ctrl.lookAt(ray.at(t, new THREE.Vector3()));
+  const dist = (ctrl.pos.z - ray.origin.z) / ray.direction.z;
+  if (dist > 0) ctrl.lookAt(ray.at(dist, new THREE.Vector3()));
 }
 
 // iOS 需在使用者第一次觸控時啟用音訊

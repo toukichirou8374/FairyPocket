@@ -5,6 +5,7 @@ import * as THREE from 'three';
 
 const PX = 0.1; // 1 個像素 = 0.1 單位
 const TEX = 32;
+const GLOW = 0.35; // 發光輪廓的粗細（像素）
 
 type Rect = [u: number, v: number, w: number, h: number];
 
@@ -157,6 +158,8 @@ export class AllayModel {
   private faceMat: THREE.MeshBasicMaterial;
   private glass: THREE.MeshBasicMaterial;
   private wingMat: THREE.MeshBasicMaterial;
+  private glowMat: THREE.MeshBasicMaterial;
+  private shells: THREE.Mesh[] = [];
 
   constructor() {
     // 悅靈在原版是全亮度渲染（不受環境光影響），只有分面明暗
@@ -164,7 +167,8 @@ export class AllayModel {
       new THREE.MeshBasicMaterial({ vertexColors: true, alphaTest: 0.02, ...o });
     this.solid = mat();
     this.faceMat = mat();
-    this.glass = mat({ transparent: true, depthWrite: false });
+    // 寫入深度，發光輪廓才不會從半透明的身體透出來
+    this.glass = mat({ transparent: true });
     this.wingMat = mat({ transparent: true, side: THREE.DoubleSide, depthWrite: false });
 
     this.root.add(this.tilt);
@@ -204,6 +208,22 @@ export class AllayModel {
       this.body.add(wing);
     }
 
+    // 發光輪廓（像原版「發光」效果）：稍微放大的背面方塊，只在外緣露出一圈顏色
+    // 排在半透明身體之後畫，被身體擋住的部分就不會顯示
+    this.glowMat = new THREE.MeshBasicMaterial({ color: '#ffffff', side: THREE.BackSide, transparent: true });
+    const shell = (parent: THREE.Object3D, src: THREE.Mesh, w: number, h: number, d: number) => {
+      const s = new THREE.Mesh(new THREE.BoxGeometry((w + GLOW * 2) * PX, (h + GLOW * 2) * PX, (d + GLOW * 2) * PX), this.glowMat);
+      s.position.copy(src.position);
+      s.renderOrder = 3;
+      parent.add(s);
+      this.shells.push(s);
+    };
+    shell(this.head, headMesh, 5, 5, 5);
+    shell(this.body, inner, 3, 4, 2);
+    shell(this.armR, armR, 1, 4, 2);
+    shell(this.armL, armL, 1, 4, 2);
+    this.setGlow(null);
+
     // 觸控判定用的放大隱形球
     this.hitbox = new THREE.Mesh(new THREE.SphereGeometry(0.62, 12, 8), new THREE.MeshBasicMaterial({ visible: false }));
     this.root.add(this.hitbox);
@@ -231,6 +251,12 @@ export class AllayModel {
     this.eyes = e;
     this.faceMat.map = this.skins[e];
     this.faceMat.needsUpdate = true;
+  }
+
+  /** 發光輪廓的顏色；null 代表關閉 */
+  setGlow(color: THREE.ColorRepresentation | null): void {
+    for (const s of this.shells) s.visible = color !== null;
+    if (color !== null) this.glowMat.color.set(color);
   }
 
   private held: THREE.Sprite | null = null;
