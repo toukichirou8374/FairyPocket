@@ -50,6 +50,12 @@ export const ZHUYIN: Record<string, string> = {
 };
 
 /** 假名在日文鍵盤（JIS かな入力）上的位置：あいうえお 46 音（不含を） */
+/** 英文字母的念法（直接念大寫字母，有些語音會加上「capital」） */
+export const LETTER_SAY: Record<string, string> = {
+  A: 'ay', B: 'bee', C: 'see', D: 'dee', E: 'ee', F: 'eff', G: 'gee', H: 'aitch', I: 'eye', J: 'jay', K: 'kay', L: 'ell', M: 'em',
+  N: 'en', O: 'oh', P: 'pee', Q: 'cue', R: 'are', S: 'ess', T: 'tee', U: 'you', V: 'vee', W: 'double you', X: 'ex', Y: 'why', Z: 'zee',
+};
+
 /** 注音符號的念法（語音直接念符號常常念不出來，改念同音的字） */
 export const ZHUYIN_READ: Record<string, string> = {
   ㄅ: '玻', ㄆ: '坡', ㄇ: '摸', ㄈ: '佛', ㄉ: '得', ㄊ: '特', ㄋ: '訥', ㄌ: '勒', ㄍ: '哥', ㄎ: '科', ㄏ: '喝',

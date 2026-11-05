@@ -23,6 +23,7 @@ import {
   type KeyGameMode,
   type KgSong,
   type Prompt,
+  LETTER_SAY,
 } from '../game/keyGame';
 import { clipKey, demoSpeech, itemFace, itemName, matchesItem, recordedItems, SB_CATS, stickerBookItems, type SbCat, type SbItem } from '../game/sbItems';
 import { stickerCanvas } from '../game/stickers';
@@ -46,7 +47,7 @@ export interface KeyGameHost {
   finish(score: number): void;
   end(): void;
   /** 念出文字（按鍵名稱、聲音玩法的提示） */
-  speak(text: string): void;
+  speak(text: string, lang?: Lang): void;
   /** 悅靈示範發音（用指定語言的裝置內建語音，念得比較慢、比較清楚） */
   demo(text: string, lang: Lang): void;
   /** 悅靈的叫聲（沒有語音檔的回饋先用這個） */
@@ -568,7 +569,11 @@ export class KeyGameUI {
       this.updateScore();
       this.keyEl?.classList.add('hit');
       // 鍵盤念出按鍵；其他玩法先用悅靈的叫聲
-      if (this.mode === 'keyboard' && this.speakOn) this.host.speak(p.speak);
+      // 英文字母一律用英文的念法
+      if (this.mode === 'keyboard' && this.speakOn) {
+        if (LETTER_SAY[p.label]) this.host.speak(LETTER_SAY[p.label], 'en_us');
+        else this.host.speak(p.speak);
+      }
       else this.host.chirp();
       this.host.cheer(this.mode === 'tap' ? `${p.speak}！` : (p.name ?? p.label));
       const old = this.keyEl;

@@ -2,7 +2,7 @@
 // 字母、注音、假名本身就屬於某種語言，錄音不分語言；其他（數字、圖案、時間）各語言念法不同，錄音依語言分開存。
 
 import type { Lang } from '../i18n';
-import { DIGITS, KANA, LETTERS, ZHUYIN, ZHUYIN_READ } from './keyGame';
+import { DIGITS, KANA, LETTERS, LETTER_SAY, ZHUYIN, ZHUYIN_READ } from './keyGame';
 import { matchesSticker, normalizeSpeech, STICKERS, type Sticker } from './stickers';
 
 export type SbCat = 'letter' | 'digit' | 'zhuyin' | 'kana' | 'animal' | 'vehicle' | 'work' | 'food' | 'sport' | 'building' | 'feeling' | 'time';
@@ -117,10 +117,12 @@ export function itemName(it: SbItem, lang: Lang): string | undefined {
 
 /** 悅靈示範發音：要念的字和用哪種語言念（字母用英文、注音用中文、假名用日文） */
 export function demoSpeech(it: SbItem, lang: Lang): { text: string; lang: Lang } {
-  if (it.cat === 'letter') return { text: it.label ?? '', lang: 'en_us' };
+  if (it.cat === 'letter') return { text: LETTER_SAY[it.label ?? ''] ?? it.label ?? '', lang: 'en_us' };
   if (it.cat === 'zhuyin') return { text: ZHUYIN_READ[it.label ?? ''] ?? it.label ?? '', lang: 'zh_tw' };
   if (it.cat === 'kana') return { text: it.label ?? '', lang: 'ja_jp' };
-  return { text: itemName(it, lang) ?? itemFace(it, lang), lang };
+  // 加上「！」念起來比較有精神，不會像在朗讀
+  const word = itemName(it, lang) ?? itemFace(it, lang);
+  return { text: word + (lang === 'en_us' ? '!' : '！'), lang };
 }
 
 export function isShared(it: SbItem): boolean {

@@ -23,7 +23,6 @@ import { collectLocal, packValue, parseExtras, restoreLocal, unpackValue } from 
 import { legacyRenames } from './game/sbItems';
 import { detectIntent, talkLine, type Intent } from './game/talk';
 import { Recognizer, speechSupported } from './speech';
-import { DISCS } from './music';
 import { loadTtsVoices, pickVoice, saveTtsVoice, voicesFor } from './ttsVoice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
@@ -718,8 +717,8 @@ function speakText(text: string, lang: Lang = getLang(), demo = false): Promise<
   s.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = SPEECH_LANG[lang];
-  u.pitch = demo ? 1.25 : 1.7;
-  u.rate = demo ? 0.8 : 0.95;
+  u.pitch = demo ? 1.15 : 1.45;
+  u.rate = demo ? 0.9 : 1;
   u.volume = Math.min(1, vol);
   // 自己選過的聲音優先，沒選就用音質最好的（高品質 > 優化 > 一般）
   const v = pickVoice(s.getVoices(), u.lang, loadTtsVoices()[lang]);
@@ -756,9 +755,6 @@ async function showDanceStage(on: boolean): Promise<void> {
   stage.showPlants(!danceOn);
 }
 
-/** 貼紙簿的背景音樂：音樂盒版的 Creator（輕柔、不會蓋過說話的聲音） */
-const SB_SONG = DISCS[0].path;
-let sbMusic = false;
 
 /** 讀出貼紙簿的錄音；v0.25 存的（不分語言）當作目前語言的錄音 */
 async function stickerClips(): Promise<Map<string, Clip>> {
@@ -800,18 +796,12 @@ const stickerBook = new StickerBook({
   },
   load: stickerClips,
   save: saveStickerClip,
+  // 背景音樂：自己作的開朗小曲（src/jingle.ts）
   musicStart: () => {
     sound.unlock();
-    sbMusic = true;
-    const loop = () => {
-      if (sbMusic) void music.playSong(SB_SONG, loop);
-    };
-    loop();
+    music.startJingle();
   },
-  musicStop: () => {
-    sbMusic = false;
-    music.stopSong();
-  },
+  musicStop: () => music.stopJingle(),
   musicDuck: (l) => music.duckSong(l),
 });
 
@@ -932,7 +922,7 @@ const keyGame = new KeyGameUI({
     ctrl.setPose(null);
     requestAnimationFrame(resize);
   },
-  speak: (text) => void speakText(text),
+  speak: (text, lang) => void speakText(text, lang),
   demo: (text, lang) => void speakText(text, lang, true),
 });
 

@@ -31,7 +31,32 @@ interface Track {
 /** 小遊戲歌曲的音量 */
 const SONG_VOL = 0.5;
 
+import { Jingle } from './jingle';
+
 export class Music {
+  private jingle: Jingle | null = null;
+
+  /** 貼紙簿的開朗小曲（自己作的，不用素材包）；背景音樂與唱片先停 */
+  startJingle(): void {
+    const ctx = this.sound.context;
+    const out = this.sound.musicOut('music');
+    if (!ctx || !out) return;
+    this.stopSong();
+    this.stopDisc();
+    this.bgm?.stop();
+    this.bgm = null;
+    window.clearTimeout(this.timer);
+    this.jingle?.stop();
+    this.jingle = new Jingle(ctx, out);
+    this.jingle.start();
+  }
+
+  stopJingle(): void {
+    this.jingle?.stop();
+    this.jingle = null;
+    this.schedule(20);
+  }
+
   private pack: AssetPack | null = null;
   private bgm: Track | null = null;
   private disc: Track | null = null;
@@ -141,6 +166,7 @@ export class Music {
   /** 小遊戲的歌暫時調小聲（錄音、播放錄音時） */
   duckSong(level: number): void {
     this.song?.duck(level);
+    this.jingle?.duck(level);
   }
 
   songProgress(): number {

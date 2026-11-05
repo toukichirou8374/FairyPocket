@@ -1,7 +1,7 @@
 // 貼紙簿：跟精靈舞蹈共用題目，不管語言全部類別都顯示。
 // 字母、注音、假名的錄音不分語言；數字、圖案、時間依語言分開存（各語言念法不同）。
 // 錄好的貼紙也是精靈舞蹈「聲音」玩法的題目。
-// 錄製模式：點貼紙就開始錄音（說完自動停），錄完可以馬上聽、用變聲聽、重錄或刪除。
+// 錄製模式：點貼紙打開錄音視窗，按「錄音」後倒數 3 秒才開始錄（說完自動停），錄完可以馬上聽、用變聲聽、重錄或刪除。
 // 收聽模式：點貼紙播放錄好的聲音，可以選原本的聲音或變聲。錄音存在這台裝置，匯出存檔時會一起帶走。
 
 import { clipKey, demoSpeech, isShared, itemFace, itemName, SB_CATS, stickerBookItems, type SbCat, type SbItem } from '../game/sbItems';
@@ -180,7 +180,7 @@ export class StickerBook {
     window.setTimeout(() => f.remove(), 1600);
   }
 
-  /** 錄音視窗：一打開就開始錄，說完自動停；之後可以聽、變聲聽、重錄、刪除 */
+  /** 錄音視窗：按「錄音」倒數 3 秒後開始錄，說完自動停；之後可以聽、變聲聽、重錄、刪除 */
   private async recordPanel(it: SbItem): Promise<void> {
     if (!this.layer) return;
     this.host.click();
@@ -243,12 +243,32 @@ export class StickerBook {
       }
     };
 
+    let counting = false;
     const rec = async () => {
+      if (counting || stop) return;
+      // 倒數 3、2、1（只顯示數字，不念），讓小孩準備好
+      counting = true;
+      row.replaceChildren();
+      row2.replaceChildren();
+      status.classList.remove('rec');
+      status.classList.add('count');
+      for (const n of [3, 2, 1]) {
+        if (!back.isConnected) return;
+        status.textContent = String(n);
+        status.classList.remove('tick');
+        void status.offsetWidth;
+        status.classList.add('tick');
+        await new Promise((r) => window.setTimeout(r, 800));
+      }
+      status.classList.remove('count', 'tick');
+      counting = false;
+      if (!back.isConnected) return;
       // 錄音時背景音樂先停（避免錄進去）
       this.host.musicDuck(0);
       const r = await this.host.record();
       if (!r) {
         this.host.musicDuck(1);
+        show();
         status.textContent = t('micDenied');
         return;
       }
@@ -269,7 +289,6 @@ export class StickerBook {
       if (back.isConnected) show();
     };
     show();
-    void rec();
   }
 
   close(): void {

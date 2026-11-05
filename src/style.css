@@ -790,3 +790,8 @@ body.motion #sky { display: none; }
 
 /* ---- 說話的聲音 ---- */
 .ttsgrid .btn { white-space: normal; }
+
+/* ---- 貼紙簿：錄音前倒數 ---- */
+.sb-status.count { font-size: 56px; line-height: 1.1; color: #e0602a; }
+.sb-status.tick { animation: sb-tick 0.8s ease-out; }
+@keyframes sb-tick { from { transform: scale(1.6); opacity: 0.3; } 30% { transform: scale(1); opacity: 1; } }

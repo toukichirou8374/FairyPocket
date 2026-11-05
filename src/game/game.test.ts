@@ -581,9 +581,10 @@ describe('allay demo speech', () => {
   });
   it('letters in English, kana in Japanese, others in the current language', () => {
     const items = stickerBookItems();
-    expect(demoSpeech(items.find((x) => x.id === 'letter:A')!, 'zh_tw')).toEqual({ text: 'A', lang: 'en_us' });
+    expect(demoSpeech(items.find((x) => x.id === 'letter:A')!, 'zh_tw')).toEqual({ text: 'ay', lang: 'en_us' });
+    expect(demoSpeech(items.find((x) => x.id === 'letter:W')!, 'ja_jp').text).toBe('double you');
     expect(demoSpeech(items.find((x) => x.id === 'kana:あ')!, 'zh_tw').lang).toBe('ja_jp');
-    expect(demoSpeech(items.find((x) => x.id === 'month:1')!, 'en_us')).toEqual({ text: 'January', lang: 'en_us' });
+    expect(demoSpeech(items.find((x) => x.id === 'month:1')!, 'en_us')).toEqual({ text: 'January!', lang: 'en_us' });
     const dog = items.find((x) => x.sticker?.id === 'dog')!;
     expect(demoSpeech(dog, 'zh_tw').lang).toBe('zh_tw');
     expect(demoSpeech(dog, 'zh_tw').text.length).toBeGreaterThan(0);
