@@ -241,6 +241,24 @@ export const ITEM_ICONS: Record<string, { grid: string[]; pal: Palette }> = {
     ],
     pal: { k: '#1d2b4a', g: '#a8b4c8', r: '#e04848', w: '#ffffff', b: '#4a7ab8' },
   },
+  // 感應格平常的圖示：原創的像素悅靈頭
+  allayhead: {
+    grid: [
+      '............',
+      '..kkkkkkkk..',
+      '.kllllllllk.',
+      '.klcccccclk.',
+      '.kcccccccck.',
+      '.kceecceeck.',
+      '.kceecceeck.',
+      '.kcccccccck.',
+      '.kcccccccck.',
+      '..kkkkkkkk..',
+      '............',
+      '............',
+    ],
+    pal: { k: '#1d3a5a', l: '#a8ecff', c: '#5fd0f8', e: '#1d2b4a' },
+  },
   // 文字模式：原創的像素對話框
   bubble: {
     grid: [

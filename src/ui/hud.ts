@@ -233,7 +233,8 @@ export class Hud {
       b.dataset.slot = g.id;
       this.slots.push(b);
       const img = el('img', '', b);
-      img.src = this.toolURL[this.current[g.id]];
+      // 感應格平常顯示悅靈的頭，選了說話方式才換成那個圖示
+      img.src = g.id === 'sense' ? this.senseIdleURL : this.toolURL[this.current[g.id]];
       b.setAttribute('aria-label', g.id === 'food' || g.id === 'call' ? slotText(g.tools[0]).label : t(`group.${g.id}`));
       if (g.id === 'food') {
         this.foodBadge = el('img', 'badge', b);
@@ -252,6 +253,8 @@ export class Hud {
           return;
         }
         const holding = this.selected && groupOf(this.selected).id === g.id;
+        // 感應格：跟食物一樣，每次點都打開選單挑說話方式
+        if (g.id === 'sense') return this.openMenu('sense');
         if (g.id === 'food') {
           // 還沒選過食物、或已經拿著食物：打開物品欄
           if (holding || !this.food) return this.openBag();
@@ -271,6 +274,7 @@ export class Hud {
   /** 每個分類上次拿的東西 */
   private current: Record<Group, Slot> = { food: 'food', toys: 'feather', blocks: 'note', sense: 'live', call: 'call' };
   private toolURL = {} as Record<Slot, string>;
+  private senseIdleURL = gridURL(ITEM_ICONS.allayhead.grid, ITEM_ICONS.allayhead.pal, 4);
   private gearBtn!: HTMLButtonElement;
   private camImg!: HTMLImageElement;
   private bookImg!: HTMLImageElement;
@@ -285,6 +289,11 @@ export class Hud {
     }
     const sel = slot ? groupOf(slot).id : null;
     this.slots.forEach((b) => b.classList.toggle('selected', b.dataset.slot === sel));
+    // 沒有在用說話方式時，感應格換回悅靈的頭
+    if (sel !== 'sense') {
+      const sb = this.slots.find((x) => x.dataset.slot === 'sense');
+      if (sb) sb.querySelector('img')!.src = this.senseIdleURL;
+    }
     this.layout();
     if (slot) {
       const s = slotText(slot);
@@ -447,7 +456,9 @@ export class Hud {
     if (img.spyglass) this.camImg.src = img.spyglass.src;
     if (img.book) this.bookImg.src = img.book.src;
     this.slots.forEach((b) => {
-      b.querySelector('img')!.src = this.toolURL[this.current[b.dataset.slot as Group]];
+      const g = b.dataset.slot as Group;
+      const idle = g === 'sense' && (!this.selected || groupOf(this.selected).id !== 'sense');
+      b.querySelector('img')!.src = idle ? this.senseIdleURL : this.toolURL[this.current[g]];
     });
     if (img.amethyst_shard) this.shardBadge.src = img.amethyst_shard.src;
     // 設定畫面的按鈕、輸入框用原版九宮格材質
