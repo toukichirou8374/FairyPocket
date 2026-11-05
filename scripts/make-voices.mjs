@@ -5,7 +5,7 @@
 //   node scripts/make-voices.mjs --sample   只做試聽檔（private/voice-samples/，各候選聲音念幾句）
 //   node scripts/make-voices.mjs            做全部（public/voice/ 與 manifest.json）
 
-import { createServer } from 'vite';
+import { loadVoiceJobs } from './voice-jobs.mjs';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -129,21 +129,7 @@ ${rows.map((r) => `<h2>${r.voice.replace(/Neural$/, '')}${r.style ? `（${r.styl
 }
 
 async function all(cred) {
-  const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'error' });
-  const sb = await server.ssrLoadModule('/src/game/sbItems.ts');
-  const talk = await server.ssrLoadModule('/src/game/talk.ts');
-  const kg = await server.ssrLoadModule('/src/game/keyGame.ts');
-  await server.close();
-  // 英文字母：用 say-as 讓語音念「字母的名字」（直接念 ay、eff 會怪怪的）
-  const letterOf = Object.fromEntries(Object.entries(kg.LETTER_SAY).map(([L, said]) => [said, L]));
-  // 要做的文字：每張貼紙的示範念法 + 悅靈固定的台詞（有名字 {n} 的句子不做，交給裝置語音）
-  const jobs = new Map();
-  const add = (lang, text, kind) => jobs.set(`${lang}|${text}`, { lang, text, kind });
-  for (const it of sb.stickerBookItems()) for (const lang of Object.keys(VOICES)) {
-    const d = sb.demoSpeech(it, lang);
-    add(d.lang, d.text, 'demo');
-  }
-  for (const [lang, t] of talk.allTalkLines()) add(lang, t, 'talk');
+  const { jobs, letterOf } = await loadVoiceJobs();
 
   const manPath = path.join(OUT, 'manifest.json');
   const old = fs.existsSync(manPath) ? JSON.parse(fs.readFileSync(manPath, 'utf8')) : { clips: {} };
@@ -152,6 +138,12 @@ async function all(cred) {
   let n = 0;
   for (const [k, { lang, text }] of jobs) {
     n++;
+    // 已經換成 Google 聲音的句子保留，不再做微軟的
+    const prev = old.clips?.[k];
+    if (prev?.includes('/g-') && fs.existsSync(path.join(OUT, prev))) {
+      clips[k] = prev;
+      continue;
+    }
     const v = VOICES[lang];
     const markup = lang === 'en_us' && letterOf[text] ? `<say-as interpret-as="characters">${letterOf[text]}</say-as>` : '';
     const body = ssml(v.tag, v.voice, text, { ...v, markup });
@@ -170,7 +162,7 @@ async function all(cred) {
   const keep = new Set(Object.values(clips));
   for (const rel of Object.values(old.clips ?? {})) if (!keep.has(rel) && fs.existsSync(path.join(OUT, rel))) fs.rmSync(path.join(OUT, rel));
   const voices = Object.fromEntries(Object.entries(VOICES).map(([l, v]) => [l, v.voice]));
-  fs.writeFileSync(manPath, JSON.stringify({ voices, clips }, null, 0));
+  fs.writeFileSync(manPath, JSON.stringify({ voices, google: old.google, clips }, null, 0));
   console.log(`完成：共 ${jobs.size} 句，這次新做 ${made} 句`);
 }
 
