@@ -56,6 +56,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,webmanifest,ttf}'],
         navigateFallback: 'index.html',
+        // 神經語音的聲音檔：用到才下載，之後從快取播（沒網路也行）
+        runtimeCaching: [{ urlPattern: /\/voice\/.*\.mp3$/, handler: 'CacheFirst', options: { cacheName: 'fairypocket-voice-sw', expiration: { maxEntries: 800 } } }],
         cleanupOutdatedCaches: true,
       },
     }),

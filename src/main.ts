@@ -24,6 +24,7 @@ import { legacyRenames } from './game/sbItems';
 import { detectIntent, talkLine, type Intent } from './game/talk';
 import { Recognizer, speechSupported } from './speech';
 import { loadTtsVoices, pickVoice, saveTtsVoice, voicesFor } from './ttsVoice';
+import { neuralBuffer } from './neuralVoice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
 import { asciiGlyphs, buildFont } from './pixelFont';
@@ -710,10 +711,27 @@ const SPEECH_LANG: Record<string, string> = { zh_tw: 'zh-TW', ja_jp: 'ja-JP', en
  * 平常是悅靈的聲音（偏高、偏可愛）；demo = 示範發音，念得慢一點、音高接近自然，讓小孩聽清楚。
  * 中文用台灣的語音（zh-TW）。念完（或最多 8 秒）時結束。
  */
-function speakText(text: string, lang: Lang = getLang(), demo = false): Promise<void> {
+/** 神經語音的聲音（轉成錄音的格式，才能套變聲；同一句只轉一次） */
+const neuralClips = new WeakMap<AudioBuffer, Clip>();
+
+async function speakText(text: string, lang: Lang = getLang(), demo = false): Promise<void> {
   const s = window.speechSynthesis;
   const vol = sound.level('voice');
-  if (!s || vol <= 0 || !text) return Promise.resolve();
+  if (vol <= 0 || !text) return;
+  // 有事先做好的神經語音就播它（自然很多）；悅靈說話時套上目前選的變聲，示範念法用原本的聲音
+  const ctx = sound.context;
+  if (ctx) {
+    const buf = await neuralBuffer(ctx, lang, text);
+    if (buf) {
+      s?.cancel();
+      let c = neuralClips.get(buf);
+      if (!c) neuralClips.set(buf, (c = { rate: buf.sampleRate, data: buf.getChannelData(0) }));
+      const len = sound.playClip(clipBuffer(ctx, c, demo ? null : voiceStyle));
+      await new Promise((r) => window.setTimeout(r, len * 1000));
+      return;
+    }
+  }
+  if (!s) return;
   s.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = SPEECH_LANG[lang];
@@ -723,7 +741,7 @@ function speakText(text: string, lang: Lang = getLang(), demo = false): Promise<
   // 自己選過的聲音優先，沒選就用音質最好的（高品質 > 優化 > 一般）
   const v = pickVoice(s.getVoices(), u.lang, loadTtsVoices()[lang]);
   if (v) u.voice = v;
-  return new Promise((done) => {
+  await new Promise<void>((done) => {
     u.onend = u.onerror = () => done();
     window.setTimeout(done, 8000);
     s.speak(u);
