@@ -754,8 +754,9 @@ describe('ai brain', () => {
   it('解析 AI 的回答：心情、要記住的事、多餘的符號', () => {
     const r = parseReply('[難過] 怎麼了？我陪你喔！😊\n[記住：主人的狗叫小白]');
     expect(r).toEqual({ text: '怎麼了？我陪你喔！', feeling: 'sad', notes: ['主人的狗叫小白'] });
-    expect(parseReply('**わー**すごい！เยอะเยอะだね').text).toBe('わーすごい！だね');
+    expect(parseReply('**わー**すごい！เยอะเยอะだね', 'ja_jp').text).toBe('わーすごい！だね');
     expect(parseReply('[不是心情] 你好').text).toBe('[不是心情] 你好');
+    expect(parseReply('沒關係 poquito 我陪你 OK 嗎', 'zh_tw').text).toBe('沒關係我陪你 OK 嗎');
   });
   it('悅靈的設定帶著名字、個性、記住的事；記憶有上限', () => {
     const pet = createPet();

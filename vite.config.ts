@@ -5,6 +5,31 @@ import type { Connect, Plugin } from 'vite';
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 
+// 內容安全政策（只在建置的正式版加上；開發伺服器需要即時更新用的連線所以不加）：
+// 程式只能從自己的網站載入；只能連到天氣（Open-Meteo）、維基百科、自己的 Tailscale 電腦（AI 大腦）與本機。
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' data: blob:",
+  "font-src 'self' data: blob:",
+  "connect-src 'self' https://api.open-meteo.com https://*.wikipedia.org https://*.ts.net http://localhost:* http://127.0.0.1:*",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'none'",
+].join('; ');
+function csp(): Plugin {
+  return {
+    name: 'fairypocket-csp',
+    apply: 'build',
+    transformIndexHtml: (html) => html.replace('<head>', `<head>
+    <meta http-equiv="Content-Security-Policy" content="${CSP}" />`),
+  };
+}
+
 // 只在本機開發／預覽伺服器提供個人原版素材包；不會進入建置結果
 const PACK = new URL('./private/FairyPocket-原版素材包.zip', import.meta.url);
 const servePack: Connect.NextHandleFunction = (req, res, next) => {
@@ -33,6 +58,7 @@ export default defineConfig({
   build: { chunkSizeWarningLimit: 800 }, // Three.js 本身約 550 kB
   plugins: [
     localPack(),
+    csp(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['icons/apple-touch-icon.png', 'icons/favicon.png'],

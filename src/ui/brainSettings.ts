@@ -40,6 +40,18 @@ export function brainSettings(box: HTMLElement): void {
     saveBrain(cfg);
   });
 
+  el('div', 'info', box).textContent = t('ai.token');
+  const token = el('input', 'name-input', box);
+  token.type = 'password';
+  token.placeholder = 'xxxx-xxxx-xxxx-xxxx';
+  token.value = cfg.token;
+  token.autocomplete = 'off';
+  token.spellcheck = false;
+  token.addEventListener('change', () => {
+    cfg.token = token.value.trim();
+    saveBrain(cfg);
+  });
+
   el('div', 'info', box).textContent = t('ai.model');
   const model = el('select', 'name-input', box);
   const fillModels = (names: string[]) => {
@@ -61,13 +73,15 @@ export function brainSettings(box: HTMLElement): void {
   test.textContent = t('ai.test');
   test.addEventListener('click', async () => {
     cfg.url = url.value.trim();
+    cfg.token = token.value.trim();
     saveBrain(cfg);
     status.textContent = t('ai.testing');
-    const names = await listModels(cfg.url);
-    if (!names) {
-      status.textContent = t('ai.fail');
+    const res = await listModels(cfg);
+    if (!res.ok) {
+      status.textContent = t(res.why === 'url' ? 'ai.badUrl' : res.why === 'token' ? 'ai.badToken' : 'ai.fail');
       return;
     }
+    const names = res.models;
     if (names.length && !names.includes(cfg.model)) {
       cfg.model = names[0];
       saveBrain(cfg);

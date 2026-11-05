@@ -14,6 +14,8 @@ export interface BrainConfig {
   /** 例如 https://desktop-xxxx.tailxxxx.ts.net */
   url: string;
   model: string;
+  /** 通行碼（電腦的 private/ai-token.txt） */
+  token: string;
 }
 
 export const DEFAULT_MODEL = 'gemma3:4b';
@@ -21,9 +23,14 @@ export const DEFAULT_MODEL = 'gemma3:4b';
 export function loadBrain(): BrainConfig {
   try {
     const c = JSON.parse(localStorage.getItem(CFG_KEY) ?? 'null') as Partial<BrainConfig> | null;
-    return { on: !!c?.on, url: typeof c?.url === 'string' ? c.url : '', model: typeof c?.model === 'string' && c.model ? c.model : DEFAULT_MODEL };
+    return {
+      on: !!c?.on,
+      url: typeof c?.url === 'string' ? c.url : '',
+      model: typeof c?.model === 'string' && c.model ? c.model : DEFAULT_MODEL,
+      token: typeof c?.token === 'string' ? c.token : '',
+    };
   } catch {
-    return { on: false, url: '', model: DEFAULT_MODEL };
+    return { on: false, url: '', model: DEFAULT_MODEL, token: '' };
   }
 }
 
@@ -165,7 +172,7 @@ const FEEL: Record<string, Feeling> = {
   嬉しい: 'happy', 悲しい: 'sad', 驚き: 'surprised', 恥ずかしい: 'shy', 眠い: 'sleepy',
 };
 
-export function parseReply(raw: string): { text: string; feeling: Feeling; notes: string[] } {
+export function parseReply(raw: string, lang: Lang = 'en_us'): { text: string; feeling: Feeling; notes: string[] } {
   let text = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
   const notes: string[] = [];
   text = text.replace(/[[［【]\s*(?:記住|记住|覚えて|remember)\s*[:：]\s*([^\]］】\n]+)[\]］】]/gi, (_, n: string) => {
@@ -191,6 +198,8 @@ export function parseReply(raw: string): { text: string; feeling: Feeling; notes
     .replace(/^["「『]|["」』]$/g, '')
     .replace(/\s*\n+\s*/g, ' ')
     .trim();
+  // 中文、日文的回答裡混進來的外文單字（例如 poquito、tummy）拿掉；OK、AI 這種很短的大寫縮寫留著
+  if (lang !== 'en_us') text = text.replace(/\s*\b(?![A-Z]{1,3}\b)[A-Za-zÀ-ÿ']{3,}\b\s*/g, '').replace(/\s{2,}/g, ' ').trim();
   return { text, feeling, notes };
 }
 
@@ -199,22 +208,53 @@ function base(url: string): string {
   return url.trim().replace(/\/+$/, '');
 }
 
-/** 測試連線：回傳電腦上有的模型清單（連不上回傳 null） */
-export async function listModels(url: string, timeoutMs = 6000): Promise<string[] | null> {
-  if (!url) return null;
+/**
+ * 只允許自己的電腦：Tailscale 的 https://*.ts.net，或本機／家裡網路的位址（開發用）。
+ * 避免被騙填了別人的網址，把對話和回憶送出去。
+ */
+export function safeBrainUrl(url: string): boolean {
+  let u: URL;
   try {
-    const r = await fetch(`${base(url)}/api/tags`, { signal: AbortSignal.timeout(timeoutMs) });
-    if (!r.ok) return null;
-    const j = (await r.json()) as { models?: { name: string }[] };
-    return (j.models ?? []).map((m) => m.name);
+    u = new URL(url.trim());
   } catch {
-    return null;
+    return false;
+  }
+  const h = u.hostname;
+  if (u.username || u.password) return false;
+  if (u.protocol === 'https:' && /^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$/i.test(h)) return true;
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]') return true;
+  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
+  if (!m) return false;
+  const a = Number(m[1]);
+  const b = Number(m[2]);
+  // Tailscale（100.64.0.0/10）、家裡網路（10.x、172.16–31.x、192.168.x）
+  return (a === 100 && b >= 64 && b <= 127) || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+function authHeaders(cfg: Pick<BrainConfig, 'token'>): Record<string, string> {
+  return cfg.token ? { Authorization: `Bearer ${cfg.token.trim()}` } : {};
+}
+
+export type ListResult = { ok: true; models: string[] } | { ok: false; why: 'url' | 'token' | 'net' };
+
+/** 測試連線：回傳電腦上有的模型清單，或失敗的原因 */
+export async function listModels(cfg: Pick<BrainConfig, 'url' | 'token'>, timeoutMs = 8000): Promise<ListResult> {
+  if (!cfg.url || !safeBrainUrl(cfg.url)) return { ok: false, why: 'url' };
+  try {
+    const r = await fetch(`${base(cfg.url)}/api/tags`, { headers: authHeaders(cfg), signal: AbortSignal.timeout(timeoutMs) });
+    if (r.status === 401) return { ok: false, why: 'token' };
+    if (!r.ok) return { ok: false, why: 'net' };
+    const j = (await r.json()) as { models?: { name: string }[] };
+    return { ok: true, models: (j.models ?? []).map((m) => m.name) };
+  } catch {
+    return { ok: false, why: 'net' };
   }
 }
 
 /** 問 AI（失敗回傳 null，交給原本的回答方式） */
 export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, text: string, timeoutMs = 25000): Promise<string | null> {
-  if (!cfg.on || !cfg.url) return null;
+  if (!cfg.on || !cfg.url || !safeBrainUrl(cfg.url)) return null;
   const messages = [
     { role: 'system', content: system },
     ...mem.turns.map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: t.text })),
@@ -223,7 +263,7 @@ export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, te
   try {
     const r = await fetch(`${base(cfg.url)}/api/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(cfg) },
       body: JSON.stringify({ model: cfg.model, messages, stream: false, keep_alive: '30m', options: { temperature: 0.8, num_predict: 160 } }),
       signal: AbortSignal.timeout(timeoutMs),
     });

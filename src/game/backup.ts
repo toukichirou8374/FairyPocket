@@ -6,7 +6,8 @@ import type { Clip } from '../voice';
 import { BACKUP_KEY, SAVE_KEY } from './save';
 
 /** 不放進存檔的設定：悅靈本身（另外存）、素材包 */
-const SKIP_LOCAL = new Set([SAVE_KEY, BACKUP_KEY, 'fairypocket.assets.v1', 'fairypocket.assets.optout']);
+// AI 大腦的連線設定（網址、通行碼）不放進備份，也不從備份還原：避免通行碼外流，或被別人的備份檔改掉網址
+const SKIP_LOCAL = new Set([SAVE_KEY, BACKUP_KEY, 'fairypocket.assets.v1', 'fairypocket.assets.optout', 'fairypocket.brain.v1']);
 
 export interface Extras {
   /** localStorage 裡的遊戲紀錄與設定 */

@@ -24,7 +24,7 @@ for (const model of process.argv.slice(2)) {
     for (const q of qs) {
       const sys = brain.buildSystem(pet, mem, lang, { hour: 19, asleep: false, foodName: (f) => f });
       const t0 = Date.now();
-      const raw = await brain.ask({ on: true, url: process.env.OLLAMA_URL ?? 'http://100.73.210.18:11434', model }, sys, mem, q, 120000);
+      const raw = await brain.ask({ on: true, url: process.env.OLLAMA_URL ?? 'http://127.0.0.1:11434', token: '', model }, sys, mem, q, 120000);
       const r = brain.parseReply(raw ?? '');
       brain.remember(mem, 'user', q);
       brain.remember(mem, 'allay', r.text);

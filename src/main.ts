@@ -156,7 +156,7 @@ async function brainAnswer(text: string): Promise<boolean> {
   const system = buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f) });
   const raw = await ask(cfg, system, brainMem, text);
   brainBusy = false;
-  const r = raw ? parseReply(raw) : null;
+  const r = raw ? parseReply(raw, lang) : null;
   if (!r?.text) {
     listener.pausedUntil = talkDeafUntil = 0;
     return false;
