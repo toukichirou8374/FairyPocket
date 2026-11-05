@@ -1038,12 +1038,10 @@ async function speakText(text: string, lang: Lang = getLang(), demo = false): Pr
     }
   }
   // 沒有做好的自然語音（例如 AI 臨時想的話、天氣這種每次不一樣的話）：
-  // 不用裝置的朗讀（太像機器），改成悅靈的叫聲，字顯示在泡泡或對話紀錄裡
-  const n = Math.max(1, Math.min(6, Math.round(text.length / (lang === 'en_us' ? 14 : 6))));
-  for (let i = 0; i < n; i++) {
-    sound.speak(pet.personality);
-    await new Promise((r) => window.setTimeout(r, 230 + Math.random() * 140));
-  }
+  // 不用裝置的朗讀（太像機器），改成「悅靈語」（像動物森友會那樣一個字一聲），字顯示在泡泡或對話紀錄裡
+  void lang;
+  const len = sound.babble(text, pet.personality);
+  await new Promise((r) => window.setTimeout(r, len * 1000));
 }
 
 // ---------- 小助理：天氣、時間、計時、音樂、查資料 ----------
