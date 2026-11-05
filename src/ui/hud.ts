@@ -524,11 +524,11 @@ export class Hud {
     f.forEach((l, i) => (this.shanks[i].src = this.shankURL[l]));
   }
 
-  say(text: string): void {
+  say(text: string, ms = 3200): void {
     this.bubble.textContent = text;
     this.bubble.classList.add('show');
     clearTimeout(this.bubbleTimer);
-    this.bubbleTimer = window.setTimeout(() => this.bubble.classList.remove('show'), 3200);
+    this.bubbleTimer = window.setTimeout(() => this.bubble.classList.remove('show'), ms);
   }
 
   toast(text: string): void {

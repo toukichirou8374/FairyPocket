@@ -22,6 +22,8 @@ import { allVoiceEntries, clipBuffer, Listener, loadReplies, loadStickerClips, l
 import { collectLocal, packValue, parseExtras, restoreLocal, unpackValue } from './game/backup';
 import { legacyRenames } from './game/sbItems';
 import { detectIntent, refine, talkLine, type Intent } from './game/talk';
+import { detectCommand } from './assist/command';
+import { Assistant, type Mood } from './assist/assistant';
 import { Recognizer, speechSupported } from './speech';
 import { loadTtsVoices, pickVoice, saveTtsVoice, voicesFor } from './ttsVoice';
 import { neuralBuffer } from './neuralVoice';
@@ -101,6 +103,12 @@ async function micOn(): Promise<void> {
 async function answerText(text: string): Promise<void> {
   ctrl.listen(false);
   liveWake();
+  // 要悅靈幫忙做的事（天氣、時間、計時、音樂、查資料）
+  const cmd = detectCommand(text, getLang());
+  if (cmd) {
+    void assistant.run(cmd);
+    return;
+  }
   const intent = detectIntent(text, getLang());
   if (!intent) {
     if (text.trim()) await answer(new Float32Array(Math.round(text.length * 2400)), 24000, true);
@@ -219,8 +227,8 @@ async function micListen(): Promise<void> {
       end: (samples, rate) => void answer(samples, rate),
     });
   } catch {
+    // 麥克風不能用：還是可以用打字跟悅靈說話，所以不取消選取
     hud.showItem(t('micDenied'));
-    hud.setSelected(null);
   }
 }
 
@@ -606,6 +614,7 @@ const hud = new Hud(overlay, {
     else micOff();
     if (slot === 'wave' || slot === 'live') void sensorOn();
     else sensorOff();
+    assistant.showInput(slot === 'mic' || slot === 'live');
     if (slot !== 'note') stage.removeNoteBlock();
   },
   call: () => {
@@ -834,6 +843,31 @@ async function speakText(text: string, lang: Lang = getLang(), demo = false): Pr
     window.setTimeout(done, 8000);
     s.speak(u);
   });
+}
+
+// ---------- 小助理：天氣、時間、計時、音樂、查資料 ----------
+const assistant = new Assistant(overlay, { lang: getLang, say: assistSay }, (text) => void answerText(text));
+
+/** 助理的回答：說出來、顯示泡泡、做個動作 */
+function assistSay(line: string, mood: Mood): void {
+  const now = performance.now();
+  const en = getLang() === 'en_us';
+  hud.say(line, Math.max(3200, line.length * (en ? 70 : 230)));
+  void speakText(line);
+  const len = Math.min(14, 0.8 + line.length * (en ? 0.07 : 0.2));
+  talkDeafUntil = now + len * 1000 + 500;
+  listener.pausedUntil = talkDeafUntil;
+  const head = ctrl.headTop(new THREE.Vector3());
+  if (mood === 'think') ctrl.setMode('curious', 2);
+  else if (mood === 'oops') ctrl.setMode('oops', 1.6);
+  else if (mood === 'alarm') {
+    playSfx('bell');
+    ctrl.setMode('flip', 1.6);
+    stage.spawn('note', head, 4);
+  } else {
+    ctrl.setMode('happy', 2);
+    stage.spawn('note', head, 2);
+  }
 }
 
 /** 精靈舞蹈的舞台與花圈（第一次用到時才用素材包的材質搭出來） */

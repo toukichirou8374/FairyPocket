@@ -15,6 +15,9 @@ import { WaveDetector } from '../ar';
 import { trackPitch, transform, VOICE_STYLES } from '../voicefx';
 import { clipKey, demoSpeech, legacyRenames, matchesItem, recordedItems, stickerBookItems } from './sbItems';
 import { allTalkLines, detectIntent, refine, talkLine, TALK_LINES } from './talk';
+import { detectCommand, parseNumber } from '../assist/command';
+import { assistFixedLines, dateLine, duration, timeLine } from '../assist/assistant';
+import { firstSentences, musicUrl, weatherLine } from '../assist/services';
 import { collectLocal, packValue, parseExtras, restoreLocal, unpackValue } from './backup';
 import { matchesSticker, normalizeSpeech, STICKERS } from './stickers';
 import { ZHUYIN, ZHUYIN_READ, gamepadPrompts, isModifier, keyboardPrompts, keyId, KeyRound, loadBest, padFamily, saveBest } from './keyGame';
@@ -672,8 +675,56 @@ describe('neural voice files', () => {
         const d = demoSpeech(it, l);
         if (!m.clips[`${d.lang}|${d.text}`]) missing.push(`${d.lang}|${d.text}`);
       }
-    for (const [l, t] of allTalkLines()) if (!m.clips[`${l}|${t}`]) missing.push(`${l}|${t}`);
+    for (const [l, t] of [...allTalkLines(), ...assistFixedLines()]) if (!m.clips[`${l}|${t}`]) missing.push(`${l}|${t}`);
     expect(missing).toEqual([]);
     expect(Object.values(m.clips).filter((rel) => !files.has(rel))).toEqual([]);
+  });
+});
+
+describe('assistant', () => {
+  const zh = (s: string) => detectCommand(s, 'zh_tw');
+  it('聽懂要幫忙的事', () => {
+    expect(zh('今天天氣怎麼樣')).toEqual({ kind: 'weather', day: 0 });
+    expect(zh('明天會下雨嗎')).toEqual({ kind: 'weather', day: 1 });
+    expect(zh('現在幾點')).toEqual({ kind: 'time' });
+    expect(zh('今天星期幾')).toEqual({ kind: 'date' });
+    expect(zh('五分鐘後叫我')).toEqual({ kind: 'timer', seconds: 300 });
+    expect(zh('三十秒後提醒我')).toEqual({ kind: 'timer', seconds: 30 });
+    expect(zh('計時十分鐘')).toEqual({ kind: 'timer', seconds: 600 });
+    expect(zh('一個半小時後叫我')).toEqual({ kind: 'timer', seconds: 5400 });
+    expect(zh('用YouTube播放小星星')).toEqual({ kind: 'music', app: 'youtube', query: '小星星' });
+    expect(zh('播放周杰倫的歌')).toEqual({ kind: 'music', app: null, query: '周杰倫' });
+    expect(zh('我想聽音樂')).toEqual({ kind: 'music', app: null, query: '' });
+    expect(zh('打開 Nintendo Music')).toEqual({ kind: 'music', app: 'nintendo', query: '' });
+    expect(zh('用 YouTube Music 放瑪利歐')).toEqual({ kind: 'music', app: 'ytmusic', query: '瑪利歐' });
+    expect(zh('長頸鹿是什麼')).toEqual({ kind: 'lookup', query: '長頸鹿' });
+    expect(zh('幫我查一下富士山')).toEqual({ kind: 'lookup', query: '富士山' });
+    expect(detectCommand('東京タワーって何', 'ja_jp')).toEqual({ kind: 'lookup', query: '東京タワー' });
+    expect(detectCommand('3分後に教えて', 'ja_jp')).toEqual({ kind: 'timer', seconds: 180 });
+    expect(detectCommand('明日の天気は？', 'ja_jp')).toEqual({ kind: 'weather', day: 1 });
+    expect(detectCommand('What is a giraffe?', 'en_us')).toEqual({ kind: 'lookup', query: 'giraffe' });
+    expect(detectCommand('Set a timer for five minutes', 'en_us')).toEqual({ kind: 'timer', seconds: 300 });
+    expect(detectCommand('Play Baby Shark on YouTube', 'en_us')).toEqual({ kind: 'music', app: 'youtube', query: 'Baby Shark' });
+    expect(detectCommand("What's the weather like?", 'en_us')).toEqual({ kind: 'weather', day: 0 });
+  });
+  it('聊天的話不會被當成指令', () => {
+    for (const s of ['你是誰', '這是什麼', '唱歌給我聽', '我愛你', '你好棒', '下雨了', '你喜歡什麼', '你在做什麼', '我是誰']) expect(zh(s)).toBe(null);
+    expect(detectCommand('who are you', 'en_us')).toBe(null);
+    expect(detectCommand('what is your name', 'en_us')).toBe(null);
+    expect(detectCommand('あなたは誰', 'ja_jp')).toBe(null);
+  });
+  it('數字、時間、天氣的說法', () => {
+    expect(parseNumber('二十五')).toBe(25);
+    expect(parseNumber('兩')).toBe(2);
+    expect(parseNumber('十')).toBe(10);
+    expect(duration(5400, 'zh_tw')).toBe('1小時30分鐘');
+    expect(duration(90, 'en_us')).toBe('1 minute 30 seconds');
+    expect(timeLine(new Date(2026, 0, 1, 15, 20), 'zh_tw')).toBe('現在是下午3點20分。');
+    expect(timeLine(new Date(2026, 0, 1, 8, 0), 'zh_tw')).toBe('現在是早上8點整。');
+    expect(dateLine(new Date(2026, 10, 6), 'zh_tw')).toBe('今天是11月6日，星期五。');
+    expect(weatherLine({ day: 0, code: 61, now: 21.4, max: 24, min: 18, rain: 70 }, 'zh_tw')).toBe('今天會下雨，現在21度，最高24度、最低18度，下雨機率70%。記得帶傘喔！');
+    expect(firstSentences('長頸鹿（學名：Giraffa）是哺乳動物。棲居於非洲。是世界上最高的動物。後面很長很長。', 'zh_tw', 30)).toBe('長頸鹿是哺乳動物。棲居於非洲。');
+    expect(musicUrl('ytmusic', '小星星')).toBe('https://music.youtube.com/search?q=%E5%B0%8F%E6%98%9F%E6%98%9F');
+    expect(musicUrl('nintendo', '').startsWith('shortcuts://run-shortcut?name=')).toBe(true);
   });
 });

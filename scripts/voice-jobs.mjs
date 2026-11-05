@@ -11,6 +11,7 @@ export async function loadVoiceJobs() {
   const sb = await server.ssrLoadModule('/src/game/sbItems.ts');
   const talk = await server.ssrLoadModule('/src/game/talk.ts');
   const kg = await server.ssrLoadModule('/src/game/keyGame.ts');
+  const assist = await server.ssrLoadModule('/src/assist/assistant.ts');
   await server.close();
   // 英文字母：念法文字（ay、eff…）→ 字母本身
   const letterOf = Object.fromEntries(Object.entries(kg.LETTER_SAY).map(([L, said]) => [said, L]));
@@ -21,5 +22,6 @@ export async function loadVoiceJobs() {
     add(d.lang, d.text, 'demo');
   }
   for (const [lang, t] of talk.allTalkLines()) add(lang, t, 'talk');
+  for (const [lang, t] of assist.assistFixedLines()) add(lang, t, 'assist');
   return { jobs, letterOf };
 }
