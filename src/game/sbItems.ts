@@ -2,7 +2,7 @@
 // 字母、注音、假名本身就屬於某種語言，錄音不分語言；其他（數字、圖案、時間）各語言念法不同，錄音依語言分開存。
 
 import type { Lang } from '../i18n';
-import { DIGITS, KANA, LETTERS, ZHUYIN } from './keyGame';
+import { DIGITS, KANA, LETTERS, ZHUYIN, ZHUYIN_READ } from './keyGame';
 import { matchesSticker, normalizeSpeech, STICKERS, type Sticker } from './stickers';
 
 export type SbCat = 'letter' | 'digit' | 'zhuyin' | 'kana' | 'animal' | 'vehicle' | 'work' | 'food' | 'sport' | 'building' | 'feeling' | 'time';
@@ -113,6 +113,14 @@ export function itemFace(it: SbItem, lang: Lang): string {
 /** 貼紙下面的小字（字母、注音、假名沒有） */
 export function itemName(it: SbItem, lang: Lang): string | undefined {
   return it.sticker?.names[lang] ?? it.words?.[lang].name;
+}
+
+/** 悅靈示範發音：要念的字和用哪種語言念（字母用英文、注音用中文、假名用日文） */
+export function demoSpeech(it: SbItem, lang: Lang): { text: string; lang: Lang } {
+  if (it.cat === 'letter') return { text: it.label ?? '', lang: 'en_us' };
+  if (it.cat === 'zhuyin') return { text: ZHUYIN_READ[it.label ?? ''] ?? it.label ?? '', lang: 'zh_tw' };
+  if (it.cat === 'kana') return { text: it.label ?? '', lang: 'ja_jp' };
+  return { text: itemName(it, lang) ?? itemFace(it, lang), lang };
 }
 
 export function isShared(it: SbItem): boolean {

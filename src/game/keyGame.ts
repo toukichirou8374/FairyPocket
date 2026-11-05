@@ -50,6 +50,14 @@ export const ZHUYIN: Record<string, string> = {
 };
 
 /** 假名在日文鍵盤（JIS かな入力）上的位置：あいうえお 46 音（不含を） */
+/** 注音符號的念法（語音直接念符號常常念不出來，改念同音的字） */
+export const ZHUYIN_READ: Record<string, string> = {
+  ㄅ: '玻', ㄆ: '坡', ㄇ: '摸', ㄈ: '佛', ㄉ: '得', ㄊ: '特', ㄋ: '訥', ㄌ: '勒', ㄍ: '哥', ㄎ: '科', ㄏ: '喝',
+  ㄐ: '基', ㄑ: '欺', ㄒ: '希', ㄓ: '知', ㄔ: '吃', ㄕ: '詩', ㄖ: '日', ㄗ: '資', ㄘ: '雌', ㄙ: '思',
+  ㄧ: '衣', ㄨ: '屋', ㄩ: '迂', ㄚ: '啊', ㄛ: '喔', ㄜ: '鵝', ㄞ: '哀', ㄟ: '欸', ㄠ: '凹', ㄡ: '歐',
+  ㄢ: '安', ㄣ: '恩', ㄤ: '骯', ㄦ: '兒',
+};
+
 export const KANA: Record<string, string> = {
   あ: 'Digit3', い: 'KeyE', う: 'Digit4', え: 'Digit5', お: 'Digit6',
   か: 'KeyT', き: 'KeyG', く: 'KeyH', け: 'Quote', こ: 'KeyB',
@@ -73,7 +81,7 @@ export function keyboardPrompts(lang: Lang): Prompt[] {
     ...DIGITS.map((d) => ({ id: `Digit${d}`, label: d, speak: d })),
   ];
   const extra = lang === 'zh_tw' ? ZHUYIN : lang === 'ja_jp' ? KANA : null;
-  if (extra) for (const [ch, code] of Object.entries(extra)) list.push({ id: code, label: ch, speak: ch });
+  if (extra) for (const [ch, code] of Object.entries(extra)) list.push({ id: code, label: ch, speak: ZHUYIN_READ[ch] ?? ch });
   return list;
 }
 

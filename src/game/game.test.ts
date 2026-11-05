@@ -11,11 +11,11 @@ import { SFX, sfxPitch } from '../sfx';
 import { trimSilence } from '../voice';
 import { WaveDetector } from '../ar';
 import { trackPitch, transform, VOICE_STYLES } from '../voicefx';
-import { clipKey, legacyRenames, matchesItem, recordedItems, stickerBookItems } from './sbItems';
+import { clipKey, demoSpeech, legacyRenames, matchesItem, recordedItems, stickerBookItems } from './sbItems';
 import { detectIntent, TALK_LINES } from './talk';
 import { collectLocal, packValue, parseExtras, restoreLocal, unpackValue } from './backup';
 import { matchesSticker, normalizeSpeech, STICKERS } from './stickers';
-import { gamepadPrompts, isModifier, keyboardPrompts, keyId, KeyRound, loadBest, padFamily, saveBest } from './keyGame';
+import { ZHUYIN, ZHUYIN_READ, gamepadPrompts, isModifier, keyboardPrompts, keyId, KeyRound, loadBest, padFamily, saveBest } from './keyGame';
 import { emptyMemory, memoryTopic, mostEaten, rememberFood, takeMilestone, timeGreeting, visitDay } from './memory';
 
 function memStorage() {
@@ -568,5 +568,27 @@ describe('匯出存檔帶走遊戲資料與錄音', () => {
     expect([...out.keys()]).toEqual(['fairypocket.keygame.v1']);
     expect(parseSave(text).name).toBeTruthy();
     expect(parseExtras(serialize(createPet()))).toBe(null);
+  });
+});
+
+describe('allay demo speech', () => {
+  it('reads every zhuyin symbol it can, in Chinese', () => {
+    const missing = Object.keys(ZHUYIN).filter((c) => !ZHUYIN_READ[c]);
+    expect(missing.length).toBeLessThanOrEqual(2);
+    const bo = stickerBookItems().find((x) => x.id === 'zhuyin:ㄅ')!;
+    expect(demoSpeech(bo, 'en_us')).toEqual({ text: '玻', lang: 'zh_tw' });
+  });
+  it('letters in English, kana in Japanese, others in the current language', () => {
+    const items = stickerBookItems();
+    expect(demoSpeech(items.find((x) => x.id === 'letter:A')!, 'zh_tw')).toEqual({ text: 'A', lang: 'en_us' });
+    expect(demoSpeech(items.find((x) => x.id === 'kana:あ')!, 'zh_tw').lang).toBe('ja_jp');
+    expect(demoSpeech(items.find((x) => x.id === 'month:1')!, 'en_us')).toEqual({ text: 'January', lang: 'en_us' });
+    const dog = items.find((x) => x.sticker?.id === 'dog')!;
+    expect(demoSpeech(dog, 'zh_tw').lang).toBe('zh_tw');
+    expect(demoSpeech(dog, 'zh_tw').text.length).toBeGreaterThan(0);
+  });
+  it('keyboard mode says zhuyin with a readable character', () => {
+    const p = keyboardPrompts('zh_tw').find((x) => x.label === 'ㄅ')!;
+    expect(p.speak).toBe('玻');
   });
 });

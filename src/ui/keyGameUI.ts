@@ -24,10 +24,10 @@ import {
   type KgSong,
   type Prompt,
 } from '../game/keyGame';
-import { clipKey, itemFace, itemName, matchesItem, recordedItems, SB_CATS, stickerBookItems, type SbCat, type SbItem } from '../game/sbItems';
+import { clipKey, demoSpeech, itemFace, itemName, matchesItem, recordedItems, SB_CATS, stickerBookItems, type SbCat, type SbItem } from '../game/sbItems';
 import { stickerCanvas } from '../game/stickers';
 import type { Clip } from '../voice';
-import { getLang, t } from '../i18n';
+import { getLang, t, type Lang } from '../i18n';
 import { Recognizer, speechSupported } from '../speech';
 
 export interface KeyGameHost {
@@ -47,6 +47,8 @@ export interface KeyGameHost {
   end(): void;
   /** 念出文字（按鍵名稱、聲音玩法的提示） */
   speak(text: string): void;
+  /** 悅靈示範發音（用指定語言的裝置內建語音，念得比較慢、比較清楚） */
+  demo(text: string, lang: Lang): void;
   /** 悅靈的叫聲（沒有語音檔的回饋先用這個） */
   chirp(): void;
   /** 答錯的聲音 */
@@ -73,6 +75,8 @@ export interface KeyGameHost {
 const SPEAK_KEY = 'fairypocket.keygame.speak.v1';
 const MODE_KEY = 'fairypocket.keygame.mode.v1';
 const VOICE_CATS_KEY = 'fairypocket.keygame.voicecats.v1';
+/** 聲音玩法：沒錄音的貼紙也出題（提示時悅靈示範念法） */
+const VOICE_DEMO_KEY = 'fairypocket.keygame.voicedemo.v1';
 
 /** 聲音玩法要出哪些類別的貼紙（存在這台裝置） */
 function loadVoiceCats(): SbCat[] {
@@ -132,6 +136,7 @@ export class KeyGameUI {
   private deafUntil = 0;
   /** 聲音玩法的題目：貼紙簿裡錄好的貼紙 */
   private voiceCats = loadVoiceCats();
+  private voiceDemo = localStorage.getItem(VOICE_DEMO_KEY) === '1';
   private voiceItems: SbItem[] = [];
   private voiceClips = new Map<string, Clip>();
   // 體感玩法
@@ -203,6 +208,13 @@ export class KeyGameUI {
     const vbox = el('div', 'kgvoice', box);
     el('div', 'info', vbox).textContent = t('kg.voiceCats');
     const vcats = el('div', 'kgcats', vbox);
+    const vdemo = el('button', 'btn', vbox);
+    vdemo.addEventListener('click', () => {
+      this.host.click();
+      this.voiceDemo = !this.voiceDemo;
+      localStorage.setItem(VOICE_DEMO_KEY, this.voiceDemo ? '1' : '0');
+      drawCats();
+    });
     const vcount = el('div', 'info', vbox);
     const vbook = el('button', 'btn', vbox);
     vbook.textContent = t('kg.toBook');
@@ -215,18 +227,21 @@ export class KeyGameUI {
     const lang = getLang();
     const drawCats = () => {
       vcats.replaceChildren();
+      vdemo.textContent = `${t('kg.voiceDemo')}：${t(this.voiceDemo ? 'on' : 'off')}`;
+      vdemo.classList.toggle('on', this.voiceDemo);
       for (const c of SB_CATS) {
         const n = all.filter((it) => it.cat === c && keys.has(clipKey(it, lang))).length;
+        const total = all.filter((it) => it.cat === c).length;
         const b = el('button', 'btn small' + (this.voiceCats.includes(c) ? ' on' : ''), vcats);
-        b.textContent = `${t(`sb.cat.${c}`)} ${n}`;
-        b.disabled = n === 0;
+        b.textContent = this.voiceDemo ? `${t(`sb.cat.${c}`)} ${n}/${total}` : `${t(`sb.cat.${c}`)} ${n}`;
+        b.disabled = !this.voiceDemo && n === 0;
         b.addEventListener('click', () => {
           this.voiceCats = this.voiceCats.includes(c) ? this.voiceCats.filter((x) => x !== c) : [...this.voiceCats, c];
           localStorage.setItem(VOICE_CATS_KEY, JSON.stringify(this.voiceCats));
           drawCats();
         });
       }
-      const n = recordedItems(keys, this.voiceCats, lang, all).length;
+      const n = this.voicePool(keys, all).length;
       vcount.textContent = n ? t('kg.voiceCount', { n }) : t('kg.voiceNone');
     };
     void this.host.stickerClips().then((m) => {
@@ -287,7 +302,7 @@ export class KeyGameUI {
     close.addEventListener('click', () => back.remove());
     go.addEventListener('click', () => {
       // 聲音玩法沒有錄好的貼紙：先去貼紙簿錄
-      if (this.mode === 'voice' && !recordedItems(keys, this.voiceCats, lang, all).length) {
+      if (this.mode === 'voice' && !this.voicePool(keys, all).length) {
         vcount.textContent = t('kg.voiceNone');
         vcount.classList.remove('warn');
         void vcount.offsetWidth;
@@ -297,6 +312,12 @@ export class KeyGameUI {
       back.remove();
       void this.start();
     });
+  }
+
+  /** 聲音玩法的題目：選的類別裡錄好的貼紙（打開「沒錄音的也出題」時是全部） */
+  private voicePool(keys: Set<string>, all: SbItem[]): SbItem[] {
+    if (!this.voiceDemo) return recordedItems(keys, this.voiceCats, getLang(), all);
+    return all.filter((it) => this.voiceCats.includes(it.cat));
   }
 
   // ---------- 遊戲 ----------
@@ -357,7 +378,7 @@ export class KeyGameUI {
     }
     if (this.mode === 'voice') {
       this.voiceClips = await this.host.stickerClips();
-      this.voiceItems = recordedItems(new Set(this.voiceClips.keys()), this.voiceCats, getLang());
+      this.voiceItems = this.voicePool(new Set(this.voiceClips.keys()), stickerBookItems());
       await this.startVoice();
     }
     if (this.mode === 'motion') await this.startMotion();
@@ -524,9 +545,11 @@ export class KeyGameUI {
       const it = this.voiceItems.find((x) => x.id === this.round?.current?.id);
       const clip = it && this.voiceClips.get(clipKey(it, getLang()));
       if (clip) this.deafUntil = now + this.host.playClip(clip) * 1000 + 600;
-      else {
-        this.deafUntil = now + 2200;
-        this.host.speak(this.round.current.speak);
+      else if (it) {
+        // 沒有錄音：悅靈示範念法
+        this.deafUntil = now + 2600;
+        const d = demoSpeech(it, getLang());
+        this.host.demo(d.text, d.lang);
       }
       this.keyEl?.classList.remove('hint');
       void this.keyEl?.offsetWidth;

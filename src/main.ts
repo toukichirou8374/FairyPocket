@@ -27,7 +27,7 @@ import { DISCS } from './music';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
 import { asciiGlyphs, buildFont } from './pixelFont';
-import { getLang, itemName, loadLang, saveLang, setLang, t } from './i18n';
+import { getLang, itemName, loadLang, saveLang, setLang, t, type Lang } from './i18n';
 
 const canvas = document.getElementById('stage') as HTMLCanvasElement;
 const overlay = document.getElementById('overlay') as HTMLDivElement;
@@ -116,7 +116,7 @@ function reactTo(intent: Intent): void {
   if (intent === 'tooQuiet' || intent === 'greet' || intent === 'morning' || intent === 'play') quietUntil = 0;
   const quiet = now < quietUntil;
   hud.say(line);
-  if (!quiet) speakText(line);
+  if (!quiet) void speakText(line);
   else sound.speak(pet.personality);
   // 說話的時間大概抓一下，這段時間先不聽
   const len = quiet ? 1 : Math.min(6, 0.8 + line.length * (getLang() === 'en_us' ? 0.07 : 0.2));
@@ -698,20 +698,28 @@ const hud = new Hud(overlay, {
 
 const SPEECH_LANG: Record<string, string> = { zh_tw: 'zh-TW', ja_jp: 'ja-JP', en_us: 'en-US' };
 
-/** 用裝置內建的語音念出按鍵名稱（聲音偏高、偏可愛；音量跟著「悅靈的叫聲與回應」） */
-function speakText(text: string): void {
+/**
+ * 用裝置內建的語音說話（音量跟著「悅靈的叫聲與回應」）。
+ * 平常是悅靈的聲音（偏高、偏可愛）；demo = 示範發音，念得慢一點、音高接近自然，讓小孩聽清楚。
+ * 中文用台灣的語音（zh-TW）。念完（或最多 8 秒）時結束。
+ */
+function speakText(text: string, lang: Lang = getLang(), demo = false): Promise<void> {
   const s = window.speechSynthesis;
   const vol = sound.level('voice');
-  if (!s || vol <= 0) return;
+  if (!s || vol <= 0 || !text) return Promise.resolve();
   s.cancel();
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = SPEECH_LANG[getLang()];
-  u.pitch = 1.7;
-  u.rate = 0.95;
+  u.lang = SPEECH_LANG[lang];
+  u.pitch = demo ? 1.25 : 1.7;
+  u.rate = demo ? 0.8 : 0.95;
   u.volume = Math.min(1, vol);
   const v = s.getVoices().find((x) => x.lang.replace('_', '-').toLowerCase() === u.lang.toLowerCase());
   if (v) u.voice = v;
-  s.speak(u);
+  return new Promise((done) => {
+    u.onend = u.onerror = () => done();
+    window.setTimeout(done, 8000);
+    s.speak(u);
+  });
 }
 
 /** 精靈舞蹈的舞台與花圈（第一次用到時才用素材包的材質搭出來） */
@@ -777,6 +785,10 @@ const stickerBook = new StickerBook({
     return ctx ? sound.playClip(clipBuffer(ctx, c, changed ? voiceStyle : null)) : 0;
   },
   voiceName: () => t(`voice.${voiceStyle}`),
+  demo: (text, lang) => {
+    sound.unlock();
+    return speakText(text, lang, true);
+  },
   load: stickerClips,
   save: saveStickerClip,
   musicStart: () => {
@@ -911,7 +923,8 @@ const keyGame = new KeyGameUI({
     ctrl.setPose(null);
     requestAnimationFrame(resize);
   },
-  speak: speakText,
+  speak: (text) => void speakText(text),
+  demo: (text, lang) => void speakText(text, lang, true),
 });
 
 // ---------- 發光輪廓（個性代表色） ----------

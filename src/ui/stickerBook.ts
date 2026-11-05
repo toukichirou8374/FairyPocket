@@ -4,9 +4,9 @@
 // 錄製模式：點貼紙就開始錄音（說完自動停），錄完可以馬上聽、用變聲聽、重錄或刪除。
 // 收聽模式：點貼紙播放錄好的聲音，可以選原本的聲音或變聲。錄音存在這台裝置，匯出存檔時會一起帶走。
 
-import { clipKey, isShared, itemFace, itemName, SB_CATS, stickerBookItems, type SbCat, type SbItem } from '../game/sbItems';
+import { clipKey, demoSpeech, isShared, itemFace, itemName, SB_CATS, stickerBookItems, type SbCat, type SbItem } from '../game/sbItems';
 import { stickerCanvas } from '../game/stickers';
-import { getLang, LANGS, t } from '../i18n';
+import { getLang, LANGS, t, type Lang } from '../i18n';
 import type { Clip } from '../voice';
 
 export interface StickerBookHost {
@@ -16,6 +16,8 @@ export interface StickerBookHost {
   record(): Promise<{ stop: () => void; done: Promise<Clip | null> } | null>;
   /** 播放錄音；changed = 用目前選的變聲；回傳長度（秒） */
   play(c: Clip, changed: boolean): number;
+  /** 悅靈示範發音（裝置內建語音）；念完時結束 */
+  demo(text: string, lang: Lang): Promise<void>;
   /** 目前選的變聲名稱 */
   voiceName(): string;
   /** 讀出所有錄音（存檔名 → 錄音） */
@@ -132,20 +134,17 @@ export class StickerBook {
       const b = this.tile(it, this.grid);
       const has = this.clips.has(this.key(it));
       if (has) el('div', 'sb-badge', b).textContent = '♪';
-      b.classList.toggle('empty', this.mode === 'listen' && !has);
+
       b.addEventListener('click', () => {
         if (this.mode === 'record') void this.recordPanel(it);
         else {
           const c = this.clips.get(this.key(it));
-          if (c) {
-            this.playDucked(c, this.changed);
-            b.classList.remove('play');
-            void b.offsetWidth;
-            b.classList.add('play');
-          } else {
-            this.host.click();
-            this.flash(t('sb.none'));
-          }
+          // 有錄音就播錄音，沒有的話悅靈示範念法
+          if (c) this.playDucked(c, this.changed);
+          else this.demo(it);
+          b.classList.remove('play');
+          void b.offsetWidth;
+          b.classList.add('play');
         }
       });
     }
@@ -162,6 +161,16 @@ export class StickerBook {
     const len = this.host.play(c, changed);
     window.clearTimeout(this.duckTimer);
     this.duckTimer = window.setTimeout(() => this.host.musicDuck(1), (len + 0.3) * 1000);
+  }
+
+  /** 悅靈示範念法（背景音樂先調小聲） */
+  private demo(it: SbItem): void {
+    const d = demoSpeech(it, getLang());
+    window.clearTimeout(this.duckTimer);
+    this.host.musicDuck(0.25);
+    void this.host.demo(d.text, d.lang).then(() => {
+      if (this.layer) this.host.musicDuck(1);
+    });
   }
 
   private flash(text: string): void {
@@ -205,6 +214,9 @@ export class StickerBook {
       }
       status.classList.remove('rec');
       status.textContent = c ? t('sb.recDone') : t('sb.noRec');
+      const dm = el('button', 'btn', row);
+      dm.textContent = t('sb.demo');
+      dm.addEventListener('click', () => this.demo(it));
       if (c) {
         const p = el('button', 'btn', row);
         p.textContent = t('sb.playOrig');
