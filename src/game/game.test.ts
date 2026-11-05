@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import voiceManifest from '../../public/voice/manifest.json';
 import { pickVoice, voiceLabel, voiceQuality, voicesFor } from '../ttsVoice';
 import { applyElapsed, createPet, feed, isNight, moodLevel, play, reunionKind, tickPet, toIcons, MAX_HUNGER } from './state';
 import { decodeLink, encodeLink, linkKind, loadPet, parseSave, serialize, storePet, SAVE_KEY, BACKUP_KEY } from './save';
@@ -624,5 +625,22 @@ describe('speaking voice', () => {
     expect(voiceLabel(list[2])).toBe('Meijia ★★');
     expect(voiceLabel(list[3])).toBe('Meijia ★');
     expect(voiceLabel(list[0])).toBe('Meijia');
+  });
+});
+
+describe('neural voice files', () => {
+  it('every demo word and fixed allay line has a voice file (rerun scripts/make-voices.mjs after changing texts)', () => {
+    const m = voiceManifest as { clips: Record<string, string> };
+    const files = new Set(Object.keys(import.meta.glob('../../public/voice/**/*.mp3')).map((p) => p.replace('../../public/voice/', '')));
+    const missing: string[] = [];
+    for (const it of stickerBookItems())
+      for (const l of ['zh_tw', 'ja_jp', 'en_us'] as const) {
+        const d = demoSpeech(it, l);
+        if (!m.clips[`${d.lang}|${d.text}`]) missing.push(`${d.lang}|${d.text}`);
+      }
+    for (const byLang of Object.values(TALK_LINES))
+      for (const [l, lines] of Object.entries(byLang)) for (const t of lines) if (!t.includes('{n}') && !m.clips[`${l}|${t}`]) missing.push(`${l}|${t}`);
+    expect(missing).toEqual([]);
+    expect(Object.values(m.clips).filter((rel) => !files.has(rel))).toEqual([]);
   });
 });

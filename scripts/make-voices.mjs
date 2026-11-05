@@ -18,8 +18,8 @@ const FORMAT = 'audio-24khz-48kbitrate-mono-mp3';
 
 /** 每種語言用的聲音（試聽後可以改這裡；改了重跑就會重做） */
 export const VOICES = {
-  zh_tw: { tag: 'zh-TW', voice: 'zh-TW-HsiaoYuNeural', rate: '-5%', pitch: '+0%' },
-  ja_jp: { tag: 'ja-JP', voice: 'ja-JP-NanamiNeural', style: 'cheerful', rate: '-5%', pitch: '+0%' },
+  zh_tw: { tag: 'zh-TW', voice: 'zh-TW-HsiaoChenNeural', rate: '-5%', pitch: '+0%' },
+  ja_jp: { tag: 'ja-JP', voice: 'ja-JP-AoiNeural', rate: '-5%', pitch: '+0%' },
   en_us: { tag: 'en-US', voice: 'en-US-AnaNeural', rate: '-5%', pitch: '+0%' },
 };
 
