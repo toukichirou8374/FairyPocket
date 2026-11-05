@@ -15,8 +15,8 @@ import { voiceLabel, type VoiceInfo } from '../ttsVoice';
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
 
-export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'jukebox' | 'mic' | 'wave' | 'bed' | 'firework' | 'bath' | 'call';
-export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'jukebox', 'mic', 'wave', 'bed', 'firework', 'bath', 'call'];
+export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'jukebox' | 'live' | 'mic' | 'wave' | 'bed' | 'firework' | 'bath' | 'call';
+export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'jukebox', 'live', 'mic', 'wave', 'bed', 'firework', 'bath', 'call'];
 
 /** 快捷欄的 5 個分類格：點一下拿起這一類上次用的東西，再點一下打開選單換別的 */
 export type Group = 'food' | 'toys' | 'blocks' | 'sense' | 'call';
@@ -24,13 +24,13 @@ export const GROUPS: { id: Group; tools: Slot[] }[] = [
   { id: 'food', tools: ['food'] },
   { id: 'toys', tools: ['feather', 'slime', 'firework', 'bath'] },
   { id: 'blocks', tools: ['note', 'jukebox', 'bed'] },
-  { id: 'sense', tools: ['mic', 'wave'] },
+  { id: 'sense', tools: ['live', 'mic', 'wave'] },
   { id: 'call', tools: ['call'] },
 ];
 const groupOf = (t: Slot) => GROUPS.find((g) => g.tools.includes(t))!;
 
 const TOOL_ICON: Record<Slot, string> = {
-  food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', jukebox: 'jukebox', mic: 'mic', wave: 'hand', bed: 'bed', firework: 'firework', bath: 'bucket', call: 'bell',
+  food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', jukebox: 'jukebox', live: 'eye', mic: 'mic', wave: 'hand', bed: 'bed', firework: 'firework', bath: 'bucket', call: 'bell',
 };
 
 /** 快捷欄名稱（Java 版譯名）與操作提示 */
@@ -41,6 +41,7 @@ function slotText(s: Slot): { label: string; hint: string } {
     case 'slime': return { label: itemName('slime_ball'), hint: t('hint.slime') };
     case 'note': return { label: itemName('note_block'), hint: t('hint.note') };
     case 'jukebox': return { label: itemName('jukebox'), hint: t('hint.jukebox') };
+    case 'live': return { label: t('liveSlot'), hint: t('hint.live') };
     case 'mic': return { label: t('mic'), hint: t('hint.mic') };
     case 'wave': return { label: t('waveSlot'), hint: t('hint.wave') };
     case 'bed': return { label: itemName('bed'), hint: t('hint.bed') };
@@ -417,6 +418,7 @@ export class Hud {
       slime: img.slime_ball?.src,
       note: img.note_block && isoCube(img.note_block),
       jukebox: img.jukebox_top && img.jukebox_side && isoCube(img.jukebox_top, img.jukebox_side),
+      live: undefined,
       mic: undefined,
       wave: undefined,
       bed:

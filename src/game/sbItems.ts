@@ -5,8 +5,8 @@ import type { Lang } from '../i18n';
 import { DIGITS, KANA, LETTERS, LETTER_SAY, ZHUYIN, ZHUYIN_READ } from './keyGame';
 import { matchesSticker, normalizeSpeech, STICKERS, type Sticker } from './stickers';
 
-export type SbCat = 'letter' | 'digit' | 'zhuyin' | 'kana' | 'animal' | 'vehicle' | 'work' | 'food' | 'sport' | 'building' | 'feeling' | 'time';
-export const SB_CATS: SbCat[] = ['letter', 'digit', 'zhuyin', 'kana', 'animal', 'vehicle', 'work', 'food', 'sport', 'building', 'feeling', 'time'];
+export type SbCat = 'letter' | 'digit' | 'zhuyin' | 'kana' | 'animal' | 'vehicle' | 'work' | 'food' | 'sport' | 'building' | 'feeling' | 'color' | 'shape' | 'time';
+export const SB_CATS: SbCat[] = ['letter', 'digit', 'zhuyin', 'kana', 'animal', 'vehicle', 'work', 'food', 'sport', 'building', 'feeling', 'color', 'shape', 'time'];
 
 /** 不分語言的類別 */
 export const SHARED_CATS: readonly SbCat[] = ['letter', 'zhuyin', 'kana'];
@@ -92,7 +92,7 @@ function timeItems(): SbItem[] {
 
 /** 貼紙簿的全部貼紙（不管語言全部列出） */
 export function stickerBookItems(): SbItem[] {
-  const pics = (['animal', 'vehicle', 'work', 'food', 'sport', 'building', 'feeling'] as const).flatMap((cat) =>
+  const pics = (['animal', 'vehicle', 'work', 'food', 'sport', 'building', 'feeling', 'color', 'shape'] as const).flatMap((cat) =>
     STICKERS.filter((s) => s.cat === cat).map((s) => ({ id: `pic:${s.id}`, cat, sticker: s }) as SbItem),
   );
   return [

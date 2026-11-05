@@ -188,6 +188,13 @@ export class AllayController {
   }
 
   /** 玩家點了空白處：好奇飛過去看 */
+  /** 動態模式：鏡頭前的人在哪裡（世界座標）；null = 沒看到人，照常看向畫面 */
+  private person: THREE.Vector3 | null = null;
+  setPerson(p: THREE.Vector3 | null): void {
+    if (!p) this.person = null;
+    else (this.person ??= new THREE.Vector3()).copy(p);
+  }
+
   lookAt(p: THREE.Vector3): void {
     if (!this.awake || this.mode === 'play' || this.mode === 'eat') return;
     this.target.copy(p);
@@ -641,7 +648,8 @@ export class AllayController {
       wantYaw = Math.atan2(cam.x - this.pos.x, cam.z - this.pos.z) + this.poseYaw;
     } else if (hspeed > 0.25 && !facePlayer) wantYaw = Math.atan2(this.vel.x, this.vel.z);
     else {
-      const cam = this.world.camera.position;
+      // 平常面向畫面；動態模式看到人時，身體轉向那個人
+      const cam = this.person ?? this.world.camera.position;
       wantYaw = Math.atan2(cam.x - this.pos.x, cam.z - this.pos.z);
     }
     const prevYaw = this.yaw;
@@ -747,8 +755,8 @@ export class AllayController {
       m.root.position.y += Math.abs(swing) * 0.03 * w;
     }
 
-    // 頭：自動看向玩家
-    const cam = this.world.camera.position;
+    // 頭：自動看向玩家（動態模式看到人時，眼睛跟著那個人）
+    const cam = this.person ?? this.world.camera.position;
     let headY = this.spin ? 0 : THREE.MathUtils.clamp(angleDiff(this.yaw, Math.atan2(cam.x - this.pos.x, cam.z - this.pos.z)), -1, 1);
     let headX = -THREE.MathUtils.clamp(Math.atan2(cam.y - this.pos.y - 0.25, Math.hypot(cam.x - this.pos.x, cam.z - this.pos.z)), -0.6, 0.6);
     if (this.mode === 'eat') headX = 0.25 + Math.sin(this.modeTime * 14) * 0.12;

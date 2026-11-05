@@ -29,6 +29,17 @@ const CANDIDATES = {
   ja_jp: [['ja-JP-NanamiNeural', 'cheerful'], ['ja-JP-AoiNeural'], ['ja-JP-MayuNeural'], ['ja-JP-ShioriNeural']],
   en_us: [['en-US-AnaNeural'], ['en-US-JennyNeural', 'cheerful'], ['en-US-AvaNeural'], ['en-US-EmmaNeural']],
 };
+/** 繁中「比較年輕」的試聽：聲音、音高、速度的組合（--zh-young） */
+const ZH_YOUNG = [
+  ['zh-TW-HsiaoChenNeural', '', '+0%', '-5%', '曉臻（目前）'],
+  ['zh-TW-HsiaoChenNeural', '', '+10%', '0%', '曉臻 音高 +10%'],
+  ['zh-TW-HsiaoChenNeural', '', '+18%', '+3%', '曉臻 音高 +18%'],
+  ['zh-TW-HsiaoYuNeural', '', '+0%', '-5%', '曉雨'],
+  ['zh-TW-HsiaoYuNeural', '', '+10%', '0%', '曉雨 音高 +10%'],
+  ['zh-TW-HsiaoYuNeural', '', '+18%', '+3%', '曉雨 音高 +18%'],
+  ['zh-TW-HsiaoYuNeural', '', '+25%', '+5%', '曉雨 音高 +25%'],
+];
+
 const SAMPLE_TEXT = {
   zh_tw: ['狗！', '壓路機！', '星期一！', '你好呀！我是悅靈，我們一起來學說話吧！'],
   ja_jp: ['いぬ！', 'げつようび！', 'こんにちは！いっしょにことばをおぼえよう！'],
@@ -53,8 +64,9 @@ function readKey() {
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-function ssml(tag, voice, text, { style, rate = '0%', pitch = '0%' } = {}) {
-  let body = `<prosody rate="${rate}" pitch="${pitch}">${esc(text)}</prosody>`;
+/** markup = 已經是 SSML 的內容（例如念字母用的 say-as），不用再轉義 */
+function ssml(tag, voice, text, { style, rate = '0%', pitch = '0%', markup = '' } = {}) {
+  let body = `<prosody rate="${rate}" pitch="${pitch}">${markup || esc(text)}</prosody>`;
   if (style) body = `<mstts:express-as style="${style}">${body}</mstts:express-as>`;
   return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${tag}"><voice name="${voice}">${body}</voice></speak>`;
 }
@@ -88,36 +100,42 @@ async function synth({ key, region }, body) {
   throw new Error('語音服務一直忙線，請晚點再試');
 }
 
-async function samples(cred) {
+async function samples(cred, young = false) {
   fs.mkdirSync(SAMPLE_OUT, { recursive: true });
   const rows = [];
-  for (const [lang, list] of Object.entries(CANDIDATES)) {
-    for (const [voice, style] of list) {
-      const files = [];
-      for (const [i, text] of SAMPLE_TEXT[lang].entries()) {
-        const name = `${voice}${style ? '-' + style : ''}-${i + 1}.mp3`;
-        const file = path.join(SAMPLE_OUT, name);
-        if (!fs.existsSync(file)) fs.writeFileSync(file, await synth(cred, ssml(VOICES[lang].tag, voice, text, { style, rate: '-5%' })));
-        files.push([name, text]);
-        console.log('✓', name);
-      }
-      rows.push({ lang, voice, style, files });
+  const sets = young
+    ? ZH_YOUNG.map(([voice, style, pitch, rate, label]) => ({ lang: 'zh_tw', voice, style, pitch, rate, label }))
+    : Object.entries(CANDIDATES).flatMap(([lang, list]) => list.map(([voice, style]) => ({ lang, voice, style, pitch: '+0%', rate: '-5%', label: '' })));
+  const texts = { ...SAMPLE_TEXT, zh_tw: young ? ['狗！', '紅色！', '星期一！', '我也最喜歡你了！', '你好呀！我是悅靈，我們一起來學說話吧！'] : SAMPLE_TEXT.zh_tw };
+  for (const { lang, voice, style, pitch, rate, label } of sets) {
+    const files = [];
+    for (const [i, text] of texts[lang].entries()) {
+      const name = `${young ? 'young-' : ''}${voice}${style ? '-' + style : ''}${young ? `-p${pitch}-r${rate}` : ''}-${i + 1}.mp3`.replace(/[%+]/g, (c) => (c === '+' ? 'p' : ''));
+      const file = path.join(SAMPLE_OUT, name);
+      if (!fs.existsSync(file)) fs.writeFileSync(file, await synth(cred, ssml(VOICES[lang].tag, voice, text, { style, rate, pitch })));
+      files.push([name, text]);
+      console.log('✓', name);
     }
+    rows.push({ lang, voice: label || voice, style, files });
   }
   // 試聽頁：雙擊打開就能聽
   const html = `<!doctype html><meta charset="utf-8"><title>悅靈的聲音試聽</title>
 <style>body{font-family:sans-serif;max-width:760px;margin:20px auto;padding:0 16px}h2{margin-top:28px}div{margin:6px 0}button{font-size:16px;margin:3px;padding:6px 10px}</style>
 <h1>悅靈的聲音試聽（微軟神經語音）</h1>
 ${rows.map((r) => `<h2>${r.voice.replace(/Neural$/, '')}${r.style ? `（${r.style}）` : ''}</h2><div>${r.files.map(([f, t]) => `<button onclick="new Audio('${f}').play()">▶ ${esc(t)}</button>`).join('')}</div>`).join('\n')}`;
-  fs.writeFileSync(path.join(SAMPLE_OUT, '試聽.html'), html);
-  console.log(`試聽頁：${path.join(SAMPLE_OUT, '試聽.html')}`);
+  const page = young ? '試聽-繁中年輕.html' : '試聽.html';
+  fs.writeFileSync(path.join(SAMPLE_OUT, page), html);
+  console.log(`試聽頁：${path.join(SAMPLE_OUT, page)}`);
 }
 
 async function all(cred) {
   const server = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'error' });
   const sb = await server.ssrLoadModule('/src/game/sbItems.ts');
   const talk = await server.ssrLoadModule('/src/game/talk.ts');
+  const kg = await server.ssrLoadModule('/src/game/keyGame.ts');
   await server.close();
+  // 英文字母：用 say-as 讓語音念「字母的名字」（直接念 ay、eff 會怪怪的）
+  const letterOf = Object.fromEntries(Object.entries(kg.LETTER_SAY).map(([L, said]) => [said, L]));
   // 要做的文字：每張貼紙的示範念法 + 悅靈固定的台詞（有名字 {n} 的句子不做，交給裝置語音）
   const jobs = new Map();
   const add = (lang, text, kind) => jobs.set(`${lang}|${text}`, { lang, text, kind });
@@ -125,8 +143,7 @@ async function all(cred) {
     const d = sb.demoSpeech(it, lang);
     add(d.lang, d.text, 'demo');
   }
-  for (const byLang of Object.values(talk.TALK_LINES))
-    for (const [lang, lines] of Object.entries(byLang)) for (const t of lines) if (!t.includes('{n}')) add(lang, t, 'talk');
+  for (const [lang, t] of talk.allTalkLines()) add(lang, t, 'talk');
 
   const manPath = path.join(OUT, 'manifest.json');
   const old = fs.existsSync(manPath) ? JSON.parse(fs.readFileSync(manPath, 'utf8')) : { clips: {} };
@@ -136,7 +153,8 @@ async function all(cred) {
   for (const [k, { lang, text }] of jobs) {
     n++;
     const v = VOICES[lang];
-    const body = ssml(v.tag, v.voice, text, v);
+    const markup = lang === 'en_us' && letterOf[text] ? `<say-as interpret-as="characters">${letterOf[text]}</say-as>` : '';
+    const body = ssml(v.tag, v.voice, text, { ...v, markup });
     const id = createHash('sha1').update(body).digest('hex').slice(0, 12);
     const rel = `${lang}/${id}.mp3`;
     const file = path.join(OUT, rel);
@@ -157,5 +175,6 @@ async function all(cred) {
 }
 
 const cred = readKey();
-if (process.argv.includes('--sample')) await samples(cred);
+if (process.argv.includes('--zh-young')) await samples(cred, true);
+else if (process.argv.includes('--sample')) await samples(cred);
 else await all(cred);

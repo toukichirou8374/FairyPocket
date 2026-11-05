@@ -7,8 +7,8 @@ export type Facing = 'environment' | 'user';
 export interface ArEvents {
   /** 前鏡頭偵測到揮手 */
   wave(): void;
-  /** 畫面裡有明顯動作；x 是動作的位置（-1 左 ~ 1 右，已換成畫面上看到的方向） */
-  motion(x: number): void;
+  /** 畫面裡有明顯動作；x 是動作的位置（-1 左 ~ 1 右，已換成畫面上看到的方向），y 是上下（-1 下 ~ 1 上） */
+  motion(x: number, y: number): void;
 }
 
 /** 揮手判斷：動作的左右位置在短時間內來回改變方向幾次 */
@@ -93,18 +93,19 @@ export class ArCamera {
     const gray = new Uint8ClampedArray(32 * 24);
     for (let i = 0; i < gray.length; i++) gray[i] = (d[i * 4] + d[i * 4 + 1] * 2 + d[i * 4 + 2]) >> 2;
     if (this.prev) {
-      let n = 0, sx = 0;
+      let n = 0, sx = 0, sy = 0;
       for (let i = 0; i < gray.length; i++) {
         if (Math.abs(gray[i] - this.prev[i]) > 28) {
           n++;
           sx += i % 32;
+          sy += Math.floor(i / 32);
         }
       }
       // 動作夠明顯（約 4% 以上的畫面在動）才算
       if (n > 30) {
         // 前鏡頭畫面是鏡像顯示，所以左右反過來
         const x = -((sx / n / 31) * 2 - 1);
-        this.ev.motion(x);
+        this.ev.motion(x, 1 - (sy / n / 23) * 2);
         if (this.waves.push(performance.now(), x)) this.ev.wave();
       }
     }

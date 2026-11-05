@@ -241,6 +241,24 @@ export const ITEM_ICONS: Record<string, { grid: string[]; pal: Palette }> = {
     ],
     pal: { k: '#1d2b4a', g: '#a8b4c8', r: '#e04848', w: '#ffffff', b: '#4a7ab8' },
   },
+  // 動態模式：原創的像素眼睛
+  eye: {
+    grid: [
+      '............',
+      '............',
+      '....kkkk....',
+      '..kkwwwwkk..',
+      '.kwwwbbwwwk.',
+      'kwwwbkkbwwwk',
+      'kwwwbkkbwwwk',
+      '.kwwwbbwwwk.',
+      '..kkwwwwkk..',
+      '....kkkk....',
+      '............',
+      '............',
+    ],
+    pal: { k: '#2a2a32', w: '#ffffff', b: '#3a9ad8' },
+  },
   // 原創的像素麥克風（原版沒有麥克風）
   mic: {
     grid: [

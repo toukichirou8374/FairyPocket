@@ -14,7 +14,7 @@ import { trimSilence } from '../voice';
 import { WaveDetector } from '../ar';
 import { trackPitch, transform, VOICE_STYLES } from '../voicefx';
 import { clipKey, demoSpeech, legacyRenames, matchesItem, recordedItems, stickerBookItems } from './sbItems';
-import { detectIntent, TALK_LINES } from './talk';
+import { allTalkLines, detectIntent, refine, talkLine, TALK_LINES } from './talk';
 import { collectLocal, packValue, parseExtras, restoreLocal, unpackValue } from './backup';
 import { matchesSticker, normalizeSpeech, STICKERS } from './stickers';
 import { ZHUYIN, ZHUYIN_READ, gamepadPrompts, isModifier, keyboardPrompts, keyId, KeyRound, loadBest, padFamily, saveBest } from './keyGame';
@@ -500,7 +500,7 @@ describe('各式變音器與貼紙簿', () => {
   it('貼紙簿：字母、數字、注音、假名、動物、交通工具、食物全部都有', () => {
     const items = stickerBookItems();
     const n = (c: string) => items.filter((i) => i.cat === c).length;
-    expect([n('letter'), n('digit'), n('zhuyin'), n('kana'), n('animal'), n('vehicle'), n('work'), n('food'), n('time')]).toEqual([26, 10, 37, 45, 16, 11, 7, 16, 19]);
+    expect([n('letter'), n('digit'), n('zhuyin'), n('kana'), n('animal'), n('vehicle'), n('work'), n('food'), n('time'), n('color'), n('shape')]).toEqual([26, 10, 37, 45, 16, 11, 7, 16, 19, 12, 8]);
     expect(new Set(items.map((i) => i.id)).size).toBe(items.length);
   });
 });
@@ -545,6 +545,40 @@ describe('跟悅靈說話', () => {
     expect(detectIntent('this is it', 'en_us')).toBe(null);
     expect(detectIntent('You are too quiet', 'en_us')).toBe('tooQuiet');
     expect(detectIntent('今天天氣', 'zh_tw')).toBe(null);
+    // 新的意思：長的、特別的說法先比對
+    expect(detectIntent('你好嗎', 'zh_tw')).toBe('howAreYou');
+    expect(detectIntent('你好笨', 'zh_tw')).toBe('mean');
+    expect(detectIntent('我好棒', 'zh_tw')).toBe('proud');
+    expect(detectIntent('你好棒', 'zh_tw')).toBe('praise');
+    expect(detectIntent('我今天好不開心', 'zh_tw')).toBe('sad');
+    expect(detectIntent('好開心', 'zh_tw')).toBe('happy');
+    expect(detectIntent('我回來了', 'zh_tw')).toBe('home');
+    expect(detectIntent('我要去學校了', 'zh_tw')).toBe('goOut');
+    expect(detectIntent('你喜歡什麼', 'zh_tw')).toBe('likes');
+    expect(detectIntent('我吃飽了', 'zh_tw')).toBe('full');
+    expect(detectIntent('講故事給我聽', 'zh_tw')).toBe('story');
+    expect(detectIntent('わかった', 'ja_jp')).toBe(null);
+    expect(detectIntent('ただいま', 'ja_jp')).toBe('home');
+    expect(detectIntent('I caught a cold', 'en_us')).toBe('sick');
+    expect(detectIntent("It's so cold", 'en_us')).toBe('cold');
+    expect(detectIntent('Happy birthday!', 'en_us')).toBe('birthday');
+    expect(detectIntent('That is funny', 'en_us')).toBe(null);
+  });
+  it('看情境改變回答', () => {
+    const base = { hour: 12, hungry: false, sleepy: false, repeat: 1, affection: 50 };
+    expect(refine('morning', { ...base, hour: 21 })).toBe('morningAtNight');
+    expect(refine('night', { ...base, hour: 10 })).toBe('nightAtDay');
+    expect(refine('play', { ...base, hungry: true })).toBe('hungryNoPlay');
+    expect(refine('dance', { ...base, sleepy: true })).toBe('sleepyNoPlay');
+    expect(refine('greet', { ...base, repeat: 3 })).toBe('repeat');
+    expect(refine('love', { ...base, affection: 90 }, () => 0.1)).toBe('lovesBack');
+    expect(refine('greet', base)).toBe('greet');
+  });
+  it('個性台詞也會出現', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 40; i++) seen.add(talkLine('greet', 'zh_tw', '小悅', 'brave', () => (i % 4) / 4));
+    expect([...seen].some((x) => x.includes('冒險'))).toBe(true);
+    expect(allTalkLines().length).toBeGreaterThan(400);
   });
   it('每個意思三種語言都有回答', () => {
     for (const [k, v] of Object.entries(TALK_LINES)) for (const l of ['zh_tw', 'ja_jp', 'en_us'] as const) expect(v[l].length, k + l).toBeGreaterThan(0);
@@ -638,8 +672,7 @@ describe('neural voice files', () => {
         const d = demoSpeech(it, l);
         if (!m.clips[`${d.lang}|${d.text}`]) missing.push(`${d.lang}|${d.text}`);
       }
-    for (const byLang of Object.values(TALK_LINES))
-      for (const [l, lines] of Object.entries(byLang)) for (const t of lines) if (!t.includes('{n}') && !m.clips[`${l}|${t}`]) missing.push(`${l}|${t}`);
+    for (const [l, t] of allTalkLines()) if (!m.clips[`${l}|${t}`]) missing.push(`${l}|${t}`);
     expect(missing).toEqual([]);
     expect(Object.values(m.clips).filter((rel) => !files.has(rel))).toEqual([]);
   });

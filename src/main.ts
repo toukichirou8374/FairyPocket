@@ -21,7 +21,7 @@ import { buildCrown, buildDanceStage, DANCE_TEXTURES, type DanceImages } from '.
 import { allVoiceEntries, clipBuffer, Listener, loadReplies, loadStickerClips, loadVoiceStyle, putVoiceEntries, recordClip, renameStickerClips, saveReplies, saveStickerClip, saveVoiceStyle, type Clip } from './voice';
 import { collectLocal, packValue, parseExtras, restoreLocal, unpackValue } from './game/backup';
 import { legacyRenames } from './game/sbItems';
-import { detectIntent, talkLine, type Intent } from './game/talk';
+import { detectIntent, refine, talkLine, type Intent } from './game/talk';
 import { Recognizer, speechSupported } from './speech';
 import { loadTtsVoices, pickVoice, saveTtsVoice, voicesFor } from './ttsVoice';
 import { neuralBuffer } from './neuralVoice';
@@ -100,6 +100,7 @@ async function micOn(): Promise<void> {
 /** 聽懂了：照意思回答；聽不懂就用原本的方式（錄好的回應或悅靈語） */
 async function answerText(text: string): Promise<void> {
   ctrl.listen(false);
+  liveWake();
   const intent = detectIntent(text, getLang());
   if (!intent) {
     if (text.trim()) await answer(new Float32Array(Math.round(text.length * 2400)), 24000, true);
@@ -108,13 +109,25 @@ async function answerText(text: string): Promise<void> {
   reactTo(intent);
 }
 
-/** 照聽到的意思做出反應 */
+/** 最近說過的意思（一分鐘內一直說同一句，悅靈會發現） */
+const heardRecently: { intent: Intent; at: number }[] = [];
+
+/** 照聽到的意思做出反應（看情境、個性選台詞） */
 function reactTo(intent: Intent): void {
-  const line = talkLine(intent, getLang(), pet.name);
-  const head = ctrl.headTop(new THREE.Vector3());
   const now = performance.now();
+  while (heardRecently.length && now - heardRecently[0].at > 60_000) heardRecently.shift();
+  heardRecently.push({ intent, at: now });
+  const reply = refine(intent, {
+    hour: new Date().getHours(),
+    hungry: pet.hunger < MAX_HUNGER * 0.3,
+    sleepy: pet.asleep || night || pet.energy < 20,
+    repeat: heardRecently.filter((x) => x.intent === intent).length,
+    affection: pet.affection,
+  });
+  const line = talkLine(reply, getLang(), pet.name, pet.personality);
+  const head = ctrl.headTop(new THREE.Vector3());
   if (intent === 'quiet') quietUntil = now + 60_000;
-  if (intent === 'tooQuiet' || intent === 'greet' || intent === 'morning' || intent === 'play') quietUntil = 0;
+  if (intent === 'tooQuiet' || intent === 'greet' || intent === 'morning' || intent === 'play' || intent === 'sing' || intent === 'home') quietUntil = 0;
   const quiet = now < quietUntil;
   hud.say(line);
   if (!quiet) void speakText(line);
@@ -123,36 +136,68 @@ function reactTo(intent: Intent): void {
   const len = quiet ? 1 : Math.min(6, 0.8 + line.length * (getLang() === 'en_us' ? 0.07 : 0.2));
   talkDeafUntil = now + len * 1000 + 500;
   listener.pausedUntil = talkDeafUntil;
-  switch (intent) {
+  switch (reply) {
     case 'love':
+    case 'lovesBack':
     case 'praise':
     case 'thanks':
+    case 'sorry':
+    case 'friend':
+    case 'whoAmI':
       ctrl.setMode('happy', 2.5);
       stage.spawn('heart', head, 4);
       cheer(pet, 4);
       break;
     case 'tooQuiet':
     case 'dance':
+    case 'sing':
     case 'play':
+    case 'fly':
+    case 'cheer':
+    case 'happy':
+    case 'joke':
       ctrl.setMode('flip', 1.6);
       stage.spawn('note', head, 4);
       cheer(pet, 3);
       break;
+    case 'birthday':
+    case 'proud':
+      ctrl.setMode('flip', 1.6);
+      stage.spawn('heart', head, 3);
+      stage.spawn('note', head, 3);
+      cheer(pet, 4);
+      break;
     case 'greet':
     case 'morning':
     case 'bye':
+    case 'home':
+    case 'goOut':
       ctrl.waveBack();
       stage.spawn('note', head, 2);
       cheer(pet, 2);
       break;
     case 'quiet':
     case 'night':
+    case 'sleepyNoPlay':
+    case 'story':
       ctrl.setMode('rest', 5);
       break;
     case 'notCute':
+    case 'mean':
+    case 'repeat':
+    case 'morningAtNight':
+    case 'nightAtDay':
+    case 'hungryNoPlay':
       ctrl.setMode('oops', 1.6);
       break;
     case 'sad':
+    case 'scared':
+    case 'hurt':
+    case 'sick':
+    case 'cold':
+    case 'angry':
+    case 'come':
+    case 'where':
       ctrl.setMode('approach', 3);
       stage.spawn('heart', head, 2);
       break;
@@ -221,6 +266,44 @@ async function answer(samples: Float32Array, rate: number, fromText = false): Pr
 // ---------- 相機 AR 模式（拍照、錄影、前鏡頭揮手） ----------
 
 let lastGlance = 0;
+
+// ---------- 動態模式：前鏡頭看到人、眼睛跟著人、揮手回應、可以說話 ----------
+let liveOn = false;
+/** 最後一次看到人在動的時間 */
+let lastPersonAt = 0;
+let lastLiveGreet = 0;
+let personX = 0;
+let personY = 0;
+
+/** 鏡頭前的人在 3D 世界裡大概的位置（畫面前方、依左右上下偏移） */
+function personPoint(): THREE.Vector3 {
+  const cam = stage.camera;
+  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(cam.quaternion);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion);
+  return cam.position.clone().addScaledVector(right, personX * 1.6).addScaledVector(up, personY * 0.9);
+}
+
+function liveMotion(x: number, y: number): void {
+  const now = performance.now();
+  personX += (x - personX) * 0.35;
+  personY += (y - personY) * 0.35;
+  // 好一陣子沒看到人，現在有人出現：打招呼
+  if (now - lastPersonAt > 30_000 && now - lastLiveGreet > 60_000 && ctrl.awake && pet.onboarded) {
+    lastLiveGreet = now;
+    reactTo('greet');
+  }
+  lastPersonAt = now;
+}
+
+/** 動態模式的鏡頭休息中：點畫面或說話就再打開 */
+function liveWake(): void {
+  if (liveOn && !sensor.on) {
+    lastPersonAt = performance.now();
+    void sensorOn();
+  }
+}
+window.addEventListener('pointerdown', liveWake);
+
 const cameraEvents: ArEvents = {
   wave: () => {
     ctrl.waveBack();
@@ -229,7 +312,8 @@ const cameraEvents: ArEvents = {
     cheer(pet, 5);
   },
   // 畫面裡有人在動：悅靈好奇地往那邊看（不要太頻繁）
-  motion: (x) => {
+  motion: (x, y) => {
+    if (liveOn) return liveMotion(x, y);
     const now = performance.now();
     if (now - lastGlance < 3000 || ctrl.mode !== 'idle') return;
     lastGlance = now;
@@ -514,9 +598,13 @@ function useNoteBlock(ray: THREE.Ray, hitBlock: boolean): void {
 
 const hud = new Hud(overlay, {
   select: (slot) => {
-    if (slot === 'mic') void micOn();
+    // 動態模式 = 前鏡頭（看人、揮手）＋麥克風（說話）
+    liveOn = slot === 'live';
+    lastPersonAt = performance.now();
+    if (!liveOn) ctrl.setPerson(null);
+    if (slot === 'mic' || slot === 'live') void micOn();
     else micOff();
-    if (slot === 'wave') void sensorOn();
+    if (slot === 'wave' || slot === 'live') void sensorOn();
     else sensorOff();
     if (slot !== 'note') stage.removeNoteBlock();
   },
@@ -1439,6 +1527,16 @@ function frame(now: number): void {
     }
   }
   hud.setShardReady(ctrl.dancing);
+
+  // 動態模式：最近 5 秒有看到人就看著他；3 分鐘沒人就關鏡頭省電
+  if (liveOn) {
+    const since = performance.now() - lastPersonAt;
+    ctrl.setPerson(sensor.on && since < 5000 ? personPoint() : null);
+    if (sensor.on && since > 180_000) {
+      sensorOff();
+      hud.toast(t('live.sleep'));
+    }
+  }
 
   // 主動發言：每 15 秒檢查一次，距離上次發言超過 45 秒才說話
   if (ctrl.awake && pet.onboarded) {

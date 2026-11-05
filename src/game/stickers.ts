@@ -6,8 +6,9 @@ import type { Lang } from '../i18n';
 import type { Palette } from '../pixel';
 import { ITEM_ICONS } from '../pixel';
 import { MORE_STICKERS } from './stickersMore';
+import { COLOR_STICKERS, SHAPE_STICKERS } from './stickersColor';
 
-export type StickerCategory = 'animal' | 'food' | 'vehicle' | 'work' | 'sport' | 'building' | 'feeling';
+export type StickerCategory = 'animal' | 'food' | 'vehicle' | 'work' | 'sport' | 'building' | 'feeling' | 'color' | 'shape';
 
 export interface Sticker {
   id: string;
@@ -192,7 +193,7 @@ const BASE_STICKERS: Sticker[] = [
   },
 ];
 
-export const STICKERS: Sticker[] = [...BASE_STICKERS, ...MORE_STICKERS];
+export const STICKERS: Sticker[] = [...BASE_STICKERS, ...MORE_STICKERS, ...COLOR_STICKERS, ...SHAPE_STICKERS];
 
 /** 比對用：去掉空白與標點、英文轉小寫、片假名轉平假名 */
 export function normalizeSpeech(s: string): string {
