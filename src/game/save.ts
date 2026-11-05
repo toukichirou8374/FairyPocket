@@ -11,12 +11,14 @@ interface SaveFile {
   format: 1;
   savedAt: number;
   pet: PetState;
+  /** 遊戲紀錄、設定、錄音（見 backup.ts） */
+  extras?: unknown;
 }
 
 type KV = Pick<Storage, 'getItem' | 'setItem'>;
 
-export function serialize(s: PetState, now = Date.now()): string {
-  const file: SaveFile = { app: 'FairyPocket', format: 1, savedAt: now, pet: s };
+export function serialize(s: PetState, now = Date.now(), extras?: unknown): string {
+  const file: SaveFile = { app: 'FairyPocket', format: 1, savedAt: now, pet: s, ...(extras ? { extras } : {}) };
   return JSON.stringify(file, null, 2);
 }
 

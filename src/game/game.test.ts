@@ -11,7 +11,9 @@ import { SFX, sfxPitch } from '../sfx';
 import { trimSilence } from '../voice';
 import { WaveDetector } from '../ar';
 import { trackPitch, transform, VOICE_STYLES } from '../voicefx';
-import { stickerBookItems } from '../ui/stickerBook';
+import { clipKey, legacyRenames, matchesItem, recordedItems, stickerBookItems } from './sbItems';
+import { detectIntent, TALK_LINES } from './talk';
+import { collectLocal, packValue, parseExtras, restoreLocal, unpackValue } from './backup';
 import { matchesSticker, normalizeSpeech, STICKERS } from './stickers';
 import { gamepadPrompts, isModifier, keyboardPrompts, keyId, KeyRound, loadBest, padFamily, saveBest } from './keyGame';
 import { emptyMemory, memoryTopic, mostEaten, rememberFood, takeMilestone, timeGreeting, visitDay } from './memory';
@@ -455,11 +457,12 @@ describe('按鍵遊戲', () => {
 });
 
 describe('聲音玩法的貼紙', () => {
-  it('動物、食物、交通工具各 8 個，圖都是 12 寬、顏色都有定義', () => {
-    for (const c of ['animal', 'food', 'vehicle']) expect(STICKERS.filter((s) => s.cat === c)).toHaveLength(8);
+  it('每類至少 6 個，圖都是 12×12、顏色都有定義', () => {
+    for (const c of ['animal', 'food', 'vehicle', 'work', 'sport', 'building', 'feeling']) expect(STICKERS.filter((s) => s.cat === c).length, c).toBeGreaterThanOrEqual(6);
     expect(new Set(STICKERS.map((s) => s.id)).size).toBe(STICKERS.length);
     for (const s of STICKERS) {
-      expect(s.grid.length, s.id).toBeGreaterThanOrEqual(8);
+      expect(s.grid.length, s.id).toBeGreaterThanOrEqual(10);
+      expect(s.grid.length, s.id).toBeLessThanOrEqual(12);
       for (const row of s.grid) {
         expect(row.length, s.id).toBe(12);
         for (const ch of row) if (ch !== '.') expect(s.pal[ch], `${s.id} ${ch}`).toBeTruthy();
@@ -495,7 +498,75 @@ describe('各式變音器與貼紙簿', () => {
   it('貼紙簿：字母、數字、注音、假名、動物、交通工具、食物全部都有', () => {
     const items = stickerBookItems();
     const n = (c: string) => items.filter((i) => i.cat === c).length;
-    expect([n('letter'), n('digit'), n('zhuyin'), n('kana'), n('animal'), n('vehicle'), n('food')]).toEqual([26, 10, 37, 45, 8, 8, 8]);
+    expect([n('letter'), n('digit'), n('zhuyin'), n('kana'), n('animal'), n('vehicle'), n('work'), n('food'), n('time')]).toEqual([26, 10, 37, 45, 16, 11, 7, 16, 19]);
     expect(new Set(items.map((i) => i.id)).size).toBe(items.length);
+  });
+});
+
+describe('貼紙簿 v0.26', () => {
+  const items = stickerBookItems();
+  const get = (id: string) => items.find((i) => i.id === id)!;
+  it('字母、注音、假名不分語言，其他依語言分開存', () => {
+    expect(clipKey(get('letter:A'), 'ja_jp')).toBe('letter:A');
+    expect(clipKey(get('kana:あ'), 'zh_tw')).toBe('kana:あ');
+    expect(clipKey(get('pic:dog'), 'ja_jp')).toBe('ja_jp/pic:dog');
+    expect(clipKey(get('digit:1'), 'en_us')).toBe('en_us/digit:1');
+    expect(legacyRenames(['pic:dog', 'letter:A', 'zh_tw/pic:cat'], 'zh_tw')).toEqual([['pic:dog', 'zh_tw/pic:dog']]);
+  });
+  it('聲音玩法只出現選到的類別裡、這個語言錄好的貼紙', () => {
+    const keys = new Set(['zh_tw/pic:dog', 'ja_jp/pic:cat', 'letter:B', 'zh_tw/month:1']);
+    expect(recordedItems(keys, ['animal', 'letter'], 'zh_tw').map((i) => i.id)).toEqual(['letter:B', 'pic:dog']);
+    expect(recordedItems(keys, ['animal', 'time'], 'ja_jp').map((i) => i.id)).toEqual(['pic:cat']);
+  });
+  it('數字、月份、星期依語言比對', () => {
+    expect(matchesItem('三', get('digit:3'), 'zh_tw')).toBe(true);
+    expect(matchesItem('three', get('digit:3'), 'en_us')).toBe(true);
+    expect(matchesItem('いち', get('digit:1'), 'ja_jp')).toBe(true);
+    expect(matchesItem('September', get('month:9'), 'en_us')).toBe(true);
+    expect(matchesItem('くがつ', get('month:9'), 'ja_jp')).toBe(true);
+    expect(matchesItem('禮拜天', get('day:7'), 'zh_tw')).toBe(true);
+    expect(matchesItem('月曜日', get('day:1'), 'ja_jp')).toBe(true);
+    expect(matchesItem('星期二', get('day:1'), 'zh_tw')).toBe(false);
+    expect(matchesItem('ㄅ', get('zhuyin:ㄅ'), 'zh_tw')).toBe(true);
+  });
+});
+
+describe('跟悅靈說話', () => {
+  it('意思相近但不同的話分得出來', () => {
+    expect(detectIntent('你太安靜了吧', 'zh_tw')).toBe('tooQuiet');
+    expect(detectIntent('安靜一點', 'zh_tw')).toBe('quiet');
+    expect(detectIntent('你好可愛', 'zh_tw')).toBe('love');
+    expect(detectIntent('你一點都不可愛', 'zh_tw')).toBe('notCute');
+    expect(detectIntent('しずかにして', 'ja_jp')).toBe('quiet');
+    expect(detectIntent('静かすぎるよ', 'ja_jp')).toBe('tooQuiet');
+    expect(detectIntent('Hi there!', 'en_us')).toBe('greet');
+    expect(detectIntent('this is it', 'en_us')).toBe(null);
+    expect(detectIntent('You are too quiet', 'en_us')).toBe('tooQuiet');
+    expect(detectIntent('今天天氣', 'zh_tw')).toBe(null);
+  });
+  it('每個意思三種語言都有回答', () => {
+    for (const [k, v] of Object.entries(TALK_LINES)) for (const l of ['zh_tw', 'ja_jp', 'en_us'] as const) expect(v[l].length, k + l).toBeGreaterThan(0);
+  });
+});
+
+describe('匯出存檔帶走遊戲資料與錄音', () => {
+  it('設定與錄音可以存進文字再還原', () => {
+    const mem = new Map<string, string>([['fairypocket.keygame.v1', '{"a":3}'], [SAVE_KEY, 'x'], ['other', 'y'], ['fairypocket.assets.v1', 'z']]);
+    const st = { get length() { return mem.size; }, key: (i: number) => [...mem.keys()][i] ?? null, getItem: (k: string) => mem.get(k) ?? null };
+    expect(collectLocal(st)).toEqual({ 'fairypocket.keygame.v1': '{"a":3}' });
+    const data = new Float32Array(4800).map((_, i) => Math.sin(i / 10) * 0.5);
+    const packed = packValue([{ rate: 48000, data }, null]);
+    const text = serialize(createPet(), 0, { local: collectLocal(st), voice: { 'replies:zh_tw': packed } });
+    const ex = parseExtras(text)!;
+    const back = unpackValue(ex.voice['replies:zh_tw']) as ({ rate: number; data: Float32Array } | null)[];
+    expect(back[0]!.rate).toBe(24000);
+    expect(back[0]!.data.length).toBe(2400);
+    expect(Math.abs(back[0]!.data[100] - data[200])).toBeLessThan(0.05);
+    expect(back[1]).toBe(null);
+    const out = new Map<string, string>();
+    restoreLocal({ setItem: (k, v) => out.set(k, v) }, { ...ex.local, [SAVE_KEY]: 'bad' });
+    expect([...out.keys()]).toEqual(['fairypocket.keygame.v1']);
+    expect(parseSave(text).name).toBeTruthy();
+    expect(parseExtras(serialize(createPet()))).toBe(null);
   });
 });

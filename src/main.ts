@@ -18,7 +18,12 @@ import { StickerBook } from './ui/stickerBook';
 import { MotionTracker } from './motion';
 import { STICKERS, stickerCanvas } from './game/stickers';
 import { buildCrown, buildDanceStage, DANCE_TEXTURES, type DanceImages } from './three/danceStage';
-import { clipBuffer, Listener, loadReplies, loadStickerClips, loadVoiceStyle, recordClip, saveReplies, saveStickerClip, saveVoiceStyle, type Clip } from './voice';
+import { allVoiceEntries, clipBuffer, Listener, loadReplies, loadStickerClips, loadVoiceStyle, putVoiceEntries, recordClip, renameStickerClips, saveReplies, saveStickerClip, saveVoiceStyle, type Clip } from './voice';
+import { collectLocal, packValue, parseExtras, restoreLocal, unpackValue } from './game/backup';
+import { legacyRenames } from './game/sbItems';
+import { detectIntent, talkLine, type Intent } from './game/talk';
+import { Recognizer, speechSupported } from './speech';
+import { DISCS } from './music';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
 import { asciiGlyphs, buildFont } from './pixelFont';
@@ -59,7 +64,105 @@ let replies: (Clip | null)[] = [];
 void loadReplies(getLang()).then((r) => (replies = r));
 let voiceStyle = loadVoiceStyle(localStorage);
 
+/** 跟悅靈說話：支援語音辨識時把話轉成文字、找關鍵字回答 */
+const talkRec = new Recognizer();
+let talkOn = false;
+/** 悅靈說話時先不聽 */
+let talkDeafUntil = 0;
+/** 被叫「安靜一點」之後，這段時間只用小聲的方式回應 */
+let quietUntil = 0;
+
 async function micOn(): Promise<void> {
+  sound.unlock();
+  const ctx = sound.context;
+  if (!ctx || listener.on || talkOn) return;
+  if (speechSupported()) {
+    talkOn = talkRec.start(
+      SPEECH_LANG[getLang()],
+      (text, final) => {
+        if (performance.now() < talkDeafUntil) return;
+        if (!final) ctrl.listen(true);
+        else void answerText(text);
+      },
+      // 語音辨識不能用（沒有權限等）：改用只聽聲音的方式
+      () => {
+        talkRec.stop();
+        talkOn = false;
+        void micListen();
+      },
+    );
+    if (talkOn) return;
+  }
+  await micListen();
+}
+
+/** 聽懂了：照意思回答；聽不懂就用原本的方式（錄好的回應或悅靈語） */
+async function answerText(text: string): Promise<void> {
+  ctrl.listen(false);
+  const intent = detectIntent(text, getLang());
+  if (!intent) {
+    if (text.trim()) await answer(new Float32Array(Math.round(text.length * 2400)), 24000, true);
+    return;
+  }
+  reactTo(intent);
+}
+
+/** 照聽到的意思做出反應 */
+function reactTo(intent: Intent): void {
+  const line = talkLine(intent, getLang(), pet.name);
+  const head = ctrl.headTop(new THREE.Vector3());
+  const now = performance.now();
+  if (intent === 'quiet') quietUntil = now + 60_000;
+  if (intent === 'tooQuiet' || intent === 'greet' || intent === 'morning' || intent === 'play') quietUntil = 0;
+  const quiet = now < quietUntil;
+  hud.say(line);
+  if (!quiet) speakText(line);
+  else sound.speak(pet.personality);
+  // 說話的時間大概抓一下，這段時間先不聽
+  const len = quiet ? 1 : Math.min(6, 0.8 + line.length * (getLang() === 'en_us' ? 0.07 : 0.2));
+  talkDeafUntil = now + len * 1000 + 500;
+  listener.pausedUntil = talkDeafUntil;
+  switch (intent) {
+    case 'love':
+    case 'praise':
+    case 'thanks':
+      ctrl.setMode('happy', 2.5);
+      stage.spawn('heart', head, 4);
+      cheer(pet, 4);
+      break;
+    case 'tooQuiet':
+    case 'dance':
+    case 'play':
+      ctrl.setMode('flip', 1.6);
+      stage.spawn('note', head, 4);
+      cheer(pet, 3);
+      break;
+    case 'greet':
+    case 'morning':
+    case 'bye':
+      ctrl.waveBack();
+      stage.spawn('note', head, 2);
+      cheer(pet, 2);
+      break;
+    case 'quiet':
+    case 'night':
+      ctrl.setMode('rest', 5);
+      break;
+    case 'notCute':
+      ctrl.setMode('oops', 1.6);
+      break;
+    case 'sad':
+      ctrl.setMode('approach', 3);
+      stage.spawn('heart', head, 2);
+      break;
+    default:
+      ctrl.setMode('happy', 2);
+      stage.spawn('note', head, 2);
+  }
+  lastSpoke = now;
+}
+
+async function micListen(): Promise<void> {
   sound.unlock();
   const ctx = sound.context;
   if (!ctx || listener.on) return;
@@ -76,13 +179,22 @@ async function micOn(): Promise<void> {
 }
 
 function micOff(): void {
+  talkRec.stop();
+  talkOn = false;
   listener.stop();
   ctrl.listen(false);
 }
 
 /** 說完了：從這個語言錄好的回應隨機挑一句；沒有就用悅靈語回答 */
-async function answer(samples: Float32Array, rate: number): Promise<void> {
+async function answer(samples: Float32Array, rate: number, fromText = false): Promise<void> {
   ctrl.listen(false);
+  // 被叫安靜的時候：只輕輕叫一聲
+  if (performance.now() < quietUntil) {
+    sound.speak(pet.personality);
+    hud.say('…♪');
+    listener.pausedUntil = talkDeafUntil = performance.now() + 1200;
+    return;
+  }
   const ctx = sound.context;
   const ready = replies.filter((r): r is Clip => !!r);
   let len: number;
@@ -98,7 +210,8 @@ async function answer(samples: Float32Array, rate: number): Promise<void> {
     len = times * 0.65 + 0.8;
   }
   // 悅靈說話時先不要聽（避免聽到自己的聲音）
-  listener.pausedUntil = performance.now() + (len + 0.4) * 1000;
+  listener.pausedUntil = talkDeafUntil = performance.now() + (len + 0.4) * 1000;
+  void fromText;
   stage.spawn('note', ctrl.headTop(new THREE.Vector3()), 2);
   cheer(pet, 3);
   lastSpoke = performance.now();
@@ -626,6 +739,24 @@ async function showDanceStage(on: boolean): Promise<void> {
   stage.showPlants(!danceOn);
 }
 
+/** 貼紙簿的背景音樂：音樂盒版的 Creator（輕柔、不會蓋過說話的聲音） */
+const SB_SONG = DISCS[0].path;
+let sbMusic = false;
+
+/** 讀出貼紙簿的錄音；v0.25 存的（不分語言）當作目前語言的錄音 */
+async function stickerClips(): Promise<Map<string, Clip>> {
+  const m = await loadStickerClips();
+  const ren = legacyRenames([...m.keys()], getLang());
+  if (ren.length) {
+    await renameStickerClips(ren);
+    for (const [a, b] of ren) {
+      m.set(b, m.get(a)!);
+      m.delete(a);
+    }
+  }
+  return m;
+}
+
 /** 貼紙簿：每張貼紙錄一段聲音（最長 5 秒），可以用原聲或變聲聽 */
 const stickerBook = new StickerBook({
   root: overlay,
@@ -643,11 +774,24 @@ const stickerBook = new StickerBook({
   play: (c, changed) => {
     sound.unlock();
     const ctx = sound.context;
-    if (ctx) sound.playClip(clipBuffer(ctx, c, changed ? voiceStyle : null));
+    return ctx ? sound.playClip(clipBuffer(ctx, c, changed ? voiceStyle : null)) : 0;
   },
   voiceName: () => t(`voice.${voiceStyle}`),
-  load: loadStickerClips,
+  load: stickerClips,
   save: saveStickerClip,
+  musicStart: () => {
+    sound.unlock();
+    sbMusic = true;
+    const loop = () => {
+      if (sbMusic) void music.playSong(SB_SONG, loop);
+    };
+    loop();
+  },
+  musicStop: () => {
+    sbMusic = false;
+    music.stopSong();
+  },
+  musicDuck: (l) => music.duckSong(l),
 });
 
 /** 精靈舞蹈：不支援語音辨識時用的「聽到聲音」偵測，與體感用的前鏡頭 */
@@ -721,6 +865,12 @@ const keyGame = new KeyGameUI({
   motionActivity: (x, y, r) => motion.activity(x, y, r),
   motionOverall: () => motion.overall(),
   openStickerBook: () => void stickerBook.open(),
+  stickerClips,
+  playClip: (c) => {
+    sound.unlock();
+    const ctx = sound.context;
+    return ctx ? sound.playClip(clipBuffer(ctx, c, null)) : 0;
+  },
   moveAllay: () => {
     // 換到畫面上另一個地方（跟上一個位置拉開距離），讓小朋友要移動身體
     const cam = stage.camera;
@@ -871,7 +1021,14 @@ function save(): void {
 async function exportSave(): Promise<void> {
   save();
   const name = exportFileName();
-  const file = new File([serialize(pet)], name, { type: 'application/json' });
+  // 遊戲紀錄、設定、所有錄音也一起放進存檔
+  const voice: Record<string, unknown> = {};
+  try {
+    for (const [k, v] of await allVoiceEntries()) voice[k] = packValue(v);
+  } catch {
+    // 讀不到錄音就只存悅靈
+  }
+  const file = new File([serialize(pet, Date.now(), { local: collectLocal(localStorage), voice })], name, { type: 'application/json' });
   try {
     if (navigator.canShare?.({ files: [file] })) {
       await navigator.share({ files: [file], title: t('saveTitle') });
@@ -891,7 +1048,16 @@ async function exportSave(): Promise<void> {
 
 async function importSave(file: File): Promise<void> {
   try {
-    receive(parseSave(await file.text()));
+    const text = await file.text();
+    if (!receive(parseSave(text))) return;
+    // 存檔裡有遊戲紀錄與錄音：一起還原，重新載入後套用設定
+    const ex = parseExtras(text);
+    if (ex) {
+      restoreLocal(localStorage, ex.local);
+      await putVoiceEntries(Object.entries(ex.voice).map(([k, v]) => [k, unpackValue(v)]));
+      hud.toast(t('saveRestoredAll'));
+      window.setTimeout(() => location.reload(), 1500);
+    }
   } catch (e) {
     hud.toast((e as Error).message);
   }
@@ -928,10 +1094,10 @@ async function pasteLink(): Promise<void> {
 }
 
 /** 收到另一台裝置的存檔（連動碼或存檔檔案）：同一隻就同步，另一隻要先確認 */
-function receive(data: PetState): void {
+function receive(data: PetState): boolean {
   const kind = linkKind(pet, data);
-  if (kind === 'other' && !confirm(t('linkOther', { n: data.name }))) return;
-  if (kind === 'same-older' && !confirm(t('linkOlder'))) return;
+  if (kind === 'other' && !confirm(t('linkOther', { n: data.name }))) return false;
+  if (kind === 'same-older' && !confirm(t('linkOlder'))) return false;
   Object.assign(pet, data, { onboarded: true });
   clearFriends();
   applyGlow();
@@ -941,6 +1107,7 @@ function receive(data: PetState): void {
   hud.updateStats(pet);
   save();
   hud.toast(t(kind === 'other' ? 'saveRestored' : 'linkSynced'));
+  return true;
 }
 
 setInterval(save, 5000);

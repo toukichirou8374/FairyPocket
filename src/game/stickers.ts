@@ -1,12 +1,13 @@
 // 精靈舞蹈「聲音」玩法的貼紙：自己畫的像素圖（不用素材包、也不用系統的 Emoji），
-// 種類參考 Emoji 裡有的東西。分成動物、食物、交通工具三類，每類 8 個。
+// 種類參考 Emoji 裡有的東西。分成動物、食物、交通工具、工作車、運動、建築、心情（v0.26 新增的在 stickersMore.ts）。
 // names：畫面上顯示、提示時念的名字；alias：小朋友可能會說的其他說法（語音辨識比對用）。
 
 import type { Lang } from '../i18n';
 import type { Palette } from '../pixel';
 import { ITEM_ICONS } from '../pixel';
+import { MORE_STICKERS } from './stickersMore';
 
-export type StickerCategory = 'animal' | 'food' | 'vehicle';
+export type StickerCategory = 'animal' | 'food' | 'vehicle' | 'work' | 'sport' | 'building' | 'feeling';
 
 export interface Sticker {
   id: string;
@@ -19,7 +20,7 @@ export interface Sticker {
 
 const K = '#222222';
 
-export const STICKERS: Sticker[] = [
+const BASE_STICKERS: Sticker[] = [
   // ---------- 動物 ----------
   {
     id: 'dog', cat: 'animal',
@@ -183,13 +184,15 @@ export const STICKERS: Sticker[] = [
     alias: { zh_tw: ['火箭'], ja_jp: ['ロケット'], en_us: ['rocket'] },
   },
   {
-    id: 'firetruck', cat: 'vehicle',
+    id: 'firetruck', cat: 'work',
     grid: ['............', '..gggggggg..', '..g.g.g.g.g.', '.rrrrrrrbbr.', 'rrrrrrrrbbrr', 'rrrrrrrrrrrr', 'rwwwwwwwrrrr', 'rrrrrrrrrrrr', 'rkkrrrrrrkkr', '.kgk....kgk.', '..k......k..', '............'],
     pal: { r: '#e03a3a', g: '#c0c0c0', b: '#a0d8ff', w: '#ffffff', k: K },
     names: { zh_tw: '消防車', ja_jp: 'しょうぼうしゃ', en_us: 'fire truck' },
     alias: { zh_tw: ['消防车', '救火車', '救火车'], ja_jp: ['消防車'], en_us: ['fire engine', 'firetruck', 'fire truck'] },
   },
 ];
+
+export const STICKERS: Sticker[] = [...BASE_STICKERS, ...MORE_STICKERS];
 
 /** 比對用：去掉空白與標點、英文轉小寫、片假名轉平假名 */
 export function normalizeSpeech(s: string): string {

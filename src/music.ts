@@ -24,6 +24,8 @@ interface Track {
   stop(): void;
   /** 播到哪裡了 0–1 */
   progress(): number;
+  /** 調整音量（相對原本音量 0–1） */
+  duck(level: number): void;
 }
 
 /** 小遊戲歌曲的音量 */
@@ -136,6 +138,11 @@ export class Music {
     this.schedule(20);
   }
 
+  /** 小遊戲的歌暫時調小聲（錄音、播放錄音時） */
+  duckSong(level: number): void {
+    this.song?.duck(level);
+  }
+
   songProgress(): number {
     return this.song?.progress() ?? 0;
   }
@@ -194,6 +201,7 @@ export class Music {
           gain.disconnect();
         },
         progress: () => (audio.duration ? audio.currentTime / audio.duration : 0),
+        duck: (l) => gain.gain.setTargetAtTime(volume * l, ctx.currentTime, 0.08),
       };
     }
     // 不行就解碼成單聲道再播
@@ -210,6 +218,7 @@ export class Music {
     const t0 = ctx.currentTime;
     return {
       progress: () => Math.min(1, (ctx.currentTime - t0) / buf.duration),
+      duck: (l) => gain.gain.setTargetAtTime(volume * l, ctx.currentTime, 0.08),
       stop: () => {
         ended = true;
         src.onended = null;

@@ -952,6 +952,17 @@ export class Hud {
         this.actions.reset();
       }
     });
+    // 設定很長：依項目分組，點標題開合（一次開一個）
+    this.foldSections(box, [
+      [t('name'), t('sec.pet')],
+      [t('language'), t('sec.sound')],
+      [t('glow'), t('sec.look')],
+      [t('replies', { l: LANGS[getLang()] }), t('sec.replies')],
+      [t('dev.title'), t('sec.dev')],
+      [t('bedtime'), t('sec.time')],
+      [t('link'), t('sec.save')],
+      [t('packLabel'), t('sec.pack')],
+    ]);
     el('div', 'ver', box).textContent = `FairyPocket v${__APP_VERSION__}`;
     const done = el('button', 'btn primary', box);
     done.textContent = t('done');
@@ -959,6 +970,52 @@ export class Hud {
       if (input.value.trim()) this.actions.rename(input.value.trim());
       close();
     });
+  }
+
+  /** 上次打開的設定分組（這次開啟 App 期間記住） */
+  private openSection = '';
+
+  /**
+   * 把設定頁的內容依標題分組：遇到 starts 裡的標題就開始新的一組，到「重設」按鈕為止。
+   * 每組變成一個可以開合的區塊，一次只開一個。
+   */
+  private foldSections(box: HTMLElement, starts: [string, string][]): void {
+    const titles = new Map(starts);
+    const kids = Array.from(box.children) as HTMLElement[];
+    let body: HTMLElement | null = null;
+    const heads: { head: HTMLElement; body: HTMLElement; title: string }[] = [];
+    for (const k of kids) {
+      if (k.classList.contains('danger')) break;
+      const title = k.tagName === 'LABEL' ? titles.get(k.textContent ?? '') : undefined;
+      if (title) {
+        const sect = el('div', 'sect');
+        box.insertBefore(sect, k);
+        const head = el('button', 'btn sect-head', sect);
+        head.textContent = title;
+        body = el('div', 'sect-body', sect);
+        heads.push({ head, body, title });
+      }
+      if (body) body.appendChild(k);
+    }
+    // 開發選項放在最後
+    const dev = heads.find((h) => h.title === t('sec.dev'));
+    const last = heads[heads.length - 1];
+    if (dev && last && dev !== last) last.head.parentElement!.after(dev.head.parentElement!);
+    const show = (title: string) => {
+      this.openSection = title;
+      for (const h of heads) {
+        const on = h.title === title;
+        h.head.classList.toggle('on', on);
+        h.body.style.display = on ? '' : 'none';
+      }
+    };
+    for (const h of heads) {
+      h.head.addEventListener('click', () => {
+        this.actions.sfx('click');
+        show(this.openSection === h.title ? '' : h.title);
+      });
+    }
+    show(this.openSection);
   }
 
   /** 由 main 設定，讓設定頁讀到最新狀態 */

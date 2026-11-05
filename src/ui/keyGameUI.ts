@@ -24,7 +24,9 @@ import {
   type KgSong,
   type Prompt,
 } from '../game/keyGame';
-import { matchesSticker, STICKERS, stickerCanvas } from '../game/stickers';
+import { clipKey, itemFace, itemName, matchesItem, recordedItems, SB_CATS, stickerBookItems, type SbCat, type SbItem } from '../game/sbItems';
+import { stickerCanvas } from '../game/stickers';
+import type { Clip } from '../voice';
 import { getLang, t } from '../i18n';
 import { Recognizer, speechSupported } from '../speech';
 
@@ -62,10 +64,26 @@ export interface KeyGameHost {
   moveAllay(): void;
   /** 打開貼紙簿 */
   openStickerBook(): void;
+  /** 貼紙簿的錄音（存檔名 → 錄音） */
+  stickerClips(): Promise<Map<string, Clip>>;
+  /** 播放貼紙簿的錄音（提示用）；回傳長度（秒） */
+  playClip(c: Clip): number;
 }
 
 const SPEAK_KEY = 'fairypocket.keygame.speak.v1';
 const MODE_KEY = 'fairypocket.keygame.mode.v1';
+const VOICE_CATS_KEY = 'fairypocket.keygame.voicecats.v1';
+
+/** 聲音玩法要出哪些類別的貼紙（存在這台裝置） */
+function loadVoiceCats(): SbCat[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(VOICE_CATS_KEY) ?? 'null') as unknown;
+    if (Array.isArray(v)) return SB_CATS.filter((c) => v.includes(c));
+  } catch {
+    // 讀不到就用預設
+  }
+  return [...SB_CATS];
+}
 /** 沒有歌的時候玩多久（秒） */
 const NO_SONG_TIME = 120;
 const SPEECH_LANG: Record<string, string> = { zh_tw: 'zh-TW', ja_jp: 'ja-JP', en_us: 'en-US' };
@@ -112,6 +130,10 @@ export class KeyGameUI {
   private nextHint = 0;
   /** 提示念名字時先不聽（避免聽到自己的聲音） */
   private deafUntil = 0;
+  /** 聲音玩法的題目：貼紙簿裡錄好的貼紙 */
+  private voiceCats = loadVoiceCats();
+  private voiceItems: SbItem[] = [];
+  private voiceClips = new Map<string, Clip>();
   // 體感玩法
   private camOk = false;
   private motionReadyAt = 0;
@@ -138,8 +160,8 @@ export class KeyGameUI {
     el('div', 'info', box).textContent = t('gamesPick');
     const list = el('div', 'kglist', box);
     const games: { id: string; title: string; desc: string; ready: boolean }[] = [
-      { id: 'dance', title: t('kg.title'), desc: t('kg.short'), ready: true },
       { id: 'sticker', title: t('game.sticker'), desc: t('sb.short'), ready: true },
+      { id: 'dance', title: t('kg.title'), desc: t('kg.short'), ready: true },
     ];
     for (const g of games) {
       const b = el('button', 'btn kggame', list);
@@ -177,6 +199,41 @@ export class KeyGameUI {
     const modes: KeyGameMode[] = ['keyboard', 'gamepad', 'tap', 'voice', 'motion'];
     const help = el('div', 'info kghelp', box);
     const sp = el('button', 'btn', box);
+    // 聲音玩法：選要出哪些類別（只會出貼紙簿裡錄好的）
+    const vbox = el('div', 'kgvoice', box);
+    el('div', 'info', vbox).textContent = t('kg.voiceCats');
+    const vcats = el('div', 'kgcats', vbox);
+    const vcount = el('div', 'info', vbox);
+    const vbook = el('button', 'btn', vbox);
+    vbook.textContent = t('kg.toBook');
+    vbook.addEventListener('click', () => {
+      back.remove();
+      this.host.openStickerBook();
+    });
+    let keys = new Set<string>();
+    const all = stickerBookItems();
+    const lang = getLang();
+    const drawCats = () => {
+      vcats.replaceChildren();
+      for (const c of SB_CATS) {
+        const n = all.filter((it) => it.cat === c && keys.has(clipKey(it, lang))).length;
+        const b = el('button', 'btn small' + (this.voiceCats.includes(c) ? ' on' : ''), vcats);
+        b.textContent = `${t(`sb.cat.${c}`)} ${n}`;
+        b.disabled = n === 0;
+        b.addEventListener('click', () => {
+          this.voiceCats = this.voiceCats.includes(c) ? this.voiceCats.filter((x) => x !== c) : [...this.voiceCats, c];
+          localStorage.setItem(VOICE_CATS_KEY, JSON.stringify(this.voiceCats));
+          drawCats();
+        });
+      }
+      const n = recordedItems(keys, this.voiceCats, lang, all).length;
+      vcount.textContent = n ? t('kg.voiceCount', { n }) : t('kg.voiceNone');
+    };
+    void this.host.stickerClips().then((m) => {
+      keys = new Set(m.keys());
+      drawCats();
+    });
+    drawCats();
     const refresh = () => {
       songs.querySelectorAll<HTMLElement>('.btn').forEach((b) => (b.querySelector('.best')!.textContent = t('kg.best', { n: loadBest(localStorage, this.mode, b.dataset.song as KgSong) })));
       help.textContent = t(`kg.help.${this.mode}`);
@@ -184,6 +241,7 @@ export class KeyGameUI {
       sp.textContent = `${t('kg.speak')}：${t(this.speakOn ? 'on' : 'off')}`;
       sp.classList.toggle('on', this.speakOn);
       sp.style.display = this.mode === 'keyboard' ? '' : 'none';
+      vbox.style.display = this.mode === 'voice' ? '' : 'none';
     };
     for (const m of modes) {
       const b = el('button', 'btn' + (m === this.mode ? ' on' : ''), mrow);
@@ -198,6 +256,7 @@ export class KeyGameUI {
     // 說明放在玩法按鈕下面
     mrow.after(help);
     help.after(sp);
+    sp.after(vbox);
     sp.addEventListener('click', () => {
       this.speakOn = !this.speakOn;
       localStorage.setItem(SPEAK_KEY, this.speakOn ? '1' : '0');
@@ -227,6 +286,14 @@ export class KeyGameUI {
     close.textContent = t('close');
     close.addEventListener('click', () => back.remove());
     go.addEventListener('click', () => {
+      // 聲音玩法沒有錄好的貼紙：先去貼紙簿錄
+      if (this.mode === 'voice' && !recordedItems(keys, this.voiceCats, lang, all).length) {
+        vcount.textContent = t('kg.voiceNone');
+        vcount.classList.remove('warn');
+        void vcount.offsetWidth;
+        vcount.classList.add('warn');
+        return;
+      }
       back.remove();
       void this.start();
     });
@@ -239,7 +306,12 @@ export class KeyGameUI {
     if (this.mode === 'gamepad') return gamepadPrompts(this.padFam ?? 'playstation', lang);
     if (this.mode === 'tap') return [{ id: 'tap', label: '★', name: t('kg.tapMe'), speak: t('kg.good') }];
     if (this.mode === 'motion') return [{ id: 'motion', label: '', speak: t('kg.good') }];
-    if (this.mode === 'voice') return STICKERS.map((s) => ({ id: s.id, label: '', name: s.names[lang], speak: s.names[lang] }));
+    if (this.mode === 'voice')
+      return this.voiceItems.map((it) => {
+        const name = itemName(it, lang);
+        const face = it.sticker ? '' : itemFace(it, lang);
+        return { id: it.id, label: face, name, speak: name ?? face };
+      });
     return keyboardPrompts(lang);
   }
 
@@ -283,7 +355,11 @@ export class KeyGameUI {
         this.waitEl.textContent = t('kg.padWait');
       }
     }
-    if (this.mode === 'voice') await this.startVoice();
+    if (this.mode === 'voice') {
+      this.voiceClips = await this.host.stickerClips();
+      this.voiceItems = recordedItems(new Set(this.voiceClips.keys()), this.voiceCats, getLang());
+      await this.startVoice();
+    }
     if (this.mode === 'motion') await this.startMotion();
     if (!this.layer) return;
     this.round = new KeyRound(this.prompts());
@@ -342,8 +418,8 @@ export class KeyGameUI {
     const onHeard = (text: string, final: boolean) => {
       const cur = this.round?.current;
       if (!cur || this.ended || performance.now() < this.deafUntil) return;
-      const s = STICKERS.find((x) => x.id === cur.id);
-      if (s && matchesSticker(text, s, getLang())) this.press(cur.id);
+      const it = this.voiceItems.find((x) => x.id === cur.id);
+      if (it && matchesItem(text, it, getLang())) this.press(cur.id);
       else if (final && text.trim()) this.press('miss');
     };
     // 麥克風不能用：開發選項的觸碰測試打開時改用點的
@@ -444,8 +520,14 @@ export class KeyGameUI {
     // 聲音：一陣子沒答對，悅靈提示名字
     if (this.mode === 'voice' && !this.ended && this.round?.current && now > this.lockUntil && now - this.shownAt > this.nextHint) {
       this.nextHint += HINT_EVERY;
-      this.deafUntil = now + 2200;
-      this.host.speak(this.round.current.speak);
+      // 提示：播放貼紙簿裡錄的聲音（播放時先不聽）
+      const it = this.voiceItems.find((x) => x.id === this.round?.current?.id);
+      const clip = it && this.voiceClips.get(clipKey(it, getLang()));
+      if (clip) this.deafUntil = now + this.host.playClip(clip) * 1000 + 600;
+      else {
+        this.deafUntil = now + 2200;
+        this.host.speak(this.round.current.speak);
+      }
       this.keyEl?.classList.remove('hint');
       void this.keyEl?.offsetWidth;
       this.keyEl?.classList.add('hint');
@@ -488,11 +570,11 @@ export class KeyGameUI {
     const kind = this.mode === 'gamepad' ? 'pad' : this.mode === 'tap' ? 'tap' : this.mode === 'voice' ? 'sticker' : 'cap';
     const k = el('div', `kg-key kg-${kind}${this.mode === 'gamepad' && (this.padFam ?? 'playstation') === 'playstation' ? ' ps' : ''}`, this.layer);
     const face = el('div', 'kg-face', k);
-    if (this.mode === 'voice') {
-      const s = STICKERS.find((x) => x.id === p.id)!;
-      face.appendChild(stickerCanvas(s, 8));
-    } else face.textContent = p.label;
+    const vit = this.mode === 'voice' ? this.voiceItems.find((x) => x.id === p.id) : undefined;
+    if (vit?.sticker) face.appendChild(stickerCanvas(vit.sticker, 8));
+    else face.textContent = p.label;
     if (p.label.length > 2) face.classList.add('long');
+    else if (this.mode === 'voice' && p.label.length === 2) face.classList.add('mid');
     if (p.color) face.style.setProperty('--pad', p.color);
     if (p.name) el('div', 'kg-name', k).textContent = p.name;
     // 隨機位置，避開中間的悅靈

@@ -229,6 +229,29 @@ export async function saveStickerClip(id: string, c: Clip | null): Promise<void>
   else await run('readwrite', (s) => s.delete(STICKER_PREFIX + id));
 }
 
+/** 改錄音的名字（舊版不分語言的錄音 → 依語言分開） */
+export async function renameStickerClips(pairs: [string, string][]): Promise<void> {
+  for (const [a, b] of pairs) {
+    const c = await run('readonly', (s) => s.get(STICKER_PREFIX + a));
+    if (c) await run('readwrite', (s) => s.put(c, STICKER_PREFIX + b));
+    await run('readwrite', (s) => s.delete(STICKER_PREFIX + a));
+  }
+}
+
+// ---------- 匯出存檔用：錄音資料庫的全部內容 ----------
+
+export async function allVoiceEntries(): Promise<[string, unknown][]> {
+  const keys = (await run('readonly', (s) => s.getAllKeys())) as IDBValidKey[];
+  const out: [string, unknown][] = [];
+  for (const k of keys) if (typeof k === 'string') out.push([k, await run('readonly', (s) => s.get(k))]);
+  return out;
+}
+
+/** 還原錄音（同名的會被存檔裡的取代，其他的保留） */
+export async function putVoiceEntries(entries: [string, unknown][]): Promise<void> {
+  for (const [k, v] of entries) if (v !== null && v !== undefined) await run('readwrite', (s) => s.put(v, k));
+}
+
 // ---------- 變聲的種類（存在這台裝置） ----------
 
 const STYLE_KEY = 'fairypocket.voicestyle.v1';
