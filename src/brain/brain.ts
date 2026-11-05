@@ -131,6 +131,8 @@ export interface Situation {
   asleep: boolean;
   /** 最喜歡的食物名稱（目前語言） */
   foodName: (f: Food) => string;
+  /** 聽聲音猜的：現在說話的是小朋友還是大人（不知道是 null） */
+  speaker?: 'child' | 'adult' | null;
 }
 
 /** 悅靈的自我介紹與規則（system prompt） */
@@ -143,6 +145,11 @@ export function buildSystem(pet: PetState, mem: BrainMemory, lang: Lang, sit: Si
     `跟主人的感情：${level(pet.affection, '還在慢慢變熟', '感情不錯', '非常喜歡主人')}（${Math.round(pet.affection)}/100）`,
     `現在的心情：${level(pet.mood, '有點低落', '普通', '很好')}；肚子：${level((pet.hunger / 20) * 100, '很餓', '還好', '飽飽的')}；精神：${level(pet.energy, '很睏', '還好', '很有精神')}`,
     `現在是 ${sit.hour} 點${sit.asleep ? '，剛剛在睡覺被叫醒' : ''}`,
+    ...(sit.speaker === 'child'
+      ? ['現在跟你說話的聲音聽起來像小朋友：用更簡單、更溫柔的話，一次只說一件事']
+      : sit.speaker === 'adult'
+        ? ['現在跟你說話的聲音聽起來像大人（可能是爸爸媽媽）：可以用一般的說法，但還是保持可愛']
+        : []),
     `一起度過了 ${m.days} 天，連續見面 ${m.streak} 天；被餵過 ${pet.stats.fed} 次、被摸頭 ${pet.stats.petted} 次、一起玩過 ${pet.stats.played} 次`,
   ];
   if (fav && fav in FOODS) facts.push(`最常吃的食物：${sit.foodName(fav)}`);

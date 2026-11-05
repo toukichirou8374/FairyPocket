@@ -6,6 +6,7 @@ import { t } from '../i18n';
 import { sense, setSense, SENSE_MAX, SENSE_MIN, type Sense } from '../sense';
 import { Recognizer, speechSupported } from '../speech';
 import { Listener } from '../voice';
+import { classifySamples } from '../voiceAge';
 
 export interface SenseTestHost {
   root: HTMLElement;
@@ -49,6 +50,7 @@ export class SenseTest {
     const line = el('div', 'st-line', meter);
     const micState = el('div', 'st-state', box);
     const heard = el('div', 'st-heard', box);
+    const age = el('div', 'st-heard', box);
 
     // ---- 揮手 ----
     el('label', '', box).textContent = t('st.wave');
@@ -107,7 +109,13 @@ export class SenseTest {
               this.talks++;
               talkFlash = performance.now() + 1200;
             },
-            end: () => {},
+            // 說完一句：聽聲音高低猜大人或小朋友
+            end: (samples, rate) => {
+              const c = classifySamples(samples, rate);
+              age.textContent = c.hz
+                ? t('st.age', { hz: Math.round(c.hz), who: t(c.guess === 'child' ? 'st.child' : c.guess === 'adult' ? 'st.adult' : 'st.unsure') })
+                : '';
+            },
           });
           micOk = true;
         } catch {

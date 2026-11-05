@@ -25,6 +25,7 @@ import { detectIntent, refine, talkLine, type Intent } from './game/talk';
 import { detectCommand } from './assist/command';
 import { Assistant, type Mood } from './assist/assistant';
 import { SenseTest } from './ui/senseTest';
+import { VoiceAge, voiceAgeOn, type AgeGuess } from './voiceAge';
 import { addNote, ask, buildSystem, loadBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { Recognizer, speechSupported } from './speech';
 import { loadTtsVoices, pickVoice, saveTtsVoice, voicesFor } from './ttsVoice';
@@ -77,6 +78,16 @@ let talkDeafUntil = 0;
 /** 被叫「安靜一點」之後，這段時間只用小聲的方式回應 */
 let quietUntil = 0;
 
+// ---------- 說話者辨識・第一步：聽聲音高低猜大人或小朋友 ----------
+const voiceAge = new VoiceAge();
+/** 這台裝置上「語音辨識」和「另外聽音高」不能同時用時，就不再分辨 */
+let ageBlocked = false;
+let speaker: { guess: AgeGuess; at: number } = { guess: null, at: 0 };
+/** 最近（3 分鐘內）說話的人像大人還是小朋友 */
+function currentSpeaker(): AgeGuess {
+  return performance.now() - speaker.at < 180_000 ? speaker.guess : null;
+}
+
 async function micOn(): Promise<void> {
   sound.unlock();
   const ctx = sound.context;
@@ -93,10 +104,20 @@ async function micOn(): Promise<void> {
       () => {
         talkRec.stop();
         talkOn = false;
+        // 可能是跟「聽音高」搶麥克風：關掉分辨大人小孩再試一次
+        if (voiceAge.on) {
+          voiceAge.stop();
+          ageBlocked = true;
+          void micOn();
+          return;
+        }
         void micListen();
       },
     );
-    if (talkOn) return;
+    if (talkOn) {
+      if (voiceAgeOn() && !ageBlocked) void voiceAge.start(ctx);
+      return;
+    }
   }
   await micListen();
 }
@@ -107,6 +128,11 @@ async function answerText(text: string, alts: string[] = [text]): Promise<void> 
   liveWake();
   const lang = getLang();
   const tries = alts.length ? alts : [text];
+  // 聽聲音高低猜是大人還是小朋友（AI 大腦會依照這個調整說話方式）
+  if (voiceAge.on) {
+    const g = voiceAge.guess().guess;
+    if (g) speaker = { guess: g, at: performance.now() };
+  }
   // 要悅靈幫忙做的事（天氣、時間、計時、音樂、查資料）：每個可能聽成的說法都試試看
   for (const a of tries) {
     const cmd = detectCommand(a, lang);
@@ -153,12 +179,12 @@ async function brainAnswer(text: string): Promise<boolean> {
   hud.say('…', 9000);
   listener.pausedUntil = talkDeafUntil = performance.now() + 9000;
   const lang = getLang();
-  const system = buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f) });
+  const system = buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f), speaker: currentSpeaker() });
   const raw = await ask(cfg, system, brainMem, text);
   brainBusy = false;
   const r = raw ? parseReply(raw, lang) : null;
   if (!r?.text) {
-    listener.pausedUntil = talkDeafUntil = 0;
+    listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil = 0;
     return false;
   }
   remember(brainMem, 'user', text);
@@ -198,7 +224,7 @@ function reactTo(intent: Intent): void {
   // 說話的時間大概抓一下，這段時間先不聽
   const len = quiet ? 1 : Math.min(6, 0.8 + line.length * (getLang() === 'en_us' ? 0.07 : 0.2));
   talkDeafUntil = now + len * 1000 + 500;
-  listener.pausedUntil = talkDeafUntil;
+  listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
   switch (reply) {
     case 'love':
     case 'lovesBack':
@@ -290,6 +316,7 @@ async function micListen(): Promise<void> {
 function micOff(): void {
   talkRec.stop();
   talkOn = false;
+  voiceAge.stop();
   listener.stop();
   ctrl.listen(false);
 }
@@ -301,7 +328,7 @@ async function answer(samples: Float32Array, rate: number, fromText = false): Pr
   if (performance.now() < quietUntil) {
     sound.speak(pet.personality);
     hud.say('…♪');
-    listener.pausedUntil = talkDeafUntil = performance.now() + 1200;
+    listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil = performance.now() + 1200;
     return;
   }
   const ctx = sound.context;
@@ -319,7 +346,7 @@ async function answer(samples: Float32Array, rate: number, fromText = false): Pr
     len = times * 0.65 + 0.8;
   }
   // 悅靈說話時先不要聽（避免聽到自己的聲音）
-  listener.pausedUntil = talkDeafUntil = performance.now() + (len + 0.4) * 1000;
+  listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil = performance.now() + (len + 0.4) * 1000;
   void fromText;
   stage.spawn('note', ctrl.headTop(new THREE.Vector3()), 2);
   cheer(pet, 3);
@@ -927,7 +954,7 @@ function assistSay(line: string, mood: Mood): void {
   void speakText(line);
   const len = Math.min(14, 0.8 + line.length * (en ? 0.07 : 0.2));
   talkDeafUntil = now + len * 1000 + 500;
-  listener.pausedUntil = talkDeafUntil;
+  listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
   const head = ctrl.headTop(new THREE.Vector3());
   if (mood === 'think') ctrl.setMode('curious', 2);
   else if (mood === 'oops') ctrl.setMode('oops', 1.6);

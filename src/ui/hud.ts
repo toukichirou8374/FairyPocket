@@ -1,5 +1,6 @@
 // 畫面上的 HTML 介面：名字、對話泡泡、愛心 / 飽食度、快捷欄、設定與開場。
 
+import { setVoiceAgeOn, voiceAgeOn } from '../voiceAge';
 import { brainSettings } from './brainSettings';
 import { foodIcon, gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, statGrid } from '../pixel';
 import { affectionLevel, BEDTIMES, FOOD_IDS, moodLevel, NAME_MAX, wakeHour, type Bedtime, PERSONALITY_COLOR, PERSONALITY_IDS, toIcons, type Food, type Personality, type PetState } from '../game/state';
@@ -863,6 +864,19 @@ export class Hud {
     this.volumeEditor(box);
 
     brainSettings(box);
+
+    el('label', '', box).textContent = t('va.title');
+    el('div', 'info', box).textContent = t('va.help');
+    const vaBtn = el('button', 'btn', box);
+    const showVa = () => {
+      vaBtn.textContent = `${t('va.title')}：${t(voiceAgeOn() ? 'on' : 'off')}`;
+      vaBtn.classList.toggle('on', voiceAgeOn());
+    };
+    showVa();
+    vaBtn.addEventListener('click', () => {
+      setVoiceAgeOn(!voiceAgeOn());
+      showVa();
+    });
 
     el('label', '', box).textContent = t('st.title');
     const stBtn = el('button', 'btn', box);

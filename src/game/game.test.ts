@@ -15,6 +15,7 @@ import { WaveDetector } from '../ar';
 import { anyHeard, NoiseGate } from '../sense';
 import { addNote, buildSystem, parseReply, remember } from '../brain/brain';
 import { clearRecent, pickFresh } from './recent';
+import { classifyPitch, classifySamples } from '../voiceAge';
 import { trackPitch, transform, VOICE_STYLES } from '../voicefx';
 import { clipKey, demoSpeech, legacyRenames, matchesItem, recordedItems, stickerBookItems } from './sbItems';
 import { allTalkLines, detectIntent, refine, talkLine, TALK_LINES } from './talk';
@@ -782,5 +783,23 @@ describe('line variety', () => {
     expect(new Set(seen).size).toBe(4);
     expect(pickFresh('one', ['x'], () => 0.5)).toBe('x');
     clearRecent();
+  });
+});
+
+describe('voice age', () => {
+  const tone = (hz: number, sec = 1, rate = 24000) => {
+    const d = new Float32Array(rate * sec);
+    for (let i = 0; i < d.length; i++) {
+      const t = i / rate;
+      for (let h = 1; h <= 6; h++) d[i] += (Math.sin(2 * Math.PI * hz * h * t) / h) * 0.2;
+    }
+    return d;
+  };
+  it('聽聲音高低猜大人或小朋友', () => {
+    expect(classifySamples(tone(300), 24000).guess).toBe('child');
+    expect(classifySamples(tone(120), 24000).guess).toBe('adult');
+    expect(classifySamples(tone(230), 24000).guess).toBe(null);
+    // 太短（有音高的片段不夠）不判斷
+    expect(classifyPitch([300, 300, 0, 0]).guess).toBe(null);
   });
 });
