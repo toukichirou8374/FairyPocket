@@ -12,6 +12,7 @@ import { allayRate, distanceGain, loadSoundMode, SOUND_MODES } from '../audio';
 import { SFX, sfxPitch } from '../sfx';
 import { trimSilence } from '../voice';
 import { WaveDetector } from '../ar';
+import { anyHeard, NoiseGate } from '../sense';
 import { trackPitch, transform, VOICE_STYLES } from '../voicefx';
 import { clipKey, demoSpeech, legacyRenames, matchesItem, recordedItems, stickerBookItems } from './sbItems';
 import { allTalkLines, detectIntent, refine, talkLine, TALK_LINES } from './talk';
@@ -307,14 +308,32 @@ describe('voice', () => {
 
 describe('ar wave', () => {
   it('detects a hand waving left and right, but not one sweep', () => {
-    const w = new WaveDetector();
-    let hit = false;
-    [-0.4, -0.1, 0.3, 0.0, -0.4, 0.0, 0.4].forEach((x, i) => (hit = w.push(1000 + i * 100, x) || hit));
-    expect(hit).toBe(true);
-    const w2 = new WaveDetector();
-    let hit2 = false;
-    [-0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6].forEach((x, i) => (hit2 = w2.push(1000 + i * 100, x) || hit2));
-    expect(hit2).toBe(false);
+    const run = (xs: number[], area = 0.1, sens = 1) => {
+      const w = new WaveDetector();
+      let hit = false;
+      xs.forEach((x, i) => (hit = w.push(1000 + i * 100, x, area, sens) || hit));
+      return hit;
+    };
+    // 左右來回揮三次：算
+    expect(run([-0.4, -0.1, 0.3, 0.0, -0.4, 0.0, 0.4, 0.0, -0.4])).toBe(true);
+    // 一直往同一邊走（有人走過去）：不算
+    expect(run([-0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.7, 0.8])).toBe(false);
+    // 小小的晃動：不算
+    expect(run([0, 0.06, 0, 0.06, 0, 0.06, 0, 0.06, 0])).toBe(false);
+    // 整個畫面在變（開燈、晃手機）：不算
+    expect(run([-0.4, -0.1, 0.3, 0.0, -0.4, 0.0, 0.4, 0.0, -0.4], 0.6)).toBe(false);
+    // 只轉兩次方向：標準不算，靈敏度調高才算
+    expect(run([-0.4, 0, 0.4, 0, -0.4, 0, 0.4])).toBe(false);
+    expect(run([-0.4, 0, 0.4, 0, -0.4, 0, 0.4], 0.1, 1.5)).toBe(true);
+  });
+  it('說話門檻跟著環境聲音調整', () => {
+    const g = new NoiseGate();
+    for (let i = 0; i < 40; i++) g.update(0.01, 0.05, false);
+    const quiet = g.threshold(1);
+    for (let i = 0; i < 400; i++) g.update(0.1, 0.05, false);
+    expect(quiet).toBeCloseTo(NoiseGate.BASE, 2);
+    expect(g.threshold(1)).toBeGreaterThan(0.2);
+    expect(anyHeard(['够', '狗'], (s) => s === '狗')).toBe('狗');
   });
 });
 

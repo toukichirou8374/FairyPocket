@@ -2,9 +2,8 @@
 // iPhone／iPad 的 Safari 與電腦的 Chrome、Edge 都有；不支援時由呼叫的地方改用「聽到聲音就算」。
 // 聲音只交給瀏覽器辨識成文字，App 不會存起來。
 
-interface RecResult {
+interface RecResult extends ArrayLike<{ transcript: string }> {
   isFinal: boolean;
-  0: { transcript: string };
 }
 interface RecEvent {
   resultIndex: number;
@@ -14,6 +13,7 @@ interface Rec {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
+  maxAlternatives: number;
   onresult: ((e: RecEvent) => void) | null;
   onend: (() => void) | null;
   onerror: ((e: { error: string }) => void) | null;
@@ -36,8 +36,8 @@ export class Recognizer {
   /** 沒有權限或發生無法恢復的錯誤 */
   failed: string | null = null;
 
-  /** onText(聽到的文字, 是否說完了) */
-  start(lang: string, onText: (text: string, final: boolean) => void, onFail?: (error: string) => void): boolean {
+  /** onText(聽到的文字, 是否說完了, 其他可能聽成的說法（含第一個）) */
+  start(lang: string, onText: (text: string, final: boolean, alts: string[]) => void, onFail?: (error: string) => void): boolean {
     const C = ctor();
     if (!C) return false;
     this.stop();
@@ -45,10 +45,14 @@ export class Recognizer {
     rec.lang = lang;
     rec.continuous = true;
     rec.interimResults = true;
+    // 小朋友的發音不一定標準：多拿幾個可能的結果來比對
+    rec.maxAlternatives = 5;
     rec.onresult = (e) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
-        onText(r[0].transcript, r.isFinal);
+        const alts: string[] = [];
+        for (let k = 0; k < r.length; k++) if (r[k]?.transcript) alts.push(r[k].transcript);
+        onText(r[0].transcript, r.isFinal, alts);
       }
     };
     rec.onerror = (e) => {

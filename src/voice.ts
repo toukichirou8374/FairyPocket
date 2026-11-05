@@ -5,13 +5,12 @@
 
 import type { Lang } from './i18n';
 import { transform, VOICE_STYLES, type VoiceStyle } from './voicefx';
+import { NoiseGate, sense } from './sense';
 
-/** 說話音量門檻（0–1） */
-const SPEAK = 0.12;
 /** 安靜多久算說完（秒） */
 const END_SILENCE = 0.7;
 /** 最短、最長的一段話（秒） */
-const MIN_SPEECH = 0.25;
+const MIN_SPEECH = 0.35;
 const MAX_SPEECH = 6;
 
 type AudioSessionNav = Navigator & { audioSession?: { type: string } };
@@ -42,6 +41,8 @@ export class Listener {
   pausedUntil = 0;
   /** 目前音量 0–1（給動畫用） */
   level = 0;
+  /** 說話門檻（跟著環境聲音自動調整） */
+  gate = new NoiseGate();
 
   get on(): boolean {
     return !!this.stream;
@@ -57,6 +58,8 @@ export class Listener {
       setSession('ambient');
       throw e;
     }
+    // 每次開始都重新聽環境聲音
+    this.gate = new NoiseGate();
     this.src = ctx.createMediaStreamSource(this.stream);
     this.node = ctx.createScriptProcessor(2048, 1, 1);
     const rate = ctx.sampleRate;
@@ -70,12 +73,16 @@ export class Listener {
         return;
       }
       const sec = d.length / rate;
-      const loud = this.level > SPEAK;
+      this.gate.update(this.level, sec, this.talking || this.loud > 0);
+      // 剛開始先聽一下環境聲音，這段時間不判斷
+      if (this.gate.calibrating) return;
+      const loud = this.level > this.gate.threshold();
       if (loud) {
         this.loud += sec;
         this.quiet = 0;
       } else this.quiet += sec;
-      if (!this.talking && this.loud > 0.12) {
+      // 要大聲持續一小段時間才算開始說話（碰撞聲、拍手這種很短的聲音不算）
+      if (!this.talking && this.loud > 0.2 / sense.mic) {
         this.talking = true;
         ev.start();
       }
@@ -303,7 +310,7 @@ export async function recordClip(ctx: AudioContext, maxSec = REPLY_MAX_SEC): Pro
     const d = e.inputBuffer.getChannelData(0);
     let sum = 0;
     for (let i = 0; i < d.length; i++) sum += d[i] * d[i];
-    const loud = Math.sqrt(sum / d.length) * 8 > SPEAK;
+    const loud = Math.sqrt(sum / d.length) * 8 > NoiseGate.BASE;
     chunks.push(d.slice());
     len += d.length;
     if (loud) {

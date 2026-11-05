@@ -30,6 +30,7 @@ import { stickerCanvas } from '../game/stickers';
 import type { Clip } from '../voice';
 import { getLang, t, type Lang } from '../i18n';
 import { Recognizer, speechSupported } from '../speech';
+import { anyHeard } from '../sense';
 
 export interface KeyGameHost {
   /** 小遊戲的畫面放在這裡（hud 的根元素） */
@@ -437,12 +438,13 @@ export class KeyGameUI {
   // ---------- 聲音 ----------
 
   private async startVoice(): Promise<void> {
-    const onHeard = (text: string, final: boolean) => {
+    const onHeard = (text: string, final: boolean, alts: string[]) => {
       const cur = this.round?.current;
       if (!cur || this.ended || performance.now() < this.deafUntil) return;
       const it = this.voiceItems.find((x) => x.id === cur.id);
-      if (it && matchesItem(text, it, getLang())) this.press(cur.id);
-      else if (final && text.trim()) this.press('miss');
+      if (it && anyHeard(alts.length ? alts : [text], (a) => matchesItem(a, it, getLang()))) this.press(cur.id);
+      // 聽到的不是答案：不算錯（可能是旁邊的人、電視或悅靈自己的聲音），告訴小朋友聽到什麼
+      else if (final && text.trim()) this.note(t('kg.voiceHeard', { w: text.trim().slice(0, 12) }));
     };
     // 麥克風不能用：開發選項的觸碰測試打開時改用點的
     const fail = () => this.note(this.devTap ? t('kg.voiceTapOnly') : t('micDenied'));

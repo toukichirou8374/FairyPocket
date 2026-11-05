@@ -905,3 +905,18 @@ body.motion #sky { display: none; }
   color: #fff;
   text-shadow: var(--shadow);
 }
+
+/* ---------- 感應測試 ---------- */
+.sensetest .st-meter { position: relative; height: 16px; margin-top: 8px; background: rgba(0, 0, 0, 0.35); border: 2px solid #1c1c1c; overflow: hidden; }
+.sensetest .st-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #5fb8f0; }
+.sensetest .st-fill.loud { background: #55ff55; }
+.sensetest .st-fill.motion { background: #ffaa00; }
+.sensetest .st-fill.motion.over { background: #ff5555; }
+.sensetest .st-floor { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: rgba(255, 255, 255, 0.18); }
+.sensetest .st-line { position: absolute; top: -2px; bottom: -2px; width: 3px; margin-left: -1px; background: #ff5555; }
+.sensetest .st-state { min-height: 1.5em; margin-top: 6px; font-size: 15px; }
+.sensetest .st-state.hit { color: #55ff55; }
+.sensetest .st-heard { min-height: 1.5em; margin-top: 4px; font-size: 14px; white-space: pre-line; opacity: 0.9; }
+.sensetest .st-cam { margin-top: 8px; display: flex; justify-content: center; }
+.sensetest .st-cam video { width: 120px; height: 90px; object-fit: cover; border: 2px solid #1c1c1c; position: static; }
+.sensetest .st-cam video.mirror { transform: scaleX(-1); }

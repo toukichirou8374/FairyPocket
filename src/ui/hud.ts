@@ -60,6 +60,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', parent?: HT
 
 export interface HudActions {
   select(slot: Slot | null): void;
+  senseTest(): void;
   call(): void;
   rename(name: string): void;
   setPersonality(p: Personality): void;
@@ -840,6 +841,14 @@ export class Hud {
     this.ttsPicker(box);
 
     this.volumeEditor(box);
+
+    el('label', '', box).textContent = t('st.title');
+    const stBtn = el('button', 'btn', box);
+    stBtn.textContent = t('st.button');
+    stBtn.addEventListener('click', () => {
+      close();
+      this.actions.senseTest();
+    });
 
     el('label', '', box).textContent = t('voiceTone');
     const srow = el('div', 'btnrow', box);

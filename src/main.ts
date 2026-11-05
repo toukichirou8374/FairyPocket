@@ -24,6 +24,7 @@ import { legacyRenames } from './game/sbItems';
 import { detectIntent, refine, talkLine, type Intent } from './game/talk';
 import { detectCommand } from './assist/command';
 import { Assistant, type Mood } from './assist/assistant';
+import { SenseTest } from './ui/senseTest';
 import { Recognizer, speechSupported } from './speech';
 import { loadTtsVoices, pickVoice, saveTtsVoice, voicesFor } from './ttsVoice';
 import { neuralBuffer } from './neuralVoice';
@@ -82,10 +83,10 @@ async function micOn(): Promise<void> {
   if (speechSupported()) {
     talkOn = talkRec.start(
       SPEECH_LANG[getLang()],
-      (text, final) => {
+      (text, final, alts) => {
         if (performance.now() < talkDeafUntil) return;
         if (!final) ctrl.listen(true);
-        else void answerText(text);
+        else void answerText(text, alts);
       },
       // 語音辨識不能用（沒有權限等）：改用只聽聲音的方式
       () => {
@@ -100,16 +101,21 @@ async function micOn(): Promise<void> {
 }
 
 /** 聽懂了：照意思回答；聽不懂就用原本的方式（錄好的回應或悅靈語） */
-async function answerText(text: string): Promise<void> {
+async function answerText(text: string, alts: string[] = [text]): Promise<void> {
   ctrl.listen(false);
   liveWake();
-  // 要悅靈幫忙做的事（天氣、時間、計時、音樂、查資料）
-  const cmd = detectCommand(text, getLang());
-  if (cmd) {
-    void assistant.run(cmd);
-    return;
+  const lang = getLang();
+  const tries = alts.length ? alts : [text];
+  // 要悅靈幫忙做的事（天氣、時間、計時、音樂、查資料）：每個可能聽成的說法都試試看
+  for (const a of tries) {
+    const cmd = detectCommand(a, lang);
+    if (cmd) {
+      void assistant.run(cmd);
+      return;
+    }
   }
-  const intent = detectIntent(text, getLang());
+  let intent: Intent | null = null;
+  for (const a of tries) if ((intent = detectIntent(a, lang))) break;
   if (!intent) {
     if (text.trim()) await answer(new Float32Array(Math.round(text.length * 2400)), 24000, true);
     return;
@@ -605,6 +611,13 @@ function useNoteBlock(ray: THREE.Ray, hitBlock: boolean): void {
 }
 
 const hud = new Hud(overlay, {
+  senseTest: () =>
+    new SenseTest({
+      root: overlay,
+      context: () => (sound.unlock(), sound.context),
+      pauseSenses: () => hud.setSelected(null),
+      speechLang: () => SPEECH_LANG[getLang()],
+    }).open(),
   select: (slot) => {
     // 動態模式 = 前鏡頭（看人、揮手）＋麥克風（說話）
     liveOn = slot === 'live';

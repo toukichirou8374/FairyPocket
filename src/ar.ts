@@ -9,36 +9,13 @@ export interface ArEvents {
   wave(): void;
   /** 畫面裡有明顯動作；x 是動作的位置（-1 左 ~ 1 右，已換成畫面上看到的方向），y 是上下（-1 下 ~ 1 上） */
   motion(x: number, y: number): void;
+  /** 每次比對畫面時，在動的畫面比例（0–1，測試畫面用） */
+  area?(a: number): void;
 }
 
-/** 揮手判斷：動作的左右位置在短時間內來回改變方向幾次 */
-export class WaveDetector {
-  private xs: { t: number; x: number }[] = [];
-  private lastWave = -Infinity;
+import { WaveDetector } from './sense';
 
-  /** 每次偵測到動作時呼叫；回傳這次是不是揮手 */
-  push(t: number, x: number): boolean {
-    this.xs.push({ t, x });
-    this.xs = this.xs.filter((p) => t - p.t < 1500);
-    if (t - this.lastWave < 2500 || this.xs.length < 5) return false;
-    let turns = 0, dir = 0, span = 0;
-    const min = Math.min(...this.xs.map((p) => p.x)), max = Math.max(...this.xs.map((p) => p.x));
-    span = max - min;
-    for (let i = 1; i < this.xs.length; i++) {
-      const d = this.xs[i].x - this.xs[i - 1].x;
-      if (Math.abs(d) < 0.04) continue;
-      const s = Math.sign(d);
-      if (dir && s !== dir) turns++;
-      dir = s;
-    }
-    if (turns >= 2 && span > 0.15) {
-      this.lastWave = t;
-      this.xs = [];
-      return true;
-    }
-    return false;
-  }
-}
+export { WaveDetector };
 
 export class ArCamera {
   readonly video: HTMLVideoElement;
@@ -101,12 +78,13 @@ export class ArCamera {
           sy += Math.floor(i / 32);
         }
       }
+      this.ev.area?.(n / gray.length);
       // 動作夠明顯（約 4% 以上的畫面在動）才算
       if (n > 30) {
         // 前鏡頭畫面是鏡像顯示，所以左右反過來
         const x = -((sx / n / 31) * 2 - 1);
         this.ev.motion(x, 1 - (sy / n / 23) * 2);
-        if (this.waves.push(performance.now(), x)) this.ev.wave();
+        if (this.waves.push(performance.now(), x, n / gray.length)) this.ev.wave();
       }
     }
     this.prev = gray;
