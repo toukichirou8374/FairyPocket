@@ -27,10 +27,10 @@ import { Assistant, type Mood } from './assist/assistant';
 import { SenseTest } from './ui/senseTest';
 import { VoiceAge, voiceAgeOn, type AgeGuess } from './voiceAge';
 import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeople, voiceFeatures, voiceIdOn } from './voiceId';
-import { voiceIdLine } from './assist/assistant';
+import { langHello, voiceIdLine } from './assist/assistant';
+import { askedLang, textLang } from './game/langDetect';
 import { addNote, ask, buildSystem, loadBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { Recognizer, speechSupported } from './speech';
-import { loadTtsVoices, pickVoice, saveTtsVoice, voicesFor } from './ttsVoice';
 import { neuralBuffer } from './neuralVoice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
@@ -90,13 +90,44 @@ function currentSpeaker(): AgeGuess {
   return performance.now() - speaker.at < 180_000 ? speaker.guess : null;
 }
 
+// ---------- 多語言：以設定的語言為主；聽到別的語言（或被要求）就暫時用那個語言聊天，1 分鐘沒人說話就回到原本的語言 ----------
+const FLEX_MS = 60_000;
+let flex: { lang: Lang; until: number } | null = null;
+/** 語音辨識目前用的語言 */
+let recLang: Lang = getLang();
+
+/** 現在聊天用的語言（悅靈自己主動說話時一律用設定的語言） */
+function talkLang(): Lang {
+  return flex && performance.now() < flex.until ? flex.lang : getLang();
+}
+function startFlex(lang: Lang): void {
+  if (lang === getLang()) return endFlex();
+  flex = { lang, until: performance.now() + FLEX_MS };
+  if (talkOn && recLang !== lang) restartRec(lang);
+}
+function endFlex(): void {
+  flex = null;
+  if (talkOn && recLang !== getLang()) restartRec(getLang());
+}
+/** 換語音辨識的語言（例如要用日文聊天時，改聽日文） */
+function restartRec(lang: Lang): void {
+  recLang = lang;
+  talkRec.stop();
+  talkOn = false;
+  void micOn();
+}
+window.setInterval(() => {
+  if (flex && performance.now() >= flex.until) endFlex();
+}, 5000);
+
 async function micOn(): Promise<void> {
   sound.unlock();
   const ctx = sound.context;
   if (!ctx || listener.on || talkOn) return;
   if (speechSupported()) {
+    if (!flex) recLang = getLang();
     talkOn = talkRec.start(
-      SPEECH_LANG[getLang()],
+      SPEECH_LANG[recLang],
       (text, final, alts) => {
         if (performance.now() < talkDeafUntil) return;
         if (!final) ctrl.listen(true);
@@ -125,10 +156,27 @@ async function micOn(): Promise<void> {
 }
 
 /** 聽懂了：照意思回答；聽不懂就用原本的方式（錄好的回應或悅靈語） */
+/** 最後一次有人跟悅靈說話的時間（剛聊完不主動閒聊） */
+let lastUserAt = -Infinity;
+
 async function answerText(text: string, alts: string[] = [text]): Promise<void> {
+  lastUserAt = performance.now();
   ctrl.listen(false);
   liveWake();
-  const lang = getLang();
+  // 被要求換語言（「說日文」「英語で話して」）：暫時換過去，悅靈用那個語言回一句
+  const asked = askedLang(text);
+  if (asked && asked !== talkLang()) {
+    assistant.chat(personNow() ?? t('chat.you'), text);
+    startFlex(asked);
+    assistSay(langHello(talkLang()), 'happy');
+    return;
+  }
+  // 用別的語言說話（打字的日文、英文，或辨識出來的外語）：暫時用那個語言聊天
+  const said = textLang(text, getLang());
+  if (said !== getLang()) startFlex(said);
+  else if (flex && said === flex.lang) flex.until = performance.now() + FLEX_MS;
+  else if (flex && recLang === getLang()) endFlex();
+  const lang = talkLang();
   const tries = alts.length ? alts : [text];
   // 聽聲音高低猜是大人還是小朋友（AI 大腦會依照這個調整說話方式）
   if (voiceAge.on) {
@@ -138,6 +186,7 @@ async function answerText(text: string, alts: string[] = [text]): Promise<void> 
   // 認人：聽聲音大概猜是誰；第一次聽到的聲音會問名字
   const heard = voiceAge.on ? voiceAge.takeRecent() : null;
   const feat = heard ? voiceFeatures(heard.data, heard.rate) : null;
+  assistant.chat(personNow() ?? t('chat.you'), text);
   if (voiceIdStep(text, feat)) return;
   // 要悅靈幫忙做的事（天氣、時間、計時、音樂、查資料）：每個可能聽成的說法都試試看
   for (const a of tries) {
@@ -183,7 +232,7 @@ function who(text: string): string {
 /** 回傳 true = 這句話已經處理（問名字、記住名字），不用再回答 */
 function voiceIdStep(text: string, feat: number[] | null): boolean {
   const now = performance.now();
-  const lang = getLang();
+  const lang = talkLang();
   if (askName && now - askName.at < 40_000) {
     const ask = askName;
     askName = null;
@@ -246,9 +295,9 @@ async function brainAnswer(text: string): Promise<boolean> {
   ctrl.setMode('curious', 8);
   hud.say('…', 9000);
   listener.pausedUntil = talkDeafUntil = performance.now() + 9000;
-  const lang = getLang();
+  const lang = talkLang();
   const system = buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f), speaker: currentSpeaker(), person: personNow() });
-  const raw = await ask(cfg, system, brainMem, text);
+  const raw = await ask(cfg, system, brainMem, text, 25000, lang);
   brainBusy = false;
   const r = raw ? parseReply(raw, lang) : null;
   if (!r?.text) {
@@ -278,7 +327,7 @@ function reactTo(intent: Intent): void {
     repeat: heardRecently.filter((x) => x.intent === intent).length,
     affection: pet.affection,
   });
-  const line = talkLine(reply, getLang(), pet.name, pet.personality);
+  const line = talkLine(reply, talkLang(), pet.name, pet.personality);
   // 規則回答的也記下來，AI 才知道剛剛聊了什麼
   remember(brainMem, 'allay', line);
   saveMemory(brainMem);
@@ -287,10 +336,10 @@ function reactTo(intent: Intent): void {
   if (intent === 'tooQuiet' || intent === 'greet' || intent === 'morning' || intent === 'play' || intent === 'sing' || intent === 'home') quietUntil = 0;
   const quiet = now < quietUntil;
   hud.say(line);
-  if (!quiet) void speakText(line);
+  if (!quiet) void speakText(line, talkLang());
   else sound.speak(pet.personality);
   // 說話的時間大概抓一下，這段時間先不聽
-  const len = quiet ? 1 : Math.min(6, 0.8 + line.length * (getLang() === 'en_us' ? 0.07 : 0.2));
+  const len = quiet ? 1 : Math.min(6, 0.8 + line.length * (talkLang() === 'en_us' ? 0.07 : 0.2));
   talkDeafUntil = now + len * 1000 + 500;
   listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
   switch (reply) {
@@ -846,13 +895,6 @@ const hud = new Hud(overlay, {
     replies[i] = null;
     void saveReplies(getLang(), replies);
   },
-  ttsVoices: () => voicesFor(window.speechSynthesis?.getVoices() ?? [], SPEECH_LANG[getLang()]),
-  ttsVoice: () => loadTtsVoices()[getLang()] ?? '',
-  setTtsVoice: (uri) => {
-    saveTtsVoice(getLang(), uri);
-    sound.unlock();
-    void speakText(t('tts.sample'), getLang(), true);
-  },
   voiceStyle: () => voiceStyle,
   setVoiceStyle: (v) => {
     voiceStyle = v;
@@ -995,32 +1037,30 @@ async function speakText(text: string, lang: Lang = getLang(), demo = false): Pr
       return;
     }
   }
-  if (!s) return;
-  s.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = SPEECH_LANG[lang];
-  u.pitch = demo ? 1.15 : 1.45;
-  u.rate = demo ? 0.9 : 1;
-  u.volume = Math.min(1, vol);
-  // 自己選過的聲音優先，沒選就用音質最好的（高品質 > 優化 > 一般）
-  const v = pickVoice(s.getVoices(), u.lang, loadTtsVoices()[lang]);
-  if (v) u.voice = v;
-  await new Promise<void>((done) => {
-    u.onend = u.onerror = () => done();
-    window.setTimeout(done, 8000);
-    s.speak(u);
-  });
+  // 沒有做好的自然語音（例如 AI 臨時想的話、天氣這種每次不一樣的話）：
+  // 不用裝置的朗讀（太像機器），改成悅靈的叫聲，字顯示在泡泡或對話紀錄裡
+  const n = Math.max(1, Math.min(6, Math.round(text.length / (lang === 'en_us' ? 14 : 6))));
+  for (let i = 0; i < n; i++) {
+    sound.speak(pet.personality);
+    await new Promise((r) => window.setTimeout(r, 230 + Math.random() * 140));
+  }
 }
 
 // ---------- 小助理：天氣、時間、計時、音樂、查資料 ----------
-const assistant = new Assistant(overlay, { lang: getLang, say: assistSay }, (text) => void answerText(text));
+const assistant = new Assistant(overlay, { lang: () => talkLang(), say: assistSay }, (text) => void answerText(text));
+// 說話模式：悅靈說的話顯示在左下的對話紀錄（飛得比較高時也看得到）
+hud.sayHook = (text) => {
+  if (!assistant.talking) return false;
+  if (text !== '…') assistant.chat(pet.name, text);
+  return true;
+};
 
 /** 助理的回答：說出來、顯示泡泡、做個動作 */
 function assistSay(line: string, mood: Mood): void {
   const now = performance.now();
-  const en = getLang() === 'en_us';
+  const en = talkLang() === 'en_us';
   hud.say(line, Math.max(3200, line.length * (en ? 70 : 230)));
-  void speakText(line);
+  void speakText(line, talkLang());
   const len = Math.min(14, 0.8 + line.length * (en ? 0.07 : 0.2));
   talkDeafUntil = now + len * 1000 + 500;
   listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
@@ -1751,7 +1791,7 @@ function frame(now: number): void {
     talkIn -= dt;
     if (talkIn <= 0) {
       talkIn = 15;
-      if (now - lastSpoke > 45_000 && (ctrl.mode === 'idle' || ctrl.mode === 'approach' || ctrl.mode === 'wander')) {
+      if (now - lastSpoke > 45_000 && now - lastUserAt > 20_000 && (ctrl.mode === 'idle' || ctrl.mode === 'approach' || ctrl.mode === 'wander')) {
         const mood = moodLevel(pet.mood);
         // 心情不差、也不餓不睏時，有時會聊起記得的事
         const topic = pet.hunger >= 6 && pet.energy >= 25 && mood > 0 && Math.random() < 0.35 ? memoryTopic(pet) : null;

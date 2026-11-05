@@ -730,10 +730,12 @@ describe('assistant', () => {
     expect(detectCommand("What's the weather like?", 'en_us')).toEqual({ kind: 'weather', day: 0 });
   });
   it('聊天的話不會被當成指令', () => {
-    for (const s of ['你是誰', '這是什麼', '唱歌給我聽', '我愛你', '你好棒', '下雨了', '你喜歡什麼', '你在做什麼', '我是誰']) expect(zh(s)).toBe(null);
+    for (const s of ['你最喜歡的食物是什麼', '我的名字是什麼', '你是誰', '這是什麼', '唱歌給我聽', '我愛你', '你好棒', '下雨了', '你喜歡什麼', '你在做什麼', '我是誰']) expect(zh(s)).toBe(null);
     expect(detectCommand('who are you', 'en_us')).toBe(null);
     expect(detectCommand('what is your name', 'en_us')).toBe(null);
+    expect(detectCommand('What is your favorite food?', 'en_us')).toBe(null);
     expect(detectCommand('あなたは誰', 'ja_jp')).toBe(null);
+    expect(detectCommand('こんにちは！今日はなにしてたの？', 'ja_jp')).toBe(null);
   });
   it('數字、時間、天氣的說法', () => {
     expect(parseNumber('二十五')).toBe(25);
@@ -837,5 +839,20 @@ describe('developer gate', () => {
     expect(normalizeAnswer('アイウ')).toBe('あいう');
     // 正確答案不寫在公開的測試裡；這裡只確認亂答會被擋
     expect(await recoveryOk(['japan', 'nobody', 'abc'])).toBe(false);
+  });
+});
+
+describe('language flex', () => {
+  it('看出是哪種語言、聽出換語言的要求', async () => {
+    const { textLang, askedLang } = await import('./langDetect');
+    expect(textLang('こんにちは', 'zh_tw')).toBe('ja_jp');
+    expect(textLang('Hello, how are you?', 'zh_tw')).toBe('en_us');
+    expect(textLang('你好', 'zh_tw')).toBe('zh_tw');
+    expect(textLang('今日', 'ja_jp')).toBe('ja_jp');
+    expect(textLang('OK 好啊', 'zh_tw')).toBe('zh_tw');
+    expect(askedLang('我們來說日文')).toBe('ja_jp');
+    expect(askedLang('英語で話して')).toBe('en_us');
+    expect(askedLang("Let's speak Chinese")).toBe('zh_tw');
+    expect(askedLang('日文是什麼')).toBe(null);
   });
 });

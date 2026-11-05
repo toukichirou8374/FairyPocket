@@ -118,7 +118,11 @@ function lookup(text: string, lang: Lang): string | null {
     m = text.match(/^(?:look up|search(?: for)?|tell me about|google)\s+(.+)$/i) ?? text.match(/^(?:what|who)(?:'s| is| are| was| were)\s+(?:an?\s+|the\s+)?(.+?)\??$/i);
     q = m?.[1] ?? null;
   } else if (lang === 'ja_jp') {
-    m = text.match(/^(.+?)(?:って|とは|は)(?:なに|何|なん|だれ|誰|どんな)/) ?? text.match(/^(.+?)(?:を|について)?(?:調べて|検索して|教えて)/);
+    // 「〇〇って何」「〇〇とは」「〇〇は何？」（〇〇の中に句読点がない短い言葉だけ。「今日はなにしてたの」は聊天）
+    m =
+      text.match(/^([^、。！？!?s]{1,20}?)(?:って|とは)(?:なに|何|なん|だれ|誰|どんな)/) ??
+      text.match(/^([^、。！？!?s]{1,20}?)は(?:なに|何|なん|だれ|誰)(?:ですか|なの|だろう)?[？?]?$/) ??
+      text.match(/^(.+?)(?:を|について)?(?:調べて|検索して)/);
     q = m?.[1] ?? null;
   } else {
     m =
@@ -131,6 +135,8 @@ function lookup(text: string, lang: Lang): string | null {
   if (!q) return null;
   q = q.replace(/[？?。！!]+$/, '').replace(/^(the|a|an)\s+/i, '').replace(/(について|のこと)$/, '').trim();
   if (!q || NOT_TOPIC.test(q) || q.length > 30) return null;
+  // 「你最喜歡的食物是什麼」「What is your name」：在問悅靈或自己，交給聊天（不是查資料）
+  if (/^(你|妳|您|我|他|她|牠|你們|我們|あなた|きみ|君|わたし|私|ぼく|僕|おれ|俺|your|my|our|his|her|their)/i.test(q)) return null;
   return q;
 }
 

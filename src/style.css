@@ -925,3 +925,31 @@ body.motion #sky { display: none; }
 
 /* 有視窗（設定、選單）打開時，打字欄先藏起來 */
 #overlay:has(.modal-back) .assist-input { display: none !important; }
+
+/* 說話模式的對話紀錄：像 Minecraft 的聊天欄（置左、白字、半透明黑底） */
+.assist-chat {
+  display: none;
+  position: absolute;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  pointer-events: none !important;
+  z-index: 19;
+}
+.assist-chat.show { display: flex; }
+.chat-line {
+  max-width: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  padding: 2px 6px;
+  font-size: 15px;
+  line-height: 1.45;
+  text-align: left;
+  text-shadow: var(--shadow);
+  white-space: normal;
+  word-break: break-word;
+  transition: opacity 2s;
+}
+.chat-line b { font-weight: normal; color: #ffff55; }
+.chat-line.old { opacity: 0; }
+#overlay:has(.modal-back) .assist-chat { display: none !important; }

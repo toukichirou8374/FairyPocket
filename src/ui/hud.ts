@@ -14,7 +14,6 @@ import { getLang, itemName, LANGS, personalityText, t, type Lang, type UiKey } f
 import { loadDevTap, saveDevTap } from '../game/keyGame';
 import { bedIso, chestIso, isoCube } from './isoIcon';
 import { VOICE_STYLES, type VoiceStyle } from '../voicefx';
-import { voiceLabel, type VoiceInfo } from '../ttsVoice';
 
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
@@ -92,9 +91,6 @@ export interface HudActions {
   /** 回應的變聲種類 */
   voiceStyle(): VoiceStyle;
   /** 說話的聲音（裝置內建語音）：目前語言可以用的、選了哪個（'' = 自動）、改選（會念一句試聽） */
-  ttsVoices(): VoiceInfo[];
-  ttsVoice(): string;
-  setTtsVoice(uri: string): void;
   setVoiceStyle(v: VoiceStyle): void;
   /** 讓悅靈說一句話，聽聽目前的變聲 */
   voicePreview(): void;
@@ -550,7 +546,14 @@ export class Hud {
     f.forEach((l, i) => (this.shanks[i].src = this.shankURL[l]));
   }
 
+  /** 說話模式時，悅靈說的話改顯示在對話紀錄（回傳 true 就不顯示頭上的泡泡） */
+  sayHook: ((text: string) => boolean) | null = null;
+
   say(text: string, ms = 3200): void {
+    if (this.sayHook?.(text)) {
+      this.bubble.classList.remove('show');
+      return;
+    }
     this.bubble.textContent = text;
     this.bubble.classList.add('show');
     clearTimeout(this.bubbleTimer);
@@ -687,37 +690,6 @@ export class Hud {
       b.textContent = LANGS[l];
       b.addEventListener('click', () => l !== getLang() && this.actions.setLang(l));
     });
-  }
-
-  /** 設定頁：說話的聲音（裝置內建語音；手機剛開時語音清單可能還沒準備好，準備好再畫一次） */
-  private ttsPicker(box: HTMLElement): void {
-    el('label', '', box).textContent = t('tts.title', { l: LANGS[getLang()] });
-    el('div', 'info', box).textContent = t('tts.help');
-    const grid = el('div', 'pgrid voicegrid ttsgrid', box);
-    const draw = () => {
-      if (!grid.isConnected && grid.childElementCount) {
-        window.speechSynthesis?.removeEventListener('voiceschanged', draw);
-        return;
-      }
-      grid.replaceChildren();
-      const list = this.actions.ttsVoices();
-      if (!list.length) {
-        el('div', 'info', grid).textContent = t('tts.none');
-        return;
-      }
-      const cur = this.actions.ttsVoice();
-      const opts: [string, string][] = [['', t('tts.auto')], ...list.map((v): [string, string] => [v.voiceURI, voiceLabel(v)])];
-      for (const [uri, label] of opts) {
-        const b = el('button', 'btn small' + (uri === cur ? ' on' : ''), grid);
-        b.textContent = label;
-        b.addEventListener('click', () => {
-          grid.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
-          this.actions.setTtsVoice(uri);
-        });
-      }
-    };
-    draw();
-    window.speechSynthesis?.addEventListener('voiceschanged', draw);
   }
 
   /** 設定頁：音樂與音效（像原版的設定畫面：全部靜音 + 各分類的音量滑桿） */
@@ -889,7 +861,6 @@ export class Hud {
 
     el('label', '', box).textContent = t('language');
     this.langPicker(box);
-    this.ttsPicker(box);
 
     this.volumeEditor(box);
 

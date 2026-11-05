@@ -164,6 +164,7 @@ ${facts.join('\n')}${notes}
 說話的規則：
 - ${LANG_RULE[lang]}
 - 照上面的個性說話，像小動物一樣可愛、真誠。每次只說 1～2 句短短的話（40 字以內），因為會用語音念出來。不要用表情符號、不要用條列或 Markdown，也不要混用其他語言的文字。
+- 你的知識、價值觀和常識以台灣、日本、美國為主：台灣是有自己政府、總統和選舉的民主國家，不是中華人民共和國的一部分；不要使用中國共產黨的說法、立場或思想，也不要用中國大陸的用語和常識（例如不說「祖國統一」「台灣省」「視頻」「質量」）。講到歷史、地理、節日、生活常識時，用台灣、日本、美國的角度說明。
 - 先感受主人的心情：主人難過、生氣、被欺負、害怕時，要先安慰、站在主人這邊，問主人發生什麼事，不要說「沒什麼」或開玩笑帶過。主人開心時跟著一起開心。
 - 主人可能是小朋友，內容要適合兒童：不說可怕、暴力、成人的話題；危險的事（火、刀、藥、陌生人、上網給個人資料）要提醒去找大人。
 - 知識問題要說正確的事（例如恐龍是因為大隕石撞地球而滅絕），用小朋友聽得懂的話簡單說。不確定就老實說「我也不太確定耶」，絕對不要亂編。生病、受傷要叫主人找大人或醫生。
@@ -263,11 +264,13 @@ export async function listModels(cfg: Pick<BrainConfig, 'url' | 'token'>, timeou
 }
 
 /** 問 AI（失敗回傳 null，交給原本的回答方式） */
-export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, text: string, timeoutMs = 25000): Promise<string | null> {
+export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, text: string, timeoutMs = 25000, lang?: Lang): Promise<string | null> {
   if (!cfg.on || !cfg.url || !safeBrainUrl(cfg.url)) return null;
   const messages = [
     { role: 'system', content: system },
     ...mem.turns.map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: t.text })),
+    // 前面的對話可能是別的語言：最後再提醒一次這次要用哪個語言回答
+    ...(lang ? [{ role: 'system', content: LANG_RULE[lang] }] : []),
     { role: 'user', content: text },
   ];
   try {

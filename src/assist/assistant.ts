@@ -40,6 +40,7 @@ const L = {
     close: '關閉',
     typeHint: '打字跟悅靈說話…',
     vidWho: '咦？這個聲音我還不認識耶！你叫什麼名字呀？',
+    langHello: '好呀！我們說中文吧！',
     vidRemember: '{q}！我記住你的聲音了，以後請多多指教喔！',
     vidSecret: '好吧，那你就當我神秘的朋友吧！',
     send: '說',
@@ -69,6 +70,7 @@ const L = {
     close: '閉じる',
     typeHint: '文字で話しかける…',
     vidWho: 'あれ？この声、まだ知らないなあ。お名前は？',
+    langHello: 'いいよ！日本語でお話ししよう！',
     vidRemember: '{q}！声をおぼえたよ。これからよろしくね！',
     vidSecret: 'そっか、じゃあひみつのおともだちだね！',
     send: '話す',
@@ -98,6 +100,7 @@ Then just say "Play music on Nintendo Music".`,
     close: 'Close',
     typeHint: 'Type to talk...',
     vidWho: "Huh? I don't know this voice yet. What's your name?",
+    langHello: "Okay! Let's talk in English!",
     vidRemember: "{q}! I'll remember your voice. Nice to meet you!",
     vidSecret: "Okay, then you'll be my secret friend!",
     send: 'Say',
@@ -166,6 +169,8 @@ export class Assistant {
   private card: HTMLDivElement;
   private timers: Timer[] = [];
   private chips: HTMLDivElement;
+  /** 說話模式時的對話紀錄（像 Minecraft 的聊天欄：左下、白字、半透明黑底） */
+  private chatLog: HTMLDivElement;
   private inputBar: HTMLFormElement;
   private input: HTMLInputElement;
   private tick = 0;
@@ -178,6 +183,7 @@ export class Assistant {
   ) {
     this.card = el('div', 'assist-card', root);
     this.chips = el('div', 'assist-timers', root);
+    this.chatLog = el('div', 'assist-chat', root);
     this.inputBar = el('form', 'assist-input', root);
     this.input = el('input', '', this.inputBar);
     this.input.type = 'text';
@@ -209,8 +215,27 @@ export class Assistant {
   /** 打字欄（開著麥克風或動態模式時顯示） */
   showInput(on: boolean): void {
     this.inputBar.classList.toggle('show', on);
+    this.chatLog.classList.toggle('show', on);
     if (on) this.place();
-    else this.input.blur();
+    else {
+      this.input.blur();
+      this.chatLog.replaceChildren();
+    }
+  }
+
+  /** 現在是不是說話模式（打字欄開著） */
+  get talking(): boolean {
+    return this.inputBar.classList.contains('show');
+  }
+
+  /** 對話紀錄加一行「名字：內容」；10 秒後慢慢淡掉 */
+  chat(name: string, text: string): void {
+    const line = el('div', 'chat-line', this.chatLog);
+    el('b', '', line).textContent = `${name}：`;
+    line.append(text);
+    while (this.chatLog.children.length > 8) this.chatLog.firstElementChild?.remove();
+    setTimeout(() => line.classList.add('old'), 10_000);
+    setTimeout(() => line.remove(), 12_000);
   }
 
   /** 打字欄放在快捷欄的上方（手機直放時快捷欄會變成兩排） */
@@ -219,6 +244,13 @@ export class Assistant {
     const bar = document.querySelector('.hud .stats') ?? document.querySelector('.hotbar');
     const top = bar?.getBoundingClientRect().top;
     if (top) this.inputBar.style.bottom = `${Math.max(8, window.innerHeight - top + 10)}px`;
+    // 對話紀錄在打字欄的正上方
+    const r = this.inputBar.getBoundingClientRect();
+    if (r.height) {
+      this.chatLog.style.bottom = `${window.innerHeight - r.top + 6}px`;
+      this.chatLog.style.left = `${Math.max(8, r.left)}px`;
+      this.chatLog.style.width = `${r.width}px`;
+    }
   }
 
   closeCard(): void {
@@ -358,6 +390,11 @@ export class Assistant {
   }
 }
 
+/** 換成這個語言聊天時，悅靈說的第一句 */
+export function langHello(lang: Lang): string {
+  return L[lang].langHello;
+}
+
 /** 認人時悅靈說的話（{q} 換成名字） */
 export function voiceIdLine(lang: Lang, key: 'vidWho' | 'vidRemember' | 'vidSecret', name = ''): string {
   return fill(L[lang][key], { q: name });
@@ -368,7 +405,7 @@ export function assistFixedLines(): [Lang, string][] {
   const out: [Lang, string][] = [];
   for (const lang of Object.keys(L) as Lang[]) {
     const t = L[lang];
-    for (const s of [t.think, t.noPos, t.noWeather, t.timerUp, t.nintendo, t.noNet, t.vidWho, t.vidSecret]) out.push([lang, s]);
+    for (const s of [t.think, t.noPos, t.noWeather, t.timerUp, t.nintendo, t.noNet, t.vidWho, t.vidSecret, t.langHello]) out.push([lang, s]);
     for (const a of ['YouTube', 'YouTube Music']) out.push([lang, fill(t.music, { a })]);
   }
   return out;
