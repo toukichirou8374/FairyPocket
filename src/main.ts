@@ -348,8 +348,12 @@ async function sensorOn(): Promise<void> {
     await sensor.start('user');
     sensorBox.classList.add('on');
   } catch {
-    hud.showItem(t('camDenied'));
-    hud.setSelected(null);
+    // 動態模式：鏡頭不能用時還是可以說話、打字，所以不取消選取
+    if (liveOn) hud.showItem(t('live.noCam'));
+    else {
+      hud.showItem(t('camDenied'));
+      hud.setSelected(null);
+    }
   }
 }
 
@@ -623,11 +627,14 @@ const hud = new Hud(overlay, {
     liveOn = slot === 'live';
     lastPersonAt = performance.now();
     if (!liveOn) ctrl.setPerson(null);
-    if (slot === 'mic' || slot === 'live') void micOn();
-    else micOff();
-    if (slot === 'wave' || slot === 'live') void sensorOn();
-    else sensorOff();
-    assistant.showInput(slot === 'mic' || slot === 'live');
+    if (liveOn) {
+      void micOn();
+      void sensorOn();
+    } else {
+      micOff();
+      sensorOff();
+    }
+    assistant.showInput(liveOn);
     if (slot !== 'note') stage.removeNoteBlock();
   },
   call: () => {
@@ -1280,7 +1287,8 @@ let hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
   music.pause(document.hidden);
   if (document.hidden) {
-    if (listener.on) hud.setSelected(null);
+    // 切到背景就關掉麥克風和鏡頭
+    if (liveOn || listener.on) hud.setSelected(null);
     hiddenAt = Date.now();
     save();
   } else if (hiddenAt && Date.now() - hiddenAt > 60_000) {

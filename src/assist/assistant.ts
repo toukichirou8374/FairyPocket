@@ -184,6 +184,7 @@ export class Assistant {
       if (v) onType(v);
     });
     this.relabel();
+    window.addEventListener('resize', () => this.place());
   }
 
   private get t(): (typeof L)['zh_tw'] {
@@ -199,7 +200,16 @@ export class Assistant {
   /** 打字欄（開著麥克風或動態模式時顯示） */
   showInput(on: boolean): void {
     this.inputBar.classList.toggle('show', on);
-    if (!on) this.input.blur();
+    if (on) this.place();
+    else this.input.blur();
+  }
+
+  /** 打字欄放在快捷欄的上方（手機直放時快捷欄會變成兩排） */
+  place(): void {
+    if (!this.inputBar.classList.contains('show')) return;
+    const bar = document.querySelector('.hud .stats') ?? document.querySelector('.hotbar');
+    const top = bar?.getBoundingClientRect().top;
+    if (top) this.inputBar.style.bottom = `${Math.max(8, window.innerHeight - top + 10)}px`;
   }
 
   closeCard(): void {
