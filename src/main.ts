@@ -9,7 +9,8 @@ import { pickLine, type LineKind } from './game/dialogue';
 import { applyElapsed, BEDTIMES, cheer, MAX_HUNGER, createPet, moodLevel, reunionKind, type Bedtime, FAVORITE_FOOD, feed, FOOD_IDS, FRIEND_STAY_MS, isNight, MAX_FRIENDS, PERSONALITY_COLOR, PERSONALITY_IDS, pet as petPet, play, tickPet, type Food, type PetState } from './game/state';
 import { BACKUP_KEY, decodeLink, encodeLink, exportFileName, linkKind, loadPet, parseSave, SAVE_KEY, serialize, storePet } from './game/save';
 import { deletePack, loadImages, loadPack, readPackFile, savePack, type AssetPack } from './game/assets';
-import { Sound } from './audio';
+import { BABBLE_LEVEL, babbleF0, Sound } from './audio';
+import { speakBabble } from './babble';
 import { SFX, sfxPitch, type Sfx } from './sfx';
 import { Music } from './music';
 import { ArCamera, Composer, saveMedia, type ArEvents, type Facing } from './ar';
@@ -156,6 +157,21 @@ async function micOn(): Promise<void> {
 }
 
 /** 聽懂了：照意思回答；聽不懂就用原本的方式（錄好的回應或悅靈語） */
+/** 開發用：離線算出悅靈語的波形，回傳長度、最大音量、平均音量（調音量用） */
+async function babbleStats(text: string, p: PetState['personality'] = pet.personality): Promise<{ sec: number; peak: number; rms: number }> {
+  const rate = 24000;
+  const ctx = new OfflineAudioContext(1, rate * 6, rate);
+  const sec = speakBabble(ctx, ctx.destination, text, { f0: babbleF0(p), level: BABBLE_LEVEL }, 0.01);
+  const d = (await ctx.startRendering()).getChannelData(0).subarray(0, Math.ceil(rate * (sec + 0.05)));
+  let peak = 0;
+  let sum = 0;
+  for (const v of d) {
+    peak = Math.max(peak, Math.abs(v));
+    sum += v * v;
+  }
+  return { sec, peak, rms: Math.sqrt(sum / d.length) };
+}
+
 /** 最後一次有人跟悅靈說話的時間（剛聊完不主動閒聊） */
 let lastUserAt = -Infinity;
 
@@ -1833,4 +1849,4 @@ function frame(now: number): void {
 requestAnimationFrame(frame);
 
 // 方便自動化測試與除錯
-Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound, music, keyGame, STICKERS, stickerCanvas } });
+Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound, music, keyGame, STICKERS, stickerCanvas, babbleStats } });

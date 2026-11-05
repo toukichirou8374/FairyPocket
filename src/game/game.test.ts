@@ -856,3 +856,21 @@ describe('language flex', () => {
     expect(askedLang('日文是什麼')).toBe(null);
   });
 });
+
+describe('babble', () => {
+  it('把一句話拆成音節：假名照讀音、英文照母音、標點是停頓', async () => {
+    const { syllables } = await import('../babble');
+    const ka = syllables('かさ');
+    expect(ka).toEqual([
+      { c: 'k', v: 'a', tone: 0 },
+      { c: 's', v: 'a', tone: 0 },
+    ]);
+    expect(syllables('きょう').length).toBe(2);
+    expect(syllables('hello').map((s) => s && s.v)).toEqual(['e', 'o']);
+    const zh = syllables('你好，悅靈！');
+    expect(zh.length).toBe(5);
+    expect(zh[2]).toBe(null);
+    // 同一個字每次都一樣
+    expect(syllables('好')).toEqual(syllables('好'));
+  });
+});

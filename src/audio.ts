@@ -4,6 +4,14 @@
 
 import type { Personality } from './game/state';
 import { packFile, type AssetPack } from './game/assets';
+import { speakBabble } from './babble';
+
+/** 悅靈語的音量倍率（實測：0.17 時平均音量跟上一版的「啾」差不多） */
+export const BABBLE_LEVEL = 0.17;
+/** 悅靈語的基本音高：依個性（愛玩最高、勇敢最低） */
+export function babbleF0(p: Personality): number {
+  return 330 * PERSONALITY_PITCH[p];
+}
 
 export type SoundMode = 'bright' | 'soft' | 'off';
 
@@ -328,72 +336,15 @@ export class Sound {
 
   /** 悅靈發言：悅靈叫聲 + 紫水晶鈴聲 */
   /**
-   * 悅靈語（像《動物森友會》那樣）：沒有做好的自然語音時，一個字（英文一個音節）一聲「啾」，
-   * 音高跟著字和個性變化、問句結尾往上揚、標點停一下。全部用 Web Audio 即時合成（原創，不用任何原版音效）。
-   * 回傳大約要念多久（秒）。
+   * 悅靈語（像《動物森友會》那樣）：沒有做好的自然語音時，把話念成快快的音節（子音＋母音＋語調），見 babble.ts。
+   * 開頭加一聲紫水晶鈴聲，聽得出是悅靈。回傳大約要念多久（秒）。
    */
   babble(text: string, p: Personality): number {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running' || this.level('voice') <= 0) return 0;
-    const out = this.bus(ctx, 'voice');
-    // 拆成一聲一聲：中日文每個字一聲；英文每個音節（母音群）一聲；標點是停頓
-    const units: (number | null)[] = [];
-    for (const w of text.match(/[A-Za-z']+|[^\sA-Za-z']/g) ?? []) {
-      if (/^[A-Za-z']+$/.test(w)) {
-        const syl = Math.max(1, (w.toLowerCase().match(/[aeiouy]+/g) ?? []).length);
-        for (let i = 0; i < syl; i++) units.push(w.charCodeAt(i % w.length) + i * 7);
-      } else if (/[，。！？、,.!?…～~；;：:]/.test(w)) units.push(null);
-      else if (/\S/.test(w)) units.push(w.codePointAt(0) ?? 0);
-    }
-    if (!units.length) return 0;
-    const n = units.length;
-    const step = n > 30 ? 0.06 : 0.075;
-    const base = 430 * PERSONALITY_PITCH[p];
-    const question = /[?？]\s*$/.test(text);
-    const level = SOUND_MODES[this.mode].allay * 0.55;
-    let t = ctx.currentTime + 0.03;
-    let i = 0;
-    for (const u of units.slice(0, 60)) {
-      if (u === null) {
-        t += 0.12;
-        continue;
-      }
-      // 每個字有自己的音高（同一個字每次一樣），加一點隨機，問句的最後幾聲往上
-      const semi = ((u * 7) % 9) - 4 + (Math.random() - 0.5) + (question && i >= n - 3 ? 3 + (i - (n - 3)) * 2 : 0);
-      const f = base * 2 ** (semi / 12);
-      const dur = step * (0.75 + Math.random() * 0.2);
-      const o = ctx.createOscillator();
-      o.type = 'triangle';
-      o.frequency.setValueAtTime(f, t);
-      o.frequency.linearRampToValueAtTime(f * 1.06, t + dur * 0.5);
-      o.frequency.linearRampToValueAtTime(f * 0.97, t + dur);
-      const o2 = ctx.createOscillator();
-      o2.type = 'sine';
-      o2.frequency.setValueAtTime(f * 2, t);
-      const g2 = ctx.createGain();
-      g2.gain.value = 0.35;
-      // 像母音的音色：每個字的「嘴形」不一樣
-      const bp = ctx.createBiquadFilter();
-      bp.type = 'bandpass';
-      bp.frequency.value = 900 + ((u * 13) % 7) * 220;
-      bp.Q.value = 1.2;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0, t);
-      g.gain.linearRampToValueAtTime(level, t + 0.008);
-      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-      o.connect(bp);
-      o2.connect(g2).connect(bp);
-      bp.connect(g).connect(out);
-      o.start(t);
-      o2.start(t);
-      o.stop(t + dur + 0.02);
-      o2.stop(t + dur + 0.02);
-      t += step;
-      i++;
-    }
-    // 開頭加一聲紫水晶的鈴聲，聽得出是悅靈
-    void this.play(CHIME, SOUND_MODES[this.mode].chime * 0.6, SOUND_MODES[this.mode].chimePitch, 0, 'voice');
-    return t - ctx.currentTime;
+    const len = speakBabble(ctx, this.bus(ctx, 'voice'), text, { f0: babbleF0(p), level: SOUND_MODES[this.mode].allay * BABBLE_LEVEL });
+    if (len) void this.play(CHIME, SOUND_MODES[this.mode].chime * 0.6, SOUND_MODES[this.mode].chimePitch, 0, 'voice');
+    return len;
   }
 
   speak(p: Personality): void {
