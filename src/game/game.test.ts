@@ -14,6 +14,7 @@ import { trimSilence } from '../voice';
 import { WaveDetector } from '../ar';
 import { anyHeard, NoiseGate } from '../sense';
 import { addNote, buildSystem, parseReply, remember } from '../brain/brain';
+import { clearRecent, pickFresh } from './recent';
 import { trackPitch, transform, VOICE_STYLES } from '../voicefx';
 import { clipKey, demoSpeech, legacyRenames, matchesItem, recordedItems, stickerBookItems } from './sbItems';
 import { allTalkLines, detectIntent, refine, talkLine, TALK_LINES } from './talk';
@@ -768,5 +769,17 @@ describe('ai brain', () => {
     expect(mem.notes.length).toBe(1);
     for (let i = 0; i < 30; i++) remember(mem, 'user', 'x' + i);
     expect(mem.turns.length).toBe(16);
+  });
+});
+
+describe('line variety', () => {
+  it('同一個情境不會一直說同一句', () => {
+    clearRecent();
+    const pool = ['a', 'b', 'c', 'd'];
+    const seen: string[] = [];
+    for (let i = 0; i < 4; i++) seen.push(pickFresh('t', pool, () => 0));
+    expect(new Set(seen).size).toBe(4);
+    expect(pickFresh('one', ['x'], () => 0.5)).toBe('x');
+    clearRecent();
   });
 });

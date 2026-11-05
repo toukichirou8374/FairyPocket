@@ -7,6 +7,7 @@
 // 以後第二層（本機 AI）、第三層（雲端 AI）只要換掉 detectIntent／talkLine，其他不用改。
 // 台詞盡量不放名字 {n}，這樣才能事先做好神經語音（scripts/make-voices.mjs）。
 
+import { pickFresh } from './recent';
 import type { Lang } from '../i18n';
 import type { Personality } from './state';
 import { normalizeSpeech } from './stickers';
@@ -424,7 +425,7 @@ const BY_PERSONALITY: Record<Personality, Partial<Record<Reply, Lines>>> = {
 export function talkLine(reply: Reply, lang: Lang, name: string, personality: Personality = 'guardian', rnd = Math.random): string {
   const own = BY_PERSONALITY[personality][reply]?.[lang] ?? [];
   const pool = [...TALK_LINES[reply][lang], ...own, ...own];
-  return pool[Math.floor(rnd() * pool.length)].replaceAll('{n}', name);
+  return pickFresh(`talk|${reply}|${lang}|${personality}`, pool, rnd).replaceAll('{n}', name);
 }
 
 /** 全部的台詞（事先做神經語音用；有名字 {n} 的句子不算） */

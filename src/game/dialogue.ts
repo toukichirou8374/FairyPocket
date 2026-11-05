@@ -1,5 +1,6 @@
 // 悅靈的台詞（繁中、日文、英文）。{n} 會被替換成玩家為牠取的名字，{f} 是食物名稱。
 
+import { pickFresh } from './recent';
 import type { Personality } from './state';
 import { getLang, type Lang } from '../i18n';
 
@@ -235,5 +236,5 @@ export function pickLine(kind: LineKind, personality: Personality, name: string,
   // 個性台詞放兩次，出現機率比較高
   const own = BY_PERSONALITY[lang][personality][kind] ?? [];
   const pool = [...COMMON[lang][kind], ...own, ...own];
-  return pool[Math.floor(rnd() * pool.length)].replaceAll('{n}', name).replaceAll('{f}', food).replaceAll('{d}', String(d));
+  return pickFresh(`line|${kind}|${lang}|${personality}`, pool, rnd).replaceAll('{n}', name).replaceAll('{f}', food).replaceAll('{d}', String(d));
 }
