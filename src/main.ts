@@ -24,6 +24,7 @@ import { legacyRenames } from './game/sbItems';
 import { detectIntent, talkLine, type Intent } from './game/talk';
 import { Recognizer, speechSupported } from './speech';
 import { DISCS } from './music';
+import { loadTtsVoices, pickVoice, saveTtsVoice, voicesFor } from './ttsVoice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
 import { memoryTopic, rememberFood, takeMilestone, timeGreeting, visitDay, type MilestoneLine } from './game/memory';
 import { asciiGlyphs, buildFont } from './pixelFont';
@@ -581,6 +582,13 @@ const hud = new Hud(overlay, {
     replies[i] = null;
     void saveReplies(getLang(), replies);
   },
+  ttsVoices: () => voicesFor(window.speechSynthesis?.getVoices() ?? [], SPEECH_LANG[getLang()]),
+  ttsVoice: () => loadTtsVoices()[getLang()] ?? '',
+  setTtsVoice: (uri) => {
+    saveTtsVoice(getLang(), uri);
+    sound.unlock();
+    void speakText(t('tts.sample'), getLang(), true);
+  },
   voiceStyle: () => voiceStyle,
   setVoiceStyle: (v) => {
     voiceStyle = v;
@@ -713,7 +721,8 @@ function speakText(text: string, lang: Lang = getLang(), demo = false): Promise<
   u.pitch = demo ? 1.25 : 1.7;
   u.rate = demo ? 0.8 : 0.95;
   u.volume = Math.min(1, vol);
-  const v = s.getVoices().find((x) => x.lang.replace('_', '-').toLowerCase() === u.lang.toLowerCase());
+  // 自己選過的聲音優先，沒選就用音質最好的（高品質 > 優化 > 一般）
+  const v = pickVoice(s.getVoices(), u.lang, loadTtsVoices()[lang]);
   if (v) u.voice = v;
   return new Promise((done) => {
     u.onend = u.onerror = () => done();

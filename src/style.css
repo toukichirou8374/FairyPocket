@@ -787,3 +787,6 @@ body.motion #sky { display: none; }
 .sb-face.long { font-size: 26px; }
 .sb-face.mid { font-size: 30px; }
 .kg-sticker .kg-face.mid:not(:has(canvas)) { font-size: 50px; }
+
+/* ---- 說話的聲音 ---- */
+.ttsgrid .btn { white-space: normal; }

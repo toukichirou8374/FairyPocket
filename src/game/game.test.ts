@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { pickVoice, voiceLabel, voiceQuality, voicesFor } from '../ttsVoice';
 import { applyElapsed, createPet, feed, isNight, moodLevel, play, reunionKind, tickPet, toIcons, MAX_HUNGER } from './state';
 import { decodeLink, encodeLink, linkKind, loadPet, parseSave, serialize, storePet, SAVE_KEY, BACKUP_KEY } from './save';
 import { pickLine } from './dialogue';
@@ -590,5 +591,37 @@ describe('allay demo speech', () => {
   it('keyboard mode says zhuyin with a readable character', () => {
     const p = keyboardPrompts('zh_tw').find((x) => x.label === 'ㄅ')!;
     expect(p.speak).toBe('玻');
+  });
+});
+
+describe('speaking voice', () => {
+  const V = (name: string, lang: string, voiceURI: string) => ({ name, lang, voiceURI });
+  const list = [
+    V('Meijia', 'zh-TW', 'com.apple.voice.compact.zh-TW.Meijia'),
+    V('Grandma', 'zh-TW', 'com.apple.eloquence.zh-TW.Grandma'),
+    V('Meijia (Premium)', 'zh-TW', 'com.apple.voice.premium.zh-TW.Meijia'),
+    V('Meijia (Enhanced)', 'zh-TW', 'com.apple.voice.enhanced.zh-TW.Meijia'),
+    V('Tingting', 'zh-CN', 'com.apple.voice.compact.zh-CN.Tingting'),
+    V('Kyoko', 'ja-JP', 'com.apple.voice.compact.ja-JP.Kyoko'),
+  ];
+  it('ranks premium > enhanced > normal > novelty', () => {
+    expect(list.map(voiceQuality)).toEqual([1, 0, 3, 2, 1, 1]);
+    expect(voiceQuality(V('美佳（プレミア）', 'zh-TW', 'x'))).toBe(3);
+  });
+  it('only offers the exact language (no Mainland voice for zh-TW)', () => {
+    const zh = voicesFor(list, 'zh-TW');
+    expect(zh.map((v) => v.name)).toEqual(['Meijia (Premium)', 'Meijia (Enhanced)', 'Meijia', 'Grandma']);
+    expect(zh.some((v) => v.lang === 'zh-CN')).toBe(false);
+  });
+  it('auto picks the best, a saved choice wins', () => {
+    expect(pickVoice(list, 'zh-TW')?.voiceURI).toContain('premium');
+    expect(pickVoice(list, 'zh-TW', 'com.apple.voice.compact.zh-TW.Meijia')?.name).toBe('Meijia');
+    expect(pickVoice(list, 'zh-TW', 'gone')?.voiceURI).toContain('premium');
+    expect(pickVoice(list, 'en-US')).toBeUndefined();
+  });
+  it('labels quality with stars', () => {
+    expect(voiceLabel(list[2])).toBe('Meijia ★★');
+    expect(voiceLabel(list[3])).toBe('Meijia ★');
+    expect(voiceLabel(list[0])).toBe('Meijia');
   });
 });

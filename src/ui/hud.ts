@@ -10,6 +10,7 @@ import { getLang, itemName, LANGS, personalityText, t, type Lang, type UiKey } f
 import { loadDevTap, saveDevTap } from '../game/keyGame';
 import { bedIso, chestIso, isoCube } from './isoIcon';
 import { VOICE_STYLES, type VoiceStyle } from '../voicefx';
+import { voiceLabel, type VoiceInfo } from '../ttsVoice';
 
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
@@ -79,6 +80,10 @@ export interface HudActions {
   deleteReply(i: number): void;
   /** 回應的變聲種類 */
   voiceStyle(): VoiceStyle;
+  /** 說話的聲音（裝置內建語音）：目前語言可以用的、選了哪個（'' = 自動）、改選（會念一句試聽） */
+  ttsVoices(): VoiceInfo[];
+  ttsVoice(): string;
+  setTtsVoice(uri: string): void;
   setVoiceStyle(v: VoiceStyle): void;
   /** AR 攝影棚：換姿勢、轉向（turn）、讓悅靈自己行動（free） */
   arPose(p: Pose | 'turn' | 'free'): void;
@@ -656,6 +661,37 @@ export class Hud {
     });
   }
 
+  /** 設定頁：說話的聲音（裝置內建語音；手機剛開時語音清單可能還沒準備好，準備好再畫一次） */
+  private ttsPicker(box: HTMLElement): void {
+    el('label', '', box).textContent = t('tts.title', { l: LANGS[getLang()] });
+    el('div', 'info', box).textContent = t('tts.help');
+    const grid = el('div', 'pgrid voicegrid ttsgrid', box);
+    const draw = () => {
+      if (!grid.isConnected && grid.childElementCount) {
+        window.speechSynthesis?.removeEventListener('voiceschanged', draw);
+        return;
+      }
+      grid.replaceChildren();
+      const list = this.actions.ttsVoices();
+      if (!list.length) {
+        el('div', 'info', grid).textContent = t('tts.none');
+        return;
+      }
+      const cur = this.actions.ttsVoice();
+      const opts: [string, string][] = [['', t('tts.auto')], ...list.map((v): [string, string] => [v.voiceURI, voiceLabel(v)])];
+      for (const [uri, label] of opts) {
+        const b = el('button', 'btn small' + (uri === cur ? ' on' : ''), grid);
+        b.textContent = label;
+        b.addEventListener('click', () => {
+          grid.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
+          this.actions.setTtsVoice(uri);
+        });
+      }
+    };
+    draw();
+    window.speechSynthesis?.addEventListener('voiceschanged', draw);
+  }
+
   /** 設定頁：音樂與音效（像原版的設定畫面：全部靜音 + 各分類的音量滑桿） */
   private volumeEditor(box: HTMLElement): void {
     el('label', '', box).textContent = t('sound');
@@ -799,6 +835,7 @@ export class Hud {
 
     el('label', '', box).textContent = t('language');
     this.langPicker(box);
+    this.ttsPicker(box);
 
     this.volumeEditor(box);
 
