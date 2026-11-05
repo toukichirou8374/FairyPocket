@@ -16,9 +16,10 @@ import { voiceLabel, type VoiceInfo } from '../ttsVoice';
 /** 素材包：新版 zip、舊版 json 都可以 */
 const PACK_ACCEPT = '.zip,application/zip,application/x-zip-compressed,.json,application/json';
 
-// 感應：「動態模式」（live）= 前鏡頭看人、揮手＋聽你說話；「麥克風」（mic）= 只聽你說話（出門不方便開鏡頭時）
-export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'jukebox' | 'live' | 'mic' | 'bed' | 'firework' | 'bath' | 'call';
-export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'jukebox', 'live', 'mic', 'bed', 'firework', 'bath', 'call'];
+// 跟悅靈說話的方式：文字（只打字）、語音（麥克風）、動態（鏡頭＋麥克風）＝ 規則＋家裡電腦的 AI（兩層、免費）；
+// AI 文字、AI 語音、AI 動態 ＝ 再加上雲端 AI（三層，之後加入 ChatGPT 這類，會花一點費用）
+export type Slot = 'food' | 'feather' | 'slime' | 'note' | 'jukebox' | 'text' | 'mic' | 'live' | 'aitext' | 'aimic' | 'ailive' | 'bed' | 'firework' | 'bath' | 'call';
+export const SLOTS: Slot[] = ['food', 'feather', 'slime', 'note', 'jukebox', 'text', 'mic', 'live', 'aitext', 'aimic', 'ailive', 'bed', 'firework', 'bath', 'call'];
 
 /** 快捷欄的 5 個分類格：點一下拿起這一類上次用的東西，再點一下打開選單換別的 */
 export type Group = 'food' | 'toys' | 'blocks' | 'sense' | 'call';
@@ -26,13 +27,13 @@ export const GROUPS: { id: Group; tools: Slot[] }[] = [
   { id: 'food', tools: ['food'] },
   { id: 'toys', tools: ['feather', 'slime', 'firework', 'bath'] },
   { id: 'blocks', tools: ['note', 'jukebox', 'bed'] },
-  { id: 'sense', tools: ['live', 'mic'] },
+  { id: 'sense', tools: ['text', 'mic', 'live', 'aitext', 'aimic', 'ailive'] },
   { id: 'call', tools: ['call'] },
 ];
 const groupOf = (t: Slot) => GROUPS.find((g) => g.tools.includes(t))!;
 
 const TOOL_ICON: Record<Slot, string> = {
-  food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', jukebox: 'jukebox', live: 'eye', mic: 'mic', bed: 'bed', firework: 'firework', bath: 'bucket', call: 'bell',
+  food: 'chest', feather: 'feather', slime: 'slime', note: 'noteblock', jukebox: 'jukebox', text: 'bubble', mic: 'mic', live: 'eye', aitext: 'bubble_ai', aimic: 'mic_ai', ailive: 'eye_ai', bed: 'bed', firework: 'firework', bath: 'bucket', call: 'bell',
 };
 
 /** 快捷欄名稱（Java 版譯名）與操作提示 */
@@ -43,6 +44,10 @@ function slotText(s: Slot): { label: string; hint: string } {
     case 'slime': return { label: itemName('slime_ball'), hint: t('hint.slime') };
     case 'note': return { label: itemName('note_block'), hint: t('hint.note') };
     case 'jukebox': return { label: itemName('jukebox'), hint: t('hint.jukebox') };
+    case 'text': return { label: t('textSlot'), hint: t('hint.text') };
+    case 'aitext': return { label: t('aiTextSlot'), hint: t('hint.ai') };
+    case 'aimic': return { label: t('aiMicSlot'), hint: t('hint.ai') };
+    case 'ailive': return { label: t('aiLiveSlot'), hint: t('hint.ai') };
     case 'live': return { label: t('liveSlot'), hint: t('hint.live') };
     case 'mic': return { label: t('mic'), hint: t('hint.mic') };
     case 'bed': return { label: itemName('bed'), hint: t('hint.bed') };
@@ -420,8 +425,12 @@ export class Hud {
       slime: img.slime_ball?.src,
       note: img.note_block && isoCube(img.note_block),
       jukebox: img.jukebox_top && img.jukebox_side && isoCube(img.jukebox_top, img.jukebox_side),
+      text: undefined,
       live: undefined,
       mic: undefined,
+      aitext: undefined,
+      aimic: undefined,
+      ailive: undefined,
       bed:
         img.bed_head_up && img.bed_foot_up && img.bed_head_east && img.bed_foot_east && img.bed_foot_south
           ? bedIso({ head_up: img.bed_head_up, foot_up: img.bed_foot_up, head_side: img.bed_head_east, foot_side: img.bed_foot_east, foot_end: img.bed_foot_south })

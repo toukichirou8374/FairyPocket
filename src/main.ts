@@ -132,6 +132,8 @@ async function answerText(text: string, alts: string[] = [text]): Promise<void> 
 
 // ---------- AI 大腦（家裡電腦的本機 AI） ----------
 const brainMem = loadMemory();
+/** AI 模式（快捷欄的 AI 文字／語音／動態）：第三層的雲端 AI 之後接在這裡 */
+let cloudMode = false;
 let brainBusy = false;
 
 const FEELING_MOOD: Record<Exclude<Feeling, null>, Mood> = { happy: 'happy', sad: 'sad', surprised: 'surprised', shy: 'shy', sleepy: 'sleepy' };
@@ -671,16 +673,19 @@ const hud = new Hud(overlay, {
     }).open(),
   select: (slot) => {
     // 動態模式 = 前鏡頭（看人、揮手）＋麥克風（說話）
-    liveOn = slot === 'live';
+    // AI 文字／語音／動態 = 文字／語音／動態 ＋ 雲端 AI（第三層）
+    cloudMode = slot === 'aitext' || slot === 'aimic' || slot === 'ailive';
+    liveOn = slot === 'live' || slot === 'ailive';
     lastPersonAt = performance.now();
     if (!liveOn) ctrl.setPerson(null);
-    // 麥克風模式：只聽、不開鏡頭
-    const talk = liveOn || slot === 'mic';
-    if (talk) void micOn();
+    // 文字：只打字；語音：麥克風；動態：鏡頭＋麥克風
+    const voice = slot === 'mic' || slot === 'aimic';
+    if (liveOn || voice) void micOn();
     else micOff();
     if (liveOn) void sensorOn();
     else sensorOff();
-    assistant.showInput(talk);
+    assistant.showInput(liveOn || voice || slot === 'text' || slot === 'aitext');
+    if (cloudMode) hud.toast(t('ai.cloudLater'));
     if (slot !== 'note') stage.removeNoteBlock();
   },
   call: () => {

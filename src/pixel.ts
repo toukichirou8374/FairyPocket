@@ -241,6 +241,24 @@ export const ITEM_ICONS: Record<string, { grid: string[]; pal: Palette }> = {
     ],
     pal: { k: '#1d2b4a', g: '#a8b4c8', r: '#e04848', w: '#ffffff', b: '#4a7ab8' },
   },
+  // 文字模式：原創的像素對話框
+  bubble: {
+    grid: [
+      '............',
+      '.kkkkkkkkkk.',
+      'kwwwwwwwwwwk',
+      'kwwwwwwwwwwk',
+      'kwbbwbbwbbwk',
+      'kwbbwbbwbbwk',
+      'kwwwwwwwwwwk',
+      '.kkkkkkkkkk.',
+      '...kwk......',
+      '...kk.......',
+      '..k.........',
+      '............',
+    ],
+    pal: { k: '#2a2a32', w: '#ffffff', b: '#3a9ad8' },
+  },
   // 動態模式：原創的像素眼睛
   eye: {
     grid: [
@@ -341,3 +359,14 @@ function shade(hex: string, k: number): string {
   const ch = (s: number) => Math.round(((n >> s) & 255) * k);
   return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
 }
+
+/** AI 模式的圖示：原本的圖示右上角加一個紫色小閃光 */
+function withSpark(base: { grid: string[]; pal: Palette }): { grid: string[]; pal: Palette } {
+  const S = ['..Q..', '.QRQ.', 'QRSRQ', '.QRQ.', '..Q..'];
+  const g = base.grid.map((r) => r.padEnd(12, '.').split(''));
+  S.forEach((row, y) => [...row].forEach((c, x) => c !== '.' && (g[y][7 + x] = c)));
+  return { grid: g.map((r) => r.join('')), pal: { ...base.pal, Q: '#7a3ac8', R: '#c89aff', S: '#ffffff' } };
+}
+ITEM_ICONS.bubble_ai = withSpark(ITEM_ICONS.bubble);
+ITEM_ICONS.mic_ai = withSpark(ITEM_ICONS.mic);
+ITEM_ICONS.eye_ai = withSpark(ITEM_ICONS.eye);

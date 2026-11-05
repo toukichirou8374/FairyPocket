@@ -922,3 +922,6 @@ body.motion #sky { display: none; }
 .sensetest .st-cam video.mirror { transform: scaleX(-1); }
 
 .ai-notes { white-space: pre-line; max-height: 8em; overflow-y: auto; }
+
+/* 有視窗（設定、選單）打開時，打字欄先藏起來 */
+#overlay:has(.modal-back) .assist-input { display: none !important; }
