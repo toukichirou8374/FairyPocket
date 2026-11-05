@@ -26,6 +26,8 @@ import { detectCommand } from './assist/command';
 import { Assistant, type Mood } from './assist/assistant';
 import { SenseTest } from './ui/senseTest';
 import { VoiceAge, voiceAgeOn, type AgeGuess } from './voiceAge';
+import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeople, voiceFeatures, voiceIdOn } from './voiceId';
+import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, buildSystem, loadBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { Recognizer, speechSupported } from './speech';
 import { loadTtsVoices, pickVoice, saveTtsVoice, voicesFor } from './ttsVoice';
@@ -133,6 +135,10 @@ async function answerText(text: string, alts: string[] = [text]): Promise<void> 
     const g = voiceAge.guess().guess;
     if (g) speaker = { guess: g, at: performance.now() };
   }
+  // 認人：聽聲音大概猜是誰；第一次聽到的聲音會問名字
+  const heard = voiceAge.on ? voiceAge.takeRecent() : null;
+  const feat = heard ? voiceFeatures(heard.data, heard.rate) : null;
+  if (voiceIdStep(text, feat)) return;
   // 要悅靈幫忙做的事（天氣、時間、計時、音樂、查資料）：每個可能聽成的說法都試試看
   for (const a of tries) {
     const cmd = detectCommand(a, lang);
@@ -152,8 +158,70 @@ async function answerText(text: string, alts: string[] = [text]): Promise<void> 
     await answer(new Float32Array(Math.round(text.length * 2400)), 24000, true);
     return;
   }
-  remember(brainMem, 'user', text);
+  remember(brainMem, 'user', who(text));
   reactTo(intent);
+}
+
+// ---------- 說話者辨識・第二步：模糊認人（第一次聽到的聲音在對話裡問名字） ----------
+const people = loadPeople();
+/** 問了名字、等對方自我介紹 */
+let askName: { feat: number[]; at: number } | null = null;
+let lastAskAt = -Infinity;
+let secretUntil = 0;
+/** 最近說話的人（聽聲音猜的） */
+let currentPerson: { name: string; at: number } | null = null;
+
+function personNow(): string | null {
+  return currentPerson && performance.now() - currentPerson.at < 180_000 ? currentPerson.name : null;
+}
+/** 記到對話裡時，前面加上是誰說的 */
+function who(text: string): string {
+  const n = personNow();
+  return n ? `${n}：${text}` : text;
+}
+
+/** 回傳 true = 這句話已經處理（問名字、記住名字），不用再回答 */
+function voiceIdStep(text: string, feat: number[] | null): boolean {
+  const now = performance.now();
+  const lang = getLang();
+  if (askName && now - askName.at < 40_000) {
+    const ask = askName;
+    askName = null;
+    if (/不要|不用|不告訴|秘密|祕密|いや|ひみつ|秘密|no thanks|secret|not telling/i.test(text)) {
+      secretUntil = now + 15 * 60_000;
+      assistSay(voiceIdLine(lang, 'vidSecret'), 'shy');
+      return true;
+    }
+    const name = nameFrom(text);
+    if (name) {
+      // 問名字前後兩句的聲音一起記，比較準
+      const f = feat ? ask.feat.map((v, i) => (v + feat[i]) / 2) : ask.feat;
+      addPerson(people, name, f);
+      savePeople(people);
+      currentPerson = { name, at: now };
+      remember(brainMem, 'allay', voiceIdLine(lang, 'vidRemember', name));
+      saveMemory(brainMem);
+      assistSay(voiceIdLine(lang, 'vidRemember', name), 'happy');
+      stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), 4);
+      return true;
+    }
+    // 不是在說名字：當成一般的話照常回答
+  }
+  if (!feat || !voiceIdOn()) return false;
+  const { person } = identify(people, feat);
+  if (person) {
+    learn(person, feat);
+    savePeople(people);
+    currentPerson = { name: person.name, at: now };
+    return false;
+  }
+  // 還不認識的聲音：問名字（別太常問）
+  if (people.length >= MAX_PEOPLE || now < secretUntil || now - lastAskAt < 3 * 60_000) return false;
+  lastAskAt = now;
+  askName = { feat, at: now };
+  currentPerson = null;
+  assistSay(voiceIdLine(lang, 'vidWho'), 'surprised');
+  return true;
 }
 
 // ---------- AI 大腦（家裡電腦的本機 AI） ----------
@@ -179,7 +247,7 @@ async function brainAnswer(text: string): Promise<boolean> {
   hud.say('…', 9000);
   listener.pausedUntil = talkDeafUntil = performance.now() + 9000;
   const lang = getLang();
-  const system = buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f), speaker: currentSpeaker() });
+  const system = buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f), speaker: currentSpeaker(), person: personNow() });
   const raw = await ask(cfg, system, brainMem, text);
   brainBusy = false;
   const r = raw ? parseReply(raw, lang) : null;
@@ -187,7 +255,7 @@ async function brainAnswer(text: string): Promise<boolean> {
     listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil = 0;
     return false;
   }
-  remember(brainMem, 'user', text);
+  remember(brainMem, 'user', who(text));
   remember(brainMem, 'allay', r.text);
   for (const n of r.notes) addNote(brainMem, n);
   saveMemory(brainMem);
@@ -691,6 +759,7 @@ function useNoteBlock(ray: THREE.Ray, hitBlock: boolean): void {
 }
 
 const hud = new Hud(overlay, {
+  voicePreview: () => void speakText(talkLine('greet', getLang(), pet.name, pet.personality)),
   senseTest: () =>
     new SenseTest({
       root: overlay,

@@ -1,5 +1,7 @@
 // 畫面上的 HTML 介面：名字、對話泡泡、愛心 / 飽食度、快捷欄、設定與開場。
 
+import { devGate } from './devGate';
+import { loadPeople, savePeople, setVoiceIdOn, voiceIdOn } from '../voiceId';
 import { setVoiceAgeOn, voiceAgeOn } from '../voiceAge';
 import { brainSettings } from './brainSettings';
 import { foodIcon, gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, statGrid } from '../pixel';
@@ -94,6 +96,8 @@ export interface HudActions {
   ttsVoice(): string;
   setTtsVoice(uri: string): void;
   setVoiceStyle(v: VoiceStyle): void;
+  /** 讓悅靈說一句話，聽聽目前的變聲 */
+  voicePreview(): void;
   /** AR 攝影棚：換姿勢、轉向（turn）、讓悅靈自己行動（free） */
   arPose(p: Pose | 'turn' | 'free'): void;
   biome(): Biome;
@@ -758,10 +762,70 @@ export class Hud {
   }
 
   /** 設定頁：錄 5 句回應（目前語言）。按「錄音」開始，說完會自動停止 */
-  private replyEditor(box: HTMLElement): void {
-    el('label', '', box).textContent = t('replies', { l: LANGS[getLang()] });
-    el('div', 'info', box).textContent = t('repliesHelp');
-    // 變聲：精靈／小孩／少女
+  /** 開發者區（過了密碼才會打開） */
+  private openDev(): void {
+    const { box, close } = this.modal(t('dev.area'));
+    brainSettings(box);
+
+    el('label', '', box).textContent = t('va.title');
+    el('div', 'info', box).textContent = t('va.help');
+    const toggle = (label: string, get: () => boolean, set: (on: boolean) => void) => {
+      const b = el('button', 'btn', box);
+      const show = () => {
+        b.textContent = `${label}：${t(get() ? 'on' : 'off')}`;
+        b.classList.toggle('on', get());
+      };
+      show();
+      b.addEventListener('click', () => {
+        set(!get());
+        show();
+      });
+    };
+    toggle(t('va.title'), voiceAgeOn, setVoiceAgeOn);
+
+    el('label', '', box).textContent = t('vid.title');
+    el('div', 'info', box).textContent = t('vid.help');
+    toggle(t('vid.title'), voiceIdOn, setVoiceIdOn);
+    const people = loadPeople();
+    const plist = el('div', 'info', box);
+    const showPeople = () => (plist.textContent = people.length ? t('vid.list', { n: people.length, names: people.map((p) => p.name).join('、') }) : t('vid.none'));
+    showPeople();
+    if (people.length) {
+      const prow = el('div', 'btnrow', box);
+      for (const p of people) {
+        const b = el('button', 'btn small', prow);
+        b.textContent = `✕ ${p.name}`;
+        b.addEventListener('click', () => {
+          if (!confirm(t('vid.forgetOne', { name: p.name }))) return;
+          people.splice(people.indexOf(p), 1);
+          savePeople(people);
+          b.remove();
+          showPeople();
+        });
+      }
+    }
+
+    el('label', '', box).textContent = t('st.title');
+    const stBtn = el('button', 'btn', box);
+    stBtn.textContent = t('st.button');
+    stBtn.addEventListener('click', () => {
+      close();
+      this.actions.senseTest();
+    });
+
+    el('label', '', box).textContent = t('dev.tapTitle');
+    toggle(t('dev.tap'), () => loadDevTap(localStorage), (on) => saveDevTap(localStorage, on));
+    el('div', 'info', box).textContent = t('dev.tapHelp');
+
+    const row = el('div', 'btnrow', box);
+    const c = el('button', 'btn', row);
+    c.textContent = t('close');
+    c.addEventListener('click', close);
+  }
+
+  /** 悅靈說話的變聲（精靈／小孩／少女…） */
+  private voiceStyleEditor(box: HTMLElement): void {
+    el('label', '', box).textContent = t('voiceStyle.title');
     const vrow = el('div', 'pgrid voicegrid', box);
     for (const v of VOICE_STYLES) {
       const b = el('button', 'btn small' + (v === this.actions.voiceStyle() ? ' on' : ''), vrow);
@@ -769,42 +833,8 @@ export class Hud {
       b.addEventListener('click', () => {
         vrow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
         this.actions.setVoiceStyle(v);
-        // 換了聲音就播一句有錄的來聽聽看
-        const first = this.actions.replies().findIndex((x) => x);
-        if (first >= 0) this.actions.playReply(first);
-      });
-    }
-    const has = this.actions.replies();
-    for (let i = 0; i < has.length; i++) {
-      const row = el('div', 'btnrow reply', box);
-      const rec = el('button', 'btn', row);
-      const play = el('button', 'btn small', row);
-      const del = el('button', 'btn small', row);
-      play.textContent = '▶';
-      del.textContent = '✕';
-      const show = (on: boolean) => {
-        rec.textContent = `${i + 1}　${on ? t('replyRerecord') : t('replyRecord')}`;
-        play.disabled = del.disabled = !on;
-      };
-      show(has[i]);
-      let stop: (() => void) | null = null;
-      rec.addEventListener('click', async () => {
-        if (stop) return stop();
-        const r = await this.actions.recordReply(i);
-        if (!r) return;
-        stop = r.stop;
-        rec.textContent = `${i + 1}　■ ${t('replyRecording')}`;
-        rec.classList.add('on');
-        const ok = await r.done;
-        stop = null;
-        rec.classList.remove('on');
-        if (!ok) this.toast(t('micNothing'));
-        show(ok || !play.disabled);
-      });
-      play.addEventListener('click', () => this.actions.playReply(i));
-      del.addEventListener('click', () => {
-        this.actions.deleteReply(i);
-        show(false);
+        // 換了聲音就讓悅靈說一句聽聽看
+        this.actions.voicePreview();
       });
     }
   }
@@ -863,28 +893,7 @@ export class Hud {
 
     this.volumeEditor(box);
 
-    brainSettings(box);
-
-    el('label', '', box).textContent = t('va.title');
-    el('div', 'info', box).textContent = t('va.help');
-    const vaBtn = el('button', 'btn', box);
-    const showVa = () => {
-      vaBtn.textContent = `${t('va.title')}：${t(voiceAgeOn() ? 'on' : 'off')}`;
-      vaBtn.classList.toggle('on', voiceAgeOn());
-    };
-    showVa();
-    vaBtn.addEventListener('click', () => {
-      setVoiceAgeOn(!voiceAgeOn());
-      showVa();
-    });
-
-    el('label', '', box).textContent = t('st.title');
-    const stBtn = el('button', 'btn', box);
-    stBtn.textContent = t('st.button');
-    stBtn.addEventListener('click', () => {
-      close();
-      this.actions.senseTest();
-    });
+    this.voiceStyleEditor(box);
 
     el('label', '', box).textContent = t('voiceTone');
     const srow = el('div', 'btnrow', box);
@@ -925,22 +934,14 @@ export class Hud {
       });
     }
 
-    this.replyEditor(box);
-
-    // 開發選項：測試用的設定集中在這裡
+    // 開發者：AI 大腦、感應、認人等技術設定（要密碼）
     el('label', '', box).textContent = t('dev.title');
-    const dev = el('button', 'btn' + (loadDevTap(localStorage) ? ' on' : ''), box);
-    const devHelp = el('div', 'info', box);
-    const showDev = () => {
-      const on = loadDevTap(localStorage);
-      dev.textContent = `${t('dev.tap')}：${t(on ? 'on' : 'off')}`;
-      dev.classList.toggle('on', on);
-      devHelp.textContent = t('dev.tapHelp');
-    };
-    showDev();
-    dev.addEventListener('click', () => {
-      saveDevTap(localStorage, !loadDevTap(localStorage));
-      showDev();
+    el('div', 'info', box).textContent = t('dev.help');
+    const devBtn = el('button', 'btn', box);
+    devBtn.textContent = t('dev.open');
+    devBtn.addEventListener('click', () => {
+      close();
+      devGate(this.root, () => this.openDev());
     });
 
     el('label', '', box).textContent = t('bedtime');
@@ -1041,7 +1042,6 @@ export class Hud {
       [t('name'), t('sec.pet')],
       [t('language'), t('sec.sound')],
       [t('glow'), t('sec.look')],
-      [t('replies', { l: LANGS[getLang()] }), t('sec.replies')],
       [t('dev.title'), t('sec.dev')],
       [t('bedtime'), t('sec.time')],
       [t('link'), t('sec.save')],

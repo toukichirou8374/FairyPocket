@@ -803,3 +803,39 @@ describe('voice age', () => {
     expect(classifyPitch([300, 300, 0, 0]).guess).toBe(null);
   });
 });
+
+describe('voice id', () => {
+  it('從自我介紹裡找名字', async () => {
+    const { nameFrom } = await import('../voiceId');
+    expect(nameFrom('我是小明')).toBe('小明');
+    expect(nameFrom('我叫王小美喔')).toBe('王小美');
+    expect(nameFrom('小明！')).toBe('小明');
+    expect(nameFrom('わたしはケンです')).toBe('ケン');
+    expect(nameFrom("I'm ken")).toBe('Ken');
+    expect(nameFrom('不知道')).toBe(null);
+    expect(nameFrom('今天天氣很好我們去公園玩吧')).toBe(null);
+  });
+  it('模糊認人：夠像才算，兩個人都很像就不猜', async () => {
+    const { identify } = await import('../voiceId');
+    const base = Array.from({ length: 25 }, (_, i) => (i < 12 ? 10 - i : i < 24 ? 3 : 0));
+    const far = base.map((v, i) => (i < 12 ? v + 8 : i === 24 ? 6 : v));
+    const people = [
+      { id: 'a', name: '爸爸', feat: base, n: 3, createdAt: 0, lastHeard: 0 },
+      { id: 'b', name: '小明', feat: far, n: 3, createdAt: 0, lastHeard: 0 },
+    ];
+    expect(identify(people, base.map((v) => v + 0.3)).person?.name).toBe('爸爸');
+    expect(identify(people, far.map((v) => v - 0.3)).person?.name).toBe('小明');
+    expect(identify(people, base.map((v) => v + 20)).person).toBe(null);
+    expect(identify([people[0], { ...people[0], id: 'c', name: '叔叔' }], base).person).toBe(null);
+  });
+});
+
+describe('developer gate', () => {
+  it('答案比對前會整理：大小寫、空白、全形、片假名', async () => {
+    const { normalizeAnswer, recoveryOk } = await import('../ui/devGate');
+    expect(normalizeAnswer(' ＡＢｃ ')).toBe('abc');
+    expect(normalizeAnswer('アイウ')).toBe('あいう');
+    // 正確答案不寫在公開的測試裡；這裡只確認亂答會被擋
+    expect(await recoveryOk(['japan', 'nobody', 'abc'])).toBe(false);
+  });
+});

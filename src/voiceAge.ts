@@ -59,6 +59,9 @@ export class VoiceAge {
   private chunk: Float32Array[] = [];
   private chunkLen = 0;
   private f0: { t: number; hz: number }[] = [];
+  /** 最近幾秒「有人在說話」的聲音片段（認人用；只在記憶體裡，6 秒後就丟掉） */
+  private voiced: { t: number; d: Float32Array }[] = [];
+  private rate = 48000;
   /** 最近一次算出來的音高（測試畫面用） */
   lastHz = 0;
   /** 悅靈自己說話時先不算（悅靈的聲音很高，會被當成小朋友） */
@@ -76,12 +79,14 @@ export class VoiceAge {
       return false;
     }
     const rate = ctx.sampleRate;
+    this.rate = rate;
     this.src = ctx.createMediaStreamSource(this.stream);
     this.node = ctx.createScriptProcessor(4096, 1, 1);
     this.node.onaudioprocess = (e) => {
       if (performance.now() < this.pausedUntil) {
         this.chunk = [];
         this.chunkLen = 0;
+        this.voiced = [];
         return;
       }
       const d = e.inputBuffer.getChannelData(0);
@@ -101,6 +106,8 @@ export class VoiceAge {
       for (let i = 0; i < all.length; i++) sum += all[i] * all[i];
       if (Math.sqrt(sum / all.length) < 0.01) return;
       const now = performance.now();
+      this.voiced.push({ t: now, d: all });
+      while (this.voiced.length && now - this.voiced[0].t > 6000) this.voiced.shift();
       const track = trackPitch(all, rate);
       for (const hz of track) if (hz > 0) this.f0.push({ t: now, hz });
       while (this.f0.length && now - this.f0[0].t > 5000) this.f0.shift();
@@ -118,6 +125,21 @@ export class VoiceAge {
     return classifyPitch(this.f0.filter((p) => now - p.t <= windowMs).map((p) => p.hz));
   }
 
+  /** 最近幾秒有人說話的聲音（接在一起），拿來認是誰；拿過就清掉，同一段話不會用兩次 */
+  takeRecent(windowMs = 6000): { data: Float32Array; rate: number } | null {
+    const now = performance.now();
+    const parts = this.voiced.filter((p) => now - p.t <= windowMs);
+    this.voiced = [];
+    if (!parts.length) return null;
+    const data = new Float32Array(parts.reduce((n, p) => n + p.d.length, 0));
+    let o = 0;
+    for (const p of parts) {
+      data.set(p.d, o);
+      o += p.d.length;
+    }
+    return { data, rate: this.rate };
+  }
+
   stop(): void {
     this.stream?.getTracks().forEach((t) => t.stop());
     this.src?.disconnect();
@@ -128,5 +150,6 @@ export class VoiceAge {
     this.chunk = [];
     this.chunkLen = 0;
     this.f0 = [];
+    this.voiced = [];
   }
 }

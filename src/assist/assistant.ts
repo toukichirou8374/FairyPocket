@@ -39,6 +39,9 @@ const L = {
     noNet: '我連不上網路耶，等一下再試試看。',
     close: '關閉',
     typeHint: '打字跟悅靈說話…',
+    vidWho: '咦？這個聲音我還不認識耶！你叫什麼名字呀？',
+    vidRemember: '{q}！我記住你的聲音了，以後請多多指教喔！',
+    vidSecret: '好吧，那你就當我神秘的朋友吧！',
     send: '說',
   },
   ja_jp: {
@@ -65,6 +68,9 @@ const L = {
     noNet: 'インターネットにつながらないよ。あとでもう一回ためしてね。',
     close: '閉じる',
     typeHint: '文字で話しかける…',
+    vidWho: 'あれ？この声、まだ知らないなあ。お名前は？',
+    vidRemember: '{q}！声をおぼえたよ。これからよろしくね！',
+    vidSecret: 'そっか、じゃあひみつのおともだちだね！',
     send: '話す',
   },
   en_us: {
@@ -91,6 +97,9 @@ Then just say "Play music on Nintendo Music".`,
     noNet: "I can't reach the internet. Let's try again later.",
     close: 'Close',
     typeHint: 'Type to talk...',
+    vidWho: "Huh? I don't know this voice yet. What's your name?",
+    vidRemember: "{q}! I'll remember your voice. Nice to meet you!",
+    vidSecret: "Okay, then you'll be my secret friend!",
     send: 'Say',
   },
 } satisfies Record<Lang, Record<string, string>>;
@@ -349,12 +358,17 @@ export class Assistant {
   }
 }
 
+/** 認人時悅靈說的話（{q} 換成名字） */
+export function voiceIdLine(lang: Lang, key: 'vidWho' | 'vidRemember' | 'vidSecret', name = ''): string {
+  return fill(L[lang][key], { q: name });
+}
+
 /** 助理固定會說的話（事先做成聲音檔；有時間、數字的句子交給裝置語音） */
 export function assistFixedLines(): [Lang, string][] {
   const out: [Lang, string][] = [];
   for (const lang of Object.keys(L) as Lang[]) {
     const t = L[lang];
-    for (const s of [t.think, t.noPos, t.noWeather, t.timerUp, t.nintendo, t.noNet]) out.push([lang, s]);
+    for (const s of [t.think, t.noPos, t.noWeather, t.timerUp, t.nintendo, t.noNet, t.vidWho, t.vidSecret]) out.push([lang, s]);
     for (const a of ['YouTube', 'YouTube Music']) out.push([lang, fill(t.music, { a })]);
   }
   return out;
