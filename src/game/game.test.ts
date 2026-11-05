@@ -13,6 +13,7 @@ import { SFX, sfxPitch } from '../sfx';
 import { trimSilence } from '../voice';
 import { WaveDetector } from '../ar';
 import { anyHeard, NoiseGate } from '../sense';
+import { addNote, buildSystem, parseReply, remember } from '../brain/brain';
 import { trackPitch, transform, VOICE_STYLES } from '../voicefx';
 import { clipKey, demoSpeech, legacyRenames, matchesItem, recordedItems, stickerBookItems } from './sbItems';
 import { allTalkLines, detectIntent, refine, talkLine, TALK_LINES } from './talk';
@@ -745,5 +746,27 @@ describe('assistant', () => {
     expect(firstSentences('長頸鹿（學名：Giraffa）是哺乳動物。棲居於非洲。是世界上最高的動物。後面很長很長。', 'zh_tw', 30)).toBe('長頸鹿是哺乳動物。棲居於非洲。');
     expect(musicUrl('ytmusic', '小星星')).toBe('https://music.youtube.com/search?q=%E5%B0%8F%E6%98%9F%E6%98%9F');
     expect(musicUrl('nintendo', '').startsWith('shortcuts://run-shortcut?name=')).toBe(true);
+  });
+});
+
+describe('ai brain', () => {
+  it('解析 AI 的回答：心情、要記住的事、多餘的符號', () => {
+    const r = parseReply('[難過] 怎麼了？我陪你喔！😊\n[記住：主人的狗叫小白]');
+    expect(r).toEqual({ text: '怎麼了？我陪你喔！', feeling: 'sad', notes: ['主人的狗叫小白'] });
+    expect(parseReply('**わー**すごい！เยอะเยอะだね').text).toBe('わーすごい！だね');
+    expect(parseReply('[不是心情] 你好').text).toBe('[不是心情] 你好');
+  });
+  it('悅靈的設定帶著名字、個性、記住的事；記憶有上限', () => {
+    const pet = createPet();
+    pet.name = '小悅';
+    const mem = { turns: [] as { who: 'user' | 'allay'; text: string; at: number }[], notes: [] as string[] };
+    addNote(mem, '主人的狗叫小白');
+    addNote(mem, '主人的狗叫小白');
+    const sys = buildSystem(pet, mem, 'zh_tw', { hour: 20, asleep: false, foodName: (f) => f });
+    expect(sys).toContain('小悅');
+    expect(sys).toContain('主人的狗叫小白');
+    expect(mem.notes.length).toBe(1);
+    for (let i = 0; i < 30; i++) remember(mem, 'user', 'x' + i);
+    expect(mem.turns.length).toBe(16);
   });
 });

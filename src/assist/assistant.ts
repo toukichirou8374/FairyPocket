@@ -6,7 +6,7 @@ import type { Lang } from '../i18n';
 import type { Command, MusicApp } from './command';
 import { firstSentences, musicUrl, NINTENDO_SHORTCUT, position, weather, weatherLine, wiki } from './services';
 
-export type Mood = 'happy' | 'think' | 'oops' | 'alarm';
+export type Mood = 'happy' | 'think' | 'oops' | 'alarm' | 'sad' | 'surprised' | 'shy' | 'sleepy';
 
 export interface AssistHost {
   lang(): Lang;

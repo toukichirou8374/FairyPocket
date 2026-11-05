@@ -25,6 +25,7 @@ import { detectIntent, refine, talkLine, type Intent } from './game/talk';
 import { detectCommand } from './assist/command';
 import { Assistant, type Mood } from './assist/assistant';
 import { SenseTest } from './ui/senseTest';
+import { addNote, ask, buildSystem, loadBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { Recognizer, speechSupported } from './speech';
 import { loadTtsVoices, pickVoice, saveTtsVoice, voicesFor } from './ttsVoice';
 import { neuralBuffer } from './neuralVoice';
@@ -114,13 +115,56 @@ async function answerText(text: string, alts: string[] = [text]): Promise<void> 
       return;
     }
   }
+  // 比較長的話（在說一件事、心情）先給 AI 大腦，回答才會貼心；短短的招呼用規則（快、有做好的語音）
+  if (isLongTalk(text, lang) && (await brainAnswer(text))) return;
   let intent: Intent | null = null;
   for (const a of tries) if ((intent = detectIntent(a, lang))) break;
   if (!intent) {
-    if (text.trim()) await answer(new Float32Array(Math.round(text.length * 2400)), 24000, true);
+    if (!text.trim()) return;
+    // 規則聽不懂：問家裡電腦的 AI（帶著悅靈的個性和回憶）；連不上就用原本的方式
+    if (await brainAnswer(text)) return;
+    await answer(new Float32Array(Math.round(text.length * 2400)), 24000, true);
     return;
   }
+  remember(brainMem, 'user', text);
   reactTo(intent);
+}
+
+// ---------- AI 大腦（家裡電腦的本機 AI） ----------
+const brainMem = loadMemory();
+let brainBusy = false;
+
+const FEELING_MOOD: Record<Exclude<Feeling, null>, Mood> = { happy: 'happy', sad: 'sad', surprised: 'surprised', shy: 'shy', sleepy: 'sleepy' };
+
+/** 是不是一段比較長的話（中日文 7 個字以上、英文 5 個字以上） */
+function isLongTalk(text: string, lang: Lang): boolean {
+  const s = text.replace(/[\s\p{P}\p{S}]/gu, '');
+  return lang === 'en_us' ? text.trim().split(/\s+/).length >= 5 : s.length >= 7;
+}
+
+async function brainAnswer(text: string): Promise<boolean> {
+  const cfg = loadBrain();
+  if (!cfg.on || !cfg.url || brainBusy) return false;
+  brainBusy = true;
+  // 想一想的樣子
+  ctrl.setMode('curious', 8);
+  hud.say('…', 9000);
+  listener.pausedUntil = talkDeafUntil = performance.now() + 9000;
+  const lang = getLang();
+  const system = buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f) });
+  const raw = await ask(cfg, system, brainMem, text);
+  brainBusy = false;
+  const r = raw ? parseReply(raw) : null;
+  if (!r?.text) {
+    listener.pausedUntil = talkDeafUntil = 0;
+    return false;
+  }
+  remember(brainMem, 'user', text);
+  remember(brainMem, 'allay', r.text);
+  for (const n of r.notes) addNote(brainMem, n);
+  saveMemory(brainMem);
+  assistSay(r.text, r.feeling ? FEELING_MOOD[r.feeling] : 'happy');
+  return true;
 }
 
 /** 最近說過的意思（一分鐘內一直說同一句，悅靈會發現） */
@@ -139,6 +183,9 @@ function reactTo(intent: Intent): void {
     affection: pet.affection,
   });
   const line = talkLine(reply, getLang(), pet.name, pet.personality);
+  // 規則回答的也記下來，AI 才知道剛剛聊了什麼
+  remember(brainMem, 'allay', line);
+  saveMemory(brainMem);
   const head = ctrl.headTop(new THREE.Vector3());
   if (intent === 'quiet') quietUntil = now + 60_000;
   if (intent === 'tooQuiet' || intent === 'greet' || intent === 'morning' || intent === 'play' || intent === 'sing' || intent === 'home') quietUntil = 0;
@@ -627,14 +674,13 @@ const hud = new Hud(overlay, {
     liveOn = slot === 'live';
     lastPersonAt = performance.now();
     if (!liveOn) ctrl.setPerson(null);
-    if (liveOn) {
-      void micOn();
-      void sensorOn();
-    } else {
-      micOff();
-      sensorOff();
-    }
-    assistant.showInput(liveOn);
+    // 麥克風模式：只聽、不開鏡頭
+    const talk = liveOn || slot === 'mic';
+    if (talk) void micOn();
+    else micOff();
+    if (liveOn) void sensorOn();
+    else sensorOff();
+    assistant.showInput(talk);
     if (slot !== 'note') stage.removeNoteBlock();
   },
   call: () => {
@@ -880,6 +926,12 @@ function assistSay(line: string, mood: Mood): void {
   const head = ctrl.headTop(new THREE.Vector3());
   if (mood === 'think') ctrl.setMode('curious', 2);
   else if (mood === 'oops') ctrl.setMode('oops', 1.6);
+  else if (mood === 'sad') {
+    ctrl.setMode('approach', 3);
+    stage.spawn('heart', head, 2);
+  } else if (mood === 'surprised') ctrl.setMode('startled', 1.2);
+  else if (mood === 'shy') ctrl.setMode('tickled', 1.6);
+  else if (mood === 'sleepy') ctrl.setMode('rest', 3);
   else if (mood === 'alarm') {
     playSfx('bell');
     ctrl.setMode('flip', 1.6);
@@ -1288,7 +1340,7 @@ document.addEventListener('visibilitychange', () => {
   music.pause(document.hidden);
   if (document.hidden) {
     // 切到背景就關掉麥克風和鏡頭
-    if (liveOn || listener.on) hud.setSelected(null);
+    if (liveOn || talkOn || listener.on) hud.setSelected(null);
     hiddenAt = Date.now();
     save();
   } else if (hiddenAt && Date.now() - hiddenAt > 60_000) {

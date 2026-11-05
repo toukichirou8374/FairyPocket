@@ -1,0 +1,97 @@
+// 設定頁：AI 大腦（家裡電腦的本機 AI）的開關、連線網址、模型、記憶。
+
+import { t } from '../i18n';
+import { listModels, loadBrain, loadMemory, saveBrain, saveMemory } from '../brain/brain';
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent?: HTMLElement): HTMLElementTagNameMap[K] {
+  const e = document.createElement(tag);
+  e.className = cls;
+  parent?.appendChild(e);
+  return e;
+}
+
+export function brainSettings(box: HTMLElement): void {
+  const cfg = loadBrain();
+  el('label', '', box).textContent = t('ai.title');
+  el('div', 'info', box).textContent = t('ai.help');
+
+  const row = el('div', 'btnrow', box);
+  const onBtn = el('button', 'btn', row);
+  const showOn = () => {
+    onBtn.textContent = `${t('ai.use')}：${t(cfg.on ? 'on' : 'off')}`;
+    onBtn.classList.toggle('on', cfg.on);
+  };
+  showOn();
+  onBtn.addEventListener('click', () => {
+    cfg.on = !cfg.on;
+    saveBrain(cfg);
+    showOn();
+  });
+
+  el('div', 'info', box).textContent = t('ai.url');
+  const url = el('input', 'name-input', box);
+  url.type = 'url';
+  url.placeholder = 'https://desktop-xxxx.tailxxxx.ts.net';
+  url.value = cfg.url;
+  url.autocomplete = 'off';
+  url.spellcheck = false;
+  url.addEventListener('change', () => {
+    cfg.url = url.value.trim();
+    saveBrain(cfg);
+  });
+
+  el('div', 'info', box).textContent = t('ai.model');
+  const model = el('select', 'name-input', box);
+  const fillModels = (names: string[]) => {
+    model.replaceChildren();
+    for (const n of names.length ? names : [cfg.model]) {
+      const o = el('option', '', model);
+      o.value = o.textContent = n;
+      o.selected = n === cfg.model;
+    }
+  };
+  fillModels([]);
+  model.addEventListener('change', () => {
+    cfg.model = model.value;
+    saveBrain(cfg);
+  });
+
+  const status = el('div', 'info', box);
+  const test = el('button', 'btn', box);
+  test.textContent = t('ai.test');
+  test.addEventListener('click', async () => {
+    cfg.url = url.value.trim();
+    saveBrain(cfg);
+    status.textContent = t('ai.testing');
+    const names = await listModels(cfg.url);
+    if (!names) {
+      status.textContent = t('ai.fail');
+      return;
+    }
+    if (names.length && !names.includes(cfg.model)) {
+      cfg.model = names[0];
+      saveBrain(cfg);
+    }
+    fillModels(names);
+    status.textContent = t('ai.ok', { n: names.length });
+  });
+
+  const mem = loadMemory();
+  const memInfo = el('div', 'info', box);
+  const showMem = () => (memInfo.textContent = t('ai.memory', { n: mem.notes.length, m: mem.turns.length }));
+  showMem();
+  if (mem.notes.length) {
+    const list = el('div', 'info ai-notes', box);
+    list.textContent = mem.notes.map((n) => `・${n}`).join('\n');
+  }
+  const forget = el('button', 'btn', box);
+  forget.textContent = t('ai.forget');
+  forget.addEventListener('click', () => {
+    if (!confirm(t('ai.forgetAsk'))) return;
+    mem.turns = [];
+    mem.notes = [];
+    saveMemory(mem);
+    showMem();
+    box.querySelector('.ai-notes')?.remove();
+  });
+}

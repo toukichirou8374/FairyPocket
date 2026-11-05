@@ -920,3 +920,5 @@ body.motion #sky { display: none; }
 .sensetest .st-cam { margin-top: 8px; display: flex; justify-content: center; }
 .sensetest .st-cam video { width: 120px; height: 90px; object-fit: cover; border: 2px solid #1c1c1c; position: static; }
 .sensetest .st-cam video.mirror { transform: scaleX(-1); }
+
+.ai-notes { white-space: pre-line; max-height: 8em; overflow-y: auto; }
