@@ -2,7 +2,7 @@
 // 契約：docs/hub/CONTRACT.md。所有寫入都是事件；處理順序：權限 → 去重 → epoch → revision → 規則。
 // 一個請求從讀文件到寫入之間沒有 await（Node 單執行緒），所以每次寫入對同一份文件是原子的。
 
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkRoute, ruleLine, Scheduler } from './localai.mjs';
@@ -72,8 +72,14 @@ function sendError(res, e) {
     return;
   }
   const safe = {};
-  for (const k of ['rev', 'epoch', 'where', 'field', 'type', 'results']) if (e.extra?.[k] !== undefined) safe[k] = e.extra[k];
+  for (const k of ['rev', 'epoch', 'where', 'field', 'type', 'results', 'registration']) if (e.extra?.[k] !== undefined) safe[k] = e.extra[k];
   send(res, e.status, { error: e.code, ...safe });
+}
+
+/** 比對兩個十六進位雜湊（固定時間） */
+function sameHash(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
 /** 資料夾不存在，或裡面（含所有子資料夾）沒有任何檔案 */
@@ -205,11 +211,29 @@ export function createHub(opts = {}) {
     'POST /api/allay/pet/register': {
       roles: ['fp'],
       async run(ctx, body) {
-        onlyKeys(body, ['petState'], 'body');
+        onlyKeys(body, ['petState', 'registration'], 'body');
+        // H3-1.2：登記識別碼（裝置產生、隨機、只用來確認「同一次登記的重試」，不是裝置身分認證）
+        let regId = null;
+        if (body.registration !== undefined) {
+          onlyKeys(body.registration, ['regId'], 'registration');
+          if (typeof body.registration.regId !== 'string' || !/^reg-[a-f0-9]{32}$/.test(body.registration.regId)) fail(400, 'SCHEMA', { where: 'registration.regId' });
+          regId = body.registration.regId;
+        }
         const init = validatePocketState(body.petState);
         const pet = body.petState.id;
-        if (pets.has(pet) || pets.isBroken(pet)) fail(409, 'EXISTS');
+        // 損壞的文件：維持 H2.1 的行為（409 EXISTS，不能當成首次建立），登記來源無法確認
+        if (pets.isBroken(pet)) fail(409, 'EXISTS', { registration: 'unknown' });
+        const existing = pets.get(pet);
+        if (existing) {
+          // 已存在：只有 Hub 保存的登記紀錄（來源 ID＋識別碼雜湊）與這次完全相同，才承認是同一次登記的重試
+          const rec = existing.registration;
+          if (regId && rec && rec.source === ctx.source && sameHash(rec.regIdHash, sha256(`reg|${regId}`))) return [200, { status: 'DUPLICATE', ...view(existing, 'fp') }];
+          // other：有紀錄但不是這次登記；unknown：舊資料沒有可靠的登記紀錄（不推測）
+          fail(409, 'EXISTS', { registration: rec ? 'other' : 'unknown' });
+        }
         const doc = newDoc(pet, 'pocket', 'pocket', init, { role: 'fp', source: ctx.source, actor: null, since: now() });
+        // 只存雜湊，與悅靈文件同一個交易寫入（跟著耐久儲存與備份走）
+        if (regId) doc.registration = { source: ctx.source, regIdHash: sha256(`reg|${regId}`), at: now() };
         pets.commit(pet, doc);
         return [201, view(doc, 'fp')];
       },

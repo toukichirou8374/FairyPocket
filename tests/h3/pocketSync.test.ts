@@ -526,4 +526,83 @@ describe('H3-1 Pocket 同步（隔離 Hub）', () => {
     expect([saved.seenRev, saved.epoch, saved.outbox.length]).toEqual([s.rev, s.epoch, 0]);
   });
 
+  // ---------- H3-1.2：409 EXISTS 不能吃掉事件 ----------
+  it('H3-1.2 同一裝置：登記成功但回應遺失 → Hub 重啟＋App 重啟 → 重試由 Hub 證實（200 DUPLICATE），不重複也不遺失', async () => {
+    let hub = await startHub();
+    hubUrl.current = hub.url;
+    const kv = memoryKV();
+    let app = makeApp(kv, synthPet());
+    petPet(app.pet);
+    app.sync.recordPetted(); // 快照之前
+    app.net.dropRegisterOnce = true;
+    expect((await app.sync.sync()).status).toBe('offline');
+    const regId = JSON.parse(kv.getItem(SYNC_KEY)!).reg.regId;
+    await hub.close();
+    hub = await startHub(hub.dir); // Hub 重啟
+    hubUrl.current = hub.url;
+    const pet = app.pet;
+    app = makeApp(kv, pet); // App 重啟
+    expect(JSON.parse(kv.getItem(SYNC_KEY)!).reg.regId).toBe(regId); // 同一個登記識別碼
+    petPet(app.pet);
+    app.sync.recordPetted(); // 快照之後
+    const r = await app.sync.sync();
+    expect([r.status, r.pending]).toEqual(['ok', 0]);
+    const s = await hubState();
+    expect([s.stats.petted, s.state.affection]).toEqual([2, 13]);
+    expect(app.sync.info().registered).toBe(true);
+  });
+
+  it('H3-1.2 兩台裝置同一個 petId：第二台收到 EXISTS → registrationConflict；摸頭事件完整保留、不重送、不改本機數值', async () => {
+    const hub = await startHub();
+    hubUrl.current = hub.url;
+    const a = makeApp(memoryKV(), synthPet());
+    expect((await a.sync.sync()).status).toBe('ok'); // 裝置 A 先登記
+    const kvB = memoryKV();
+    const b = makeApp(kvB, synthPet(), ['B 的記憶']);
+    petPet(b.pet);
+    b.sync.recordPetted();
+    b.sync.syncNotes();
+    const before = b.sync.info();
+    const r = await b.sync.sync();
+    expect([r.status, r.pending]).toEqual(['registrationConflict', 2]);
+    expect(b.sync.info()).toMatchObject({ registered: false, sourceId: before.sourceId, pending: 2 });
+    expect(b.sync.info().outbox.map((e) => e.opId)).toEqual(before.outbox.map((e) => e.opId));
+    expect(JSON.parse(kvB.getItem(SYNC_KEY)!).reg).not.toBe(null); // 快照保留
+    expect(b.calls).toEqual(['POST /api/allay/pet/register']); // 沒有讀取、沒有送事件
+    expect([b.pet.affection, b.pet.stats.petted]).toEqual([11.5, 1]); // 本機沒被改寫
+    expect((await hubState()).stats.petted).toBe(0); // Hub 沒有被 B 的事件影響
+    const again = await b.sync.sync();
+    expect([again.status, again.pending]).toEqual(['registrationConflict', 2]);
+    expect(b.calls.filter((c) => c.includes('/events'))).toEqual([]);
+  });
+
+  it('H3-1.2 Hub 沒有可靠的登記紀錄（舊資料）→ registrationUnverified：停止、不回報成功、佇列保留', async () => {
+    const hub = await startHub();
+    hubUrl.current = hub.url;
+    await fpCall('POST', '/api/allay/pet/register', { petState: (await import('../../src/hub/pocketSync')).toPocketState(synthPet()) }); // 沒帶登記識別碼
+    const app = makeApp(memoryKV(), synthPet());
+    petPet(app.pet);
+    app.sync.recordPetted();
+    const r = await app.sync.sync();
+    expect([r.status, r.pending]).toEqual(['registrationUnverified', 1]);
+    expect(app.sync.info().registered).toBe(false);
+    expect(app.calls).toEqual(['POST /api/allay/pet/register']);
+    expect((await hubState()).stats.petted).toBe(0);
+  });
+
+  it('H3-1.2 登記期間新增的事件：在兩台衝突時也完整保留', async () => {
+    const hub = await startHub();
+    hubUrl.current = hub.url;
+    const a = makeApp(memoryKV(), synthPet());
+    await a.sync.sync();
+    const b = makeApp(memoryKV(), synthPet());
+    b.sync.recordPetted();
+    b.net.beforeRegister = () => {
+      b.sync.recordPlayed(); // 登記請求途中新增
+    };
+    const r = await b.sync.sync();
+    expect([r.status, r.pending]).toEqual(['registrationConflict', 2]);
+    expect(b.sync.info().outbox.map((e) => e.type)).toEqual(['PETTED', 'PLAYED']);
+  });
+
 });

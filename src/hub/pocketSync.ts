@@ -14,6 +14,11 @@
 // - 首次登記：先把「登記快照＋分界序號」存進本機；快照已包含的動作不再送，快照之後的動作照常送
 // - 每個成功回應（登記、取得控制權、送出事件、讀取）帶回的 revision／epoch，與佇列變更在同一次本機寫入保存；
 //   本機寫入失敗不算同步成功
+//
+// H3-1.2：首次登記帶一個持久保存的登記識別碼（regId）。Hub 保存「來源 ID＋識別碼雜湊」；
+// 重試時由 Hub 核對，確認是同一次登記才回 200 DUPLICATE。收到 409 EXISTS（別的裝置／來源已建立，
+// 或舊資料沒有可靠的登記紀錄）一律停止：不刪事件、不重送、不改手機的數值與記憶、不回報 ok。
+// 識別碼只用來確認登記冪等性，不是裝置身分認證。
 
 import type { PetState } from '../game/state';
 
@@ -61,7 +66,11 @@ export type SyncStatus =
   /** 本機同步資料損壞或結構異常：已停止，原始內容保留不動 */
   | 'localCorrupt'
   /** 本機寫入失敗：這次不算完成 */
-  | 'localSaveFailed';
+  | 'localSaveFailed'
+  /** 同一個 petId 已由別的裝置／來源登記（Hub 證實不是這次登記）：停止，保留一切 */
+  | 'registrationConflict'
+  /** Hub 上已有這隻，但沒有可靠的登記紀錄、無法證明來源：停止，保留一切 */
+  | 'registrationUnverified';
 export interface SyncResult {
   status: SyncStatus;
   sent: number;
@@ -86,8 +95,8 @@ interface Persisted {
   syncedNotes: Record<string, string>;
   /** 進行中的取得控制權操作（重送時沿用同一個 opId） */
   claimOpId: string | null;
-  /** 首次登記：送出的快照與分界序號（序號 ≤ boundarySeq 的 FED／PETTED／PLAYED／RENAME 已包含在快照裡） */
-  reg: { snapshot: PetState; boundarySeq: number } | null;
+  /** 首次登記：送出的快照、分界序號（序號 ≤ boundarySeq 的 FED／PETTED／PLAYED／RENAME 已包含在快照裡）、登記識別碼 */
+  reg: { snapshot: PetState; boundarySeq: number; regId: string } | null;
 }
 
 /** Hub 回傳的悅靈狀態（手機看到的完整內容；只列出這裡用到的欄位） */
@@ -120,6 +129,12 @@ export function noteId(text: string): string {
     return x.toString(16).padStart(8, '0');
   };
   return `mem-fp-${h(0x811c9dc5)}${h(0x2b4f9a1d)}`;
+}
+
+function newRegId(): string {
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  return `reg-${[...b].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
 }
 
 function newSourceId(): string {
@@ -156,6 +171,7 @@ export function checkPersisted(v: unknown): string | null {
   if (v.claimOpId !== null && typeof v.claimOpId !== 'string') return 'claimOpId';
   if (v.reg !== null) {
     if (!isObj(v.reg) || !isObj(v.reg.snapshot) || typeof v.reg.snapshot.id !== 'string' || !isInt(v.reg.boundarySeq) || (v.reg.boundarySeq as number) > (v.seq as number)) return 'reg';
+    if (typeof v.reg.regId !== 'string' || !/^reg-[0-9a-f]{32}$/.test(v.reg.regId)) return 'reg';
     if (v.registered) return 'reg';
   }
   return null;
@@ -324,19 +340,24 @@ export class PocketSync {
     try {
       if (!this.p.registered) {
         // 首次登記：快照與分界序號先存進本機（重試、回應遺失、App 重啟都用同一份）
-        if (!this.p.reg) this.commit((d) => (d.reg = { snapshot: toPocketState(this.o.getPet()), boundarySeq: d.seq }));
+        if (!this.p.reg) this.commit((d) => (d.reg = { snapshot: toPocketState(this.o.getPet()), boundarySeq: d.seq, regId: newRegId() }));
         const reg = this.p.reg!;
-        const r = await send('POST', '/api/allay/pet/register', { petState: reg.snapshot });
-        if (r.status !== 201 && !(r.status === 409 && r.json?.error === 'EXISTS')) return done(r.status >= 500 ? 'unavailable' : 'error', `register ${r.status} ${r.json?.error ?? ''}`);
+        const r = await send('POST', '/api/allay/pet/register', { petState: reg.snapshot, registration: { regId: reg.regId } });
+        // 201：這次登記成功；200 DUPLICATE：Hub 核對過，是這台裝置先前完成的同一次登記（回應遺失後的重試）
+        const ours = r.status === 201 || (r.status === 200 && r.json?.status === 'DUPLICATE');
+        if (!ours) {
+          if (r.status === 409 && r.json?.error === 'EXISTS')
+            // 別的裝置／來源建立的，或無法證明來源：不當成登記成功；快照、來源 ID、事件 ID、佇列全部保留
+            return done(r.json?.registration === 'other' ? 'registrationConflict' : 'registrationUnverified');
+          return done(r.status >= 500 ? 'unavailable' : 'error', `register ${r.status} ${r.json?.error ?? ''}`);
+        }
         this.commit((d) => {
           d.registered = true;
           d.petId = reg.snapshot.id;
           // 快照已包含的動作不再送；快照之後新增的動作（序號較大）保留
           d.outbox = d.outbox.filter((e) => !(IN_SNAPSHOT.includes(e.type) && e.seq <= reg.boundarySeq));
-          if (r.status === 201) {
-            d.seenRev = Math.max(d.seenRev, r.json.rev);
-            d.epoch = r.json.epoch;
-          }
+          d.seenRev = Math.max(d.seenRev, r.json.rev);
+          d.epoch = Math.max(d.epoch, r.json.epoch);
           d.reg = null;
         });
       }

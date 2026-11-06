@@ -99,6 +99,8 @@
 - **額度依來源分開（H2.1）**：記憶 fp 40 條、mc 20 條；對話 fp 32 句、mc 32 句。超過時**只移除同一個來源最舊的項目**，Minecraft 新增的內容永遠不會擠掉手機的私人記憶或對話。冒險紀錄保留 30 天、最多 500 筆。
 - 未知的 `type`、未知的 payload 欄位、數值超出範圍：`400 SCHEMA`。
 
+- **登記（H3-1.2）**：`POST /api/allay/pet/register {petState, registration: {regId}}`。`regId` 格式 `reg-` ＋ 32 個十六進位字。Hub 在建立悅靈的同一個交易保存 `registration = {source, regIdHash, at}`（只存雜湊；手機與 Minecraft 的狀態都不顯示）。已存在時：來源 ID 與識別碼雜湊都相同 → `200 {status: DUPLICATE, …手機看到的狀態}`；否則 `409 EXISTS`，附 `registration: other`（有紀錄但不是這次）或 `unknown`（沒有可靠紀錄，或文件損壞）。識別碼只用於登記冪等性，不是裝置身分認證。
+
 ## 7. 讀取：公開與私人
 - `GET /api/allay/state?pet=…`
   - `fp`：完整內容，包括所有記憶、對話、控制者，以及上一個控制者的角色 `lastController`（H3-1：手機接回控制權時，用來判斷要不要採用 Minecraft 期間的數值）。

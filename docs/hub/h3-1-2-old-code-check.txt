@@ -1,0 +1,167 @@
+=== 同步測試（tests/h3）在 H3-1.1 f41d26f 上 ===
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./vite.config" without a file extension (vitest.config.ts:4:24). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v5.1.0 C:/Users/gaday/Desktop/FairyPoket/.worktrees/h311-old
+
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 改名、感情、記憶：同步後一致；App 重啟＋Hub 重啟後仍一致、不重複計算 100ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 離線：動作留在本機佇列；App 重啟後佇列還在；連上後只套用一次 19ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 回應遺失：Hub 其實已套用，重送只回 DUPLICATE，不會多算 17ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > revision 衝突：送出前 Minecraft 先改了 → 重新讀取、同樣的 opId 重送，兩邊的變化都在 43ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 控制權交接：Minecraft 控制中不搶（數值事件等待）；Minecraft 放開後接回，採用 Minecraft 期間的數值再送出 65ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 主人明確「叫回手機」：即使 Minecraft 沒放開也接管；Minecraft 舊世代的數值事件被拒 35ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 防倒退：Hub 被還原成較舊的資料 → 停止同步、不採用遠端數值、保留佇列 30ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 不送快照：適配器送出的事件只有 FED／PETTED／PLAYED／RENAME／MEMORY_*／DIALOGUE_ADD，沒有 VITALS_SYNC 16ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 記憶：刪除會同步；同一句記憶永遠同一個 ID；Minecraft 的記憶分開保存、不擠掉手機的記憶 44ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 改名 Minecraft 也看得到；Minecraft 不能改名 27ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-1 損壞（無法解析）：停止同步、不建新來源 ID、不覆寫原始內容、不連線；動作不會假裝記下；App 存檔不受影響 6ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-1 可解析但結構異常（舊版、來源 ID、opId、序號、型別、欄位）：一律安全拒絕，待送事件原封不動 7ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-1 對照：還沒有同步資料時才建立新的；正常資料重開後同一個來源 ID、佇列完整 10ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-2 首次同步前只摸頭一次：Hub 的摸頭次數與感情只增加一次 15ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-2 登記期間新增的動作：保留並正確送出（快照之後的動作不會被丟掉） 15ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-2 登記回應遺失＋App 重啟：用同一份快照重試，不會重複計算；來源 ID 與事件 ID 不變 18ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-3（Astra 情境）事件提交成功到 rev 2 → 後續讀取失敗 → Hub 還原成 rev 1 → 再同步：hubRollback，不採用倒退的統計 29ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-3 本機寫入失敗：Hub 已提交也不算同步成功（localSaveFailed）；恢復後重送只回 DUPLICATE 20ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-3 對照：正常同步後，已確認的 revision／epoch 與 Hub 一致並已存入本機 10ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > H3-1.2 同一裝置：登記成功但回應遺失 → Hub 重啟＋App 重啟 → 重試由 Hub 證實（200 DUPLICATE），不重複也不遺失 20ms
+ × tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > H3-1.2 兩台裝置同一個 petId：第二台收到 EXISTS → registrationConflict；摸頭事件完整保留、不重送、不改本機數值 22ms
+   → expected [ 'ok', +0 ] to deeply equal [ 'registrationConflict', 2 ]
+ × tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > H3-1.2 Hub 沒有可靠的登記紀錄（舊資料）→ registrationUnverified：停止、不回報成功、佇列保留 14ms
+   → expected [ 'ok', +0 ] to deeply equal [ 'registrationUnverified', 1 ]
+ × tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > H3-1.2 登記期間新增的事件：在兩台衝突時也完整保留 22ms
+   → expected [ 'ok', +0 ] to deeply equal [ 'registrationConflict', 2 ]
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > H3-1.2 兩台裝置同一個 petId：第二台收到 EXISTS → registrationConflict；摸頭事件完整保留、不重送、不改本機數值
+AssertionError: expected [ 'ok', +0 ] to deeply equal [ 'registrationConflict', 2 ]
+
+- Expected
++ Received
+
+  [
+-   "registrationConflict",
+-   2,
++   "ok",
++   0,
+  ]
+
+ ❯ tests/h3/pocketSync.test.ts:567:35
+    565|     const before = b.sync.info();
+    566|     const r = await b.sync.sync();
+    567|     expect([r.status, r.pending]).toEqual(['registrationConflict', 2]);
+       |                                   ^
+    568|     expect(b.sync.info()).toMatchObject({ registered: false, sourceId:…
+    569|     expect(b.sync.info().outbox.map((e) => e.opId)).toEqual(before.out…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > H3-1.2 Hub 沒有可靠的登記紀錄（舊資料）→ registrationUnverified：停止、不回報成功、佇列保留
+AssertionError: expected [ 'ok', +0 ] to deeply equal [ 'registrationUnverified', 1 ]
+
+- Expected
++ Received
+
+  [
+-   "registrationUnverified",
+-   1,
++   "ok",
++   0,
+  ]
+
+ ❯ tests/h3/pocketSync.test.ts:587:35
+    585|     app.sync.recordPetted();
+    586|     const r = await app.sync.sync();
+    587|     expect([r.status, r.pending]).toEqual(['registrationUnverified', 1…
+       |                                   ^
+    588|     expect(app.sync.info().registered).toBe(false);
+    589|     expect(app.calls).toEqual(['POST /api/allay/pet/register']);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > H3-1.2 登記期間新增的事件：在兩台衝突時也完整保留
+AssertionError: expected [ 'ok', +0 ] to deeply equal [ 'registrationConflict', 2 ]
+
+- Expected
++ Received
+
+  [
+-   "registrationConflict",
+-   2,
++   "ok",
++   0,
+  ]
+
+ ❯ tests/h3/pocketSync.test.ts:604:35
+    602|     };
+    603|     const r = await b.sync.sync();
+    604|     expect([r.status, r.pending]).toEqual(['registrationConflict', 2]);
+       |                                   ^
+    605|     expect(b.sync.info().outbox.map((e) => e.type)).toEqual(['PETTED',…
+    606|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 20 passed (23)
+   Start at  22:05:43
+   Duration  922ms (tests 77%, transform 16%, import 6%, worker 1%)
+
+
+=== Hub 登記紀錄測試（h312）在 H3-1.1 上 ===
+✖ 同一來源＋同一識別碼 → 200 DUPLICATE（不改資料）；識別碼或來源不同 → 409 other；舊資料沒有紀錄 → 409 unknown (73.6505ms)
+✖ 登記紀錄寫進悅靈文件：重啟後仍可核對；備份裡只有雜湊、沒有識別碼本身；Minecraft／手機的狀態都不顯示 (24.7186ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 228.8046
+
+✖ failing tests:
+
+test at scripts\hub\test\h312.test.mjs:12:1
+✖ 同一來源＋同一識別碼 → 200 DUPLICATE（不改資料）；識別碼或來源不同 → 409 other；舊資料沒有紀錄 → 409 unknown (73.6505ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h311-old/scripts/hub/test/h312.test.mjs:15:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h312.test.mjs:28:1
+✖ 登記紀錄寫進悅靈文件：重啟後仍可核對；備份裡只有雜湊、沒有識別碼本身；Minecraft／手機的狀態都不顯示 (24.7186ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   400,
+  +   undefined
+  -   200,
+  -   'DUPLICATE'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h311-old/scripts/hub/test/h312.test.mjs:33:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 400, undefined ],
+    expected: [ 200, 'DUPLICATE' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
