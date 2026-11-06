@@ -34,6 +34,10 @@ export async function startFakeOllama(opts = {}) {
     // H3-2.2：回應的 HTTP 狀態碼（預設 200；用來模擬「狀態碼失敗、但 JSON 內容正確」）
     tagsStatus: 200,
     chatStatus: 200,
+    // H3-2.3：非 200 時持續傳送內容、永不結束（模擬卡住的錯誤回應）；記錄還開著／已關閉的錯誤連線
+    errorStream: false,
+    errorOpen: 0,
+    errorClosed: 0,
   };
   let n = 0;
   const latency = opts.latencyMs ?? (() => 20);
@@ -56,6 +60,18 @@ export async function startFakeOllama(opts = {}) {
     st.inFlight--;
     st.waiting.shift()?.();
   };
+  /** 回非 200，之後每 10 毫秒傳一點內容、永不結束；用戶端關閉連線時才停 */
+  const endlessError = (res, status) => {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.write('{"model":"gemma3:4b","message":{"role":"assistant","content":"');
+    st.errorOpen++;
+    const iv = setInterval(() => res.write('x'), 10);
+    res.on('close', () => {
+      clearInterval(iv);
+      st.errorOpen--;
+      st.errorClosed++;
+    });
+  };
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
@@ -68,6 +84,7 @@ export async function startFakeOllama(opts = {}) {
           return void res.end('{"models": [');
         }
         // H3-2.2：tagsStatus 可以模擬「狀態碼不是 200、但內容是正確的模型清單」
+        if (st.errorStream && st.tagsStatus !== 200) return void endlessError(res, st.tagsStatus);
         res.writeHead(st.tagsStatus, { 'content-type': 'application/json' });
         return void res.end(JSON.stringify({ models: st.models }));
       }
@@ -90,6 +107,7 @@ export async function startFakeOllama(opts = {}) {
       st.modelsSeen.push(j.model);
       st.options.push({ options: j.options, keep_alive: j.keep_alive, stream: j.stream });
       if (/cloud/i.test(String(j.model))) st.cloudRequested++;
+      if (st.errorStream && st.chatStatus !== 200) return void endlessError(res, st.chatStatus);
       let gone = false;
       res.on('close', () => {
         if (!res.writableEnded) gone = true;

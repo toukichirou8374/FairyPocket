@@ -1,0 +1,68 @@
+=== H3-2.3 重現測試（只看假服務端與排程器）在 H3-2.2（52812ae）的 localai.mjs 上；假 Ollama 為新版（只增加 errorStream 選項）===
+✖ 重現：/api/tags 回 500 並持續傳輸 ×3 → 排程器沒有工作時，假服務端的錯誤連線也必須都已關閉 (360.5246ms)
+✖ 重現：/api/chat 回 500 並持續傳輸 ×3 → 排程器沒有工作時，假服務端的錯誤連線也必須都已關閉 (326.3948ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 784.3315
+
+✖ failing tests:
+
+test at scripts\hub\test\h323-repro.test.mjs:11:3
+✖ 重現：/api/tags 回 500 並持續傳輸 ×3 → 排程器沒有工作時，假服務端的錯誤連線也必須都已關閉 (360.5246ms)
+  AssertionError [ERR_ASSERTION]: 還開著的錯誤連線：3
+  
+  3 !== 0
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h322-old/scripts/hub/test/h323-repro.test.mjs:19:12)
+      at runNextTicks (node:internal/process/task_queues:65:5)
+      at process.processTimers (node:internal/timers:615:9)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 3,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h323-repro.test.mjs:11:3
+✖ 重現：/api/chat 回 500 並持續傳輸 ×3 → 排程器沒有工作時，假服務端的錯誤連線也必須都已關閉 (326.3948ms)
+  AssertionError [ERR_ASSERTION]: 還開著的錯誤連線：3
+  
+  3 !== 0
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h322-old/scripts/hub/test/h323-repro.test.mjs:19:12)
+      at runNextTicks (node:internal/process/task_queues:65:5)
+      at process.processTimers (node:internal/timers:615:9)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 3,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+=== 完整 H3-2.3 測試在 H3-2.2 上（舊版沒有 trackRequest／adapter.conn，會因此無法載入）===
+✖ scripts\hub\test\h323.test.mjs (85.8098ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 92.8128
+
+✖ failing tests:
+
+test at scripts\hub\test\h323.test.mjs:1:1
+✖ scripts\hub\test\h323.test.mjs (85.8098ms)
+  'test failed'

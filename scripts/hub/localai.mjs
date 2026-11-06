@@ -56,20 +56,71 @@ export function verifyLocalModel(tags, model, allow, digest) {
   return { ok: true, digest: m.digest };
 }
 
-function getJson(host, port, path, timeoutMs, signal) {
+/** H3-2.3：主動終止後最多等連線關閉多久（毫秒）；終止失敗也不會無限等待 */
+export const CLOSE_WAIT_MS = 1000;
+
+/**
+ * H3-2.3：追蹤一個 HTTP 請求的連線是否真的關閉。
+ * shutdown()：主動終止請求與回應，等連線關閉（最多 ms 毫秒）才完成；回傳 'closed' 或 'close_timeout'。
+ * counter（可選）：{ open, closeTimeouts }，給測試確認沒有殘留的連線。
+ */
+export function trackRequest(req, counter) {
+  let closed = false;
+  const waiters = [];
+  if (counter) counter.open++;
+  req.once('close', () => {
+    closed = true;
+    if (counter) counter.open--;
+    for (const f of waiters.splice(0)) f();
+  });
+  return {
+    shutdown(res, ms = CLOSE_WAIT_MS) {
+      res?.on('error', () => {}); // 終止時回應可能丟出 aborted，不能變成未處理的例外
+      try {
+        res?.destroy();
+      } catch {
+        /* 已經結束 */
+      }
+      try {
+        req.destroy();
+      } catch {
+        /* 已經結束 */
+      }
+      if (closed) return Promise.resolve('closed');
+      return new Promise((resolve) => {
+        const t = setTimeout(() => {
+          if (counter) counter.closeTimeouts++;
+          resolve('close_timeout');
+        }, ms);
+        waiters.push(() => {
+          clearTimeout(t);
+          resolve('closed');
+        });
+      });
+    },
+  };
+}
+
+function getJson(host, port, path, timeoutMs, signal, counter) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let resp = null;
     const req = http.request({ host, port, method: 'GET', path, timeout: timeoutMs, signal }, (r) => {
-      // H3-2.2：先確認 HTTP 狀態是 200；不是 200 就算內容格式正確也不採用（讀掉內容、釋放連線）
+      resp = r;
+      // H3-2.2：先確認 HTTP 狀態是 200；不是 200 就算內容格式正確也不採用
+      // H3-2.3：而且要主動終止連線、等它真的關閉才結束（不能只 resume() 就離開）
       if (r.statusCode !== 200) {
-        r.resume();
         const e = new Error(`http_${r.statusCode}`);
         e.code = 'HTTP_STATUS';
-        return reject(e);
+        return fail(e);
       }
       let out = '';
       r.setEncoding('utf8');
       r.on('data', (c) => (out += c));
+      r.on('error', fail);
       r.on('end', () => {
+        if (settled) return;
+        settled = true;
         try {
           resolve(JSON.parse(out));
         } catch {
@@ -77,8 +128,15 @@ function getJson(host, port, path, timeoutMs, signal) {
         }
       });
     });
-    req.on('timeout', () => req.destroy(new Error('timeout')));
-    req.on('error', reject);
+    const tracker = trackRequest(req, counter);
+    // 任何錯誤（非 200、逾時、取消、連線錯誤）：只完成一次；先清理連線，再讓呼叫端繼續
+    function fail(e) {
+      if (settled) return;
+      settled = true;
+      tracker.shutdown(resp).then(() => reject(e));
+    }
+    req.on('timeout', () => fail(new Error('timeout')));
+    req.on('error', fail);
     req.end();
   });
 }
@@ -96,6 +154,8 @@ export function ollamaAdapter(model, opts = {}) {
     lastCheck: null,
     /** 本機模型清單查詢次數（測試用） */
     checks: 0,
+    /** H3-2.3：還沒關閉的 HTTP 連線數，與等待關閉逾時的次數（測試用） */
+    conn: { open: 0, closeTimeouts: 0 },
     /**
      * H3-2.1：每一次推論前都重新向 Ollama 查詢並驗證目前的模型資料，不沿用任何先前的成功結果。
      * 查詢失敗、資料不完整、digest 不符、出現遠端特徵 → false（呼叫端改用規則台詞，不送聊天推論）。
@@ -105,7 +165,7 @@ export function ollamaAdapter(model, opts = {}) {
       adapter.checks++;
       let r;
       try {
-        r = verifyLocalModel(await getJson(host, port, '/api/tags', 5_000, signal), model, allow, opts.digest);
+        r = verifyLocalModel(await getJson(host, port, '/api/tags', 5_000, signal, adapter.conn), model, allow, opts.digest);
       } catch (e) {
         // 連不上、逾時、JSON 壞掉、HTTP 狀態不是 200 → 都不採用（原因沿用 unreachable，狀態碼放在 detail）
         r = { ok: false, why: 'unreachable', detail: String(e?.message ?? e) };
@@ -117,19 +177,22 @@ export function ollamaAdapter(model, opts = {}) {
       if (!(await adapter.verify(signal))) throw new Error(`unverified:${adapter.lastCheck?.why}`);
       const body = JSON.stringify({ model, stream: false, keep_alive: '30m', options: { temperature: 0.8, num_predict: 160 }, messages: [{ role: 'system', content: system }, ...messages] });
       return new Promise((resolve, reject) => {
+        let settled = false;
+        let resp = null;
         const req = http.request(
           { host, port, method: 'POST', path: '/api/chat', headers: { 'content-type': 'application/json' }, timeout: timeoutMs, signal },
           (r) => {
-            // H3-2.2：先確認 HTTP 狀態是 200，才驗證 model、文字與其他欄位；
-            // 不是 200 就算回答內容格式正確也不接受（讀掉內容、釋放連線，交給排程器改用規則台詞）
-            if (r.statusCode !== 200) {
-              r.resume();
-              return reject(new Error(`http_${r.statusCode}`));
-            }
+            resp = r;
+            // H3-2.2：先確認 HTTP 狀態是 200，才驗證 model、文字與其他欄位；不是 200 就算內容格式正確也不接受
+            // H3-2.3：主動終止連線、等它真的關閉才結束，排程器才會釋放名額（不能只 resume() 就離開）
+            if (r.statusCode !== 200) return fail(new Error(`http_${r.statusCode}`));
             let out = '';
             r.setEncoding('utf8');
             r.on('data', (c) => (out += c));
+            r.on('error', fail);
             r.on('end', () => {
+              if (settled) return;
+              settled = true; // 回應已完整讀完，連線不需要再清理
               try {
                 const j = JSON.parse(out);
                 // H3-2：量測用（預設沒有）。只回報 Ollama 自己的計時欄位與回應的欄位名稱，不含內容
@@ -149,11 +212,17 @@ export function ollamaAdapter(model, opts = {}) {
                 reject(new Error('bad_reply'));
               }
             });
-            r.on('error', reject);
           },
         );
-        req.on('timeout', () => req.destroy(new Error('timeout')));
-        req.on('error', reject);
+        const tracker = trackRequest(req, adapter.conn);
+        // 任何錯誤（非 200、逾時、取消、連線錯誤）：只完成一次；先清理連線，再讓排程器繼續
+        function fail(e) {
+          if (settled) return;
+          settled = true;
+          tracker.shutdown(resp).then(() => reject(e));
+        }
+        req.on('timeout', () => fail(new Error('timeout')));
+        req.on('error', fail);
         req.end(body);
       });
     },
