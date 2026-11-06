@@ -115,6 +115,13 @@ export function ollamaAdapter(model, opts = {}) {
             r.on('end', () => {
               try {
                 const j = JSON.parse(out);
+                // H3-2：量測用（預設沒有）。只回報 Ollama 自己的計時欄位與回應的欄位名稱，不含內容
+                opts.onResult?.({
+                  model: j?.model, keys: Object.keys(j ?? {}), done_reason: j?.done_reason,
+                  total_duration: j?.total_duration, load_duration: j?.load_duration,
+                  prompt_eval_count: j?.prompt_eval_count, prompt_eval_duration: j?.prompt_eval_duration,
+                  eval_count: j?.eval_count, eval_duration: j?.eval_duration,
+                });
                 // 回應的模型必須就是驗證過的那個
                 if (j?.model !== undefined && j.model !== model) return reject(new Error('model_changed'));
                 resolve(String(j?.message?.content ?? ''));

@@ -2,7 +2,7 @@
 
 - 分支 `feat/h3-2-mc-ai`，工作區 `.worktrees/h3-2`，從 H3-1.2 驗收版 `be2dde2` 分出（H3-1.2 保留在 `feat/h3-pocket-sync`，本機標籤 `h3-1.2-accepted`，沒有推送）。
 - 本輪只用**假 Ollama、合成玩家、暫存資料夾、測試埠**。沒有連接或設定真正的 Ollama，沒有 GPU 負載測試，沒有改 Windows 設定、正式 FairyPocket、每日排程、NewProject、main 或真實資料。
-- 測試：Hub 87/87（H3-1.2 的 75＋H3-2 的 12），vitest 100/100（App＋同步，未變），tsc 通過。
+- 測試：Hub 87/87（H3-1.2 的 75＋H3-2 的 12），vitest 100/100（App＋同步，未變），tsc 通過。真實測試結果見 `H3-2-REPORT.md`。
 
 ## 1. 現有機制檢查（以 H2.x 的 Hub 為基礎，沒有重寫）
 | 項目 | 現況 | 結論 |

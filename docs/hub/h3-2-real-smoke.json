@@ -1,0 +1,1368 @@
+{
+ "startedAt": "2026-11-06T13:46:57.481Z",
+ "steps": [
+  {
+   "t": 33,
+   "name": "preflight",
+   "version": "0.40.14",
+   "models": [
+    "gemma3:12b",
+    "gemma3:4b"
+   ],
+   "check": {
+    "ok": true,
+    "digest": "68ceab7e468a31c988b44d5a4984a0e21f58c4f7158c6ce29c1804babac38df7"
+   },
+   "remoteModels": [],
+   "loadedBefore": []
+  },
+  {
+   "t": 2619,
+   "name": "baseline",
+   "procs": [
+    {
+     "pid": 26084,
+     "ppid": 23400,
+     "name": "ollama.exe",
+     "cpuMs": 3547
+    },
+    {
+     "pid": 28096,
+     "ppid": 26084,
+     "name": "conhost.exe",
+     "cpuMs": 375
+    }
+   ]
+  },
+  {
+   "t": 10350,
+   "name": "request1",
+   "status": 200,
+   "route": "LOCAL_OLLAMA",
+   "wallMs": 7731,
+   "ollama": {
+    "model": "gemma3:4b",
+    "done_reason": "stop",
+    "keys": [
+     "model",
+     "created_at",
+     "message",
+     "done",
+     "done_reason",
+     "total_duration",
+     "load_duration",
+     "prompt_eval_count",
+     "prompt_eval_cached_count",
+     "prompt_eval_duration",
+     "eval_count",
+     "eval_duration"
+    ],
+    "loadMs": 7003,
+    "promptMs": 253,
+    "evalMs": 430,
+    "totalMs": 7697,
+    "firstOutputMs": 7255,
+    "promptTokens": 234,
+    "outputTokens": 38,
+    "tokensPerSec": 88.3
+   },
+   "intent": {
+    "kind": "DIALOGUE",
+    "emotion": "happy",
+    "soundPolicy": "MINECRAFT_PRESERVE_EXISTING_SYNTHETIC",
+    "textChars": 40,
+    "text": "嗨！主人，我超想去那邊的湖邊玩！那邊有好多小魚，一定很漂亮喔！要不要一起去看看？"
+   }
+  },
+  {
+   "t": 10353,
+   "name": "loaded",
+   "ps": [
+    {
+     "name": "gemma3:4b",
+     "digest": "68ceab7e468a",
+     "size_vram": 2882482994,
+     "expires_at": "2026-11-06T23:17:07.8164502+09:00"
+    }
+   ]
+  },
+  {
+   "t": 14649,
+   "name": "idleAfter1",
+   "procs": [
+    {
+     "pid": 26084,
+     "ppid": 23400,
+     "name": "ollama.exe",
+     "cpuMs": 3797
+    },
+    {
+     "pid": 28096,
+     "ppid": 26084,
+     "name": "conhost.exe",
+     "cpuMs": 391
+    },
+    {
+     "pid": 20632,
+     "ppid": 26084,
+     "name": "llama-server.exe",
+     "cpuMs": 3656
+    }
+   ]
+  },
+  {
+   "t": 16067,
+   "name": "request2_cancel",
+   "status": 200,
+   "route": "RULES",
+   "wallMs": 429,
+   "abortAtMs": 16067,
+   "hubAborted": 1,
+   "responseArrived": false
+  },
+  {
+   "t": 23050,
+   "name": "afterCancel",
+   "cpu": [
+    {
+     "afterAbortMs": -429,
+     "procs": [
+      {
+       "pid": 26084,
+       "ppid": 23400,
+       "name": "ollama.exe",
+       "cpuMs": 3797
+      },
+      {
+       "pid": 28096,
+       "ppid": 26084,
+       "name": "conhost.exe",
+       "cpuMs": 391
+      },
+      {
+       "pid": 20632,
+       "ppid": 26084,
+       "name": "llama-server.exe",
+       "cpuMs": 3656
+      }
+     ]
+    },
+    {
+     "afterAbortMs": 0,
+     "procs": [
+      {
+       "pid": 26084,
+       "ppid": 23400,
+       "name": "ollama.exe",
+       "cpuMs": 3797
+      },
+      {
+       "pid": 28096,
+       "ppid": 26084,
+       "name": "conhost.exe",
+       "cpuMs": 391
+      },
+      {
+       "pid": 20632,
+       "ppid": 26084,
+       "name": "llama-server.exe",
+       "cpuMs": 4094
+      }
+     ]
+    },
+    {
+     "afterAbortMs": 1508,
+     "procs": [
+      {
+       "pid": 26084,
+       "ppid": 23400,
+       "name": "ollama.exe",
+       "cpuMs": 3797
+      },
+      {
+       "pid": 28096,
+       "ppid": 26084,
+       "name": "conhost.exe",
+       "cpuMs": 391
+      },
+      {
+       "pid": 20632,
+       "ppid": 26084,
+       "name": "llama-server.exe",
+       "cpuMs": 4094
+      }
+     ]
+    },
+    {
+     "afterAbortMs": 3011,
+     "procs": [
+      {
+       "pid": 26084,
+       "ppid": 23400,
+       "name": "ollama.exe",
+       "cpuMs": 3797
+      },
+      {
+       "pid": 28096,
+       "ppid": 26084,
+       "name": "conhost.exe",
+       "cpuMs": 391
+      },
+      {
+       "pid": 20632,
+       "ppid": 26084,
+       "name": "llama-server.exe",
+       "cpuMs": 4109
+      }
+     ]
+    },
+    {
+     "afterAbortMs": 6013,
+     "procs": [
+      {
+       "pid": 26084,
+       "ppid": 23400,
+       "name": "ollama.exe",
+       "cpuMs": 3797
+      },
+      {
+       "pid": 28096,
+       "ppid": 26084,
+       "name": "conhost.exe",
+       "cpuMs": 391
+      },
+      {
+       "pid": 20632,
+       "ppid": 26084,
+       "name": "llama-server.exe",
+       "cpuMs": 4109
+      }
+     ]
+    }
+   ],
+   "runningOnHub": false,
+   "responseArrivedLater": false
+  },
+  {
+   "t": 23055,
+   "name": "psAfter",
+   "ps": [
+    {
+     "name": "gemma3:4b",
+     "expires_at": "2026-11-06T23:17:13.5416638+09:00"
+    }
+   ]
+  }
+ ],
+ "inferenceCalls": 2,
+ "stopped": null,
+ "mode": "real",
+ "gpuSamples": [
+  {
+   "t": 98,
+   "util": 16,
+   "memMiB": 1292
+  },
+  {
+   "t": 205,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 313,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 421,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 530,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 639,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 749,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 856,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 966,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 1076,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 1186,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 1296,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 1405,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 1513,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2619,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2619,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2619,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2619,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2619,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2619,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2619,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2619,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2619,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2619,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2709,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2819,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 2929,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 3037,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 3148,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 3256,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 3365,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 3473,
+   "util": 15,
+   "memMiB": 1300
+  },
+  {
+   "t": 3582,
+   "util": 15,
+   "memMiB": 1346
+  },
+  {
+   "t": 3690,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 3797,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 3907,
+   "util": 15,
+   "memMiB": 1372
+  },
+  {
+   "t": 4014,
+   "util": 15,
+   "memMiB": 1292
+  },
+  {
+   "t": 4124,
+   "util": 15,
+   "memMiB": 1305
+  },
+  {
+   "t": 4234,
+   "util": 9,
+   "memMiB": 1305
+  },
+  {
+   "t": 4341,
+   "util": 9,
+   "memMiB": 1314
+  },
+  {
+   "t": 4449,
+   "util": 9,
+   "memMiB": 1386
+  },
+  {
+   "t": 4557,
+   "util": 9,
+   "memMiB": 1386
+  },
+  {
+   "t": 4667,
+   "util": 9,
+   "memMiB": 1386
+  },
+  {
+   "t": 4775,
+   "util": 9,
+   "memMiB": 1386
+  },
+  {
+   "t": 4885,
+   "util": 9,
+   "memMiB": 1386
+  },
+  {
+   "t": 4994,
+   "util": 9,
+   "memMiB": 2602
+  },
+  {
+   "t": 5104,
+   "util": 9,
+   "memMiB": 3756
+  },
+  {
+   "t": 5214,
+   "util": 9,
+   "memMiB": 3747
+  },
+  {
+   "t": 5322,
+   "util": 15,
+   "memMiB": 3747
+  },
+  {
+   "t": 5431,
+   "util": 15,
+   "memMiB": 3747
+  },
+  {
+   "t": 5540,
+   "util": 15,
+   "memMiB": 3747
+  },
+  {
+   "t": 5648,
+   "util": 15,
+   "memMiB": 3747
+  },
+  {
+   "t": 5758,
+   "util": 15,
+   "memMiB": 3747
+  },
+  {
+   "t": 5868,
+   "util": 15,
+   "memMiB": 3747
+  },
+  {
+   "t": 5978,
+   "util": 15,
+   "memMiB": 3747
+  },
+  {
+   "t": 6087,
+   "util": 15,
+   "memMiB": 3747
+  },
+  {
+   "t": 6196,
+   "util": 15,
+   "memMiB": 3747
+  },
+  {
+   "t": 6306,
+   "util": 22,
+   "memMiB": 3747
+  },
+  {
+   "t": 6414,
+   "util": 22,
+   "memMiB": 3747
+  },
+  {
+   "t": 6523,
+   "util": 22,
+   "memMiB": 3747
+  },
+  {
+   "t": 6632,
+   "util": 22,
+   "memMiB": 3747
+  },
+  {
+   "t": 6742,
+   "util": 22,
+   "memMiB": 3747
+  },
+  {
+   "t": 6850,
+   "util": 22,
+   "memMiB": 3747
+  },
+  {
+   "t": 6960,
+   "util": 22,
+   "memMiB": 3747
+  },
+  {
+   "t": 7066,
+   "util": 22,
+   "memMiB": 3747
+  },
+  {
+   "t": 7175,
+   "util": 22,
+   "memMiB": 3747
+  },
+  {
+   "t": 7285,
+   "util": 21,
+   "memMiB": 3747
+  },
+  {
+   "t": 7394,
+   "util": 21,
+   "memMiB": 3747
+  },
+  {
+   "t": 7504,
+   "util": 21,
+   "memMiB": 3747
+  },
+  {
+   "t": 7613,
+   "util": 21,
+   "memMiB": 3747
+  },
+  {
+   "t": 7722,
+   "util": 21,
+   "memMiB": 3747
+  },
+  {
+   "t": 7830,
+   "util": 21,
+   "memMiB": 4001
+  },
+  {
+   "t": 7939,
+   "util": 21,
+   "memMiB": 4099
+  },
+  {
+   "t": 8048,
+   "util": 21,
+   "memMiB": 4099
+  },
+  {
+   "t": 8156,
+   "util": 21,
+   "memMiB": 4911
+  },
+  {
+   "t": 8265,
+   "util": 11,
+   "memMiB": 4911
+  },
+  {
+   "t": 8373,
+   "util": 11,
+   "memMiB": 4911
+  },
+  {
+   "t": 8482,
+   "util": 11,
+   "memMiB": 4911
+  },
+  {
+   "t": 8593,
+   "util": 11,
+   "memMiB": 4911
+  },
+  {
+   "t": 8702,
+   "util": 11,
+   "memMiB": 4911
+  },
+  {
+   "t": 8811,
+   "util": 11,
+   "memMiB": 4911
+  },
+  {
+   "t": 8920,
+   "util": 11,
+   "memMiB": 4911
+  },
+  {
+   "t": 9031,
+   "util": 11,
+   "memMiB": 4911
+  },
+  {
+   "t": 9139,
+   "util": 11,
+   "memMiB": 4911
+  },
+  {
+   "t": 9248,
+   "util": 14,
+   "memMiB": 4911
+  },
+  {
+   "t": 9360,
+   "util": 14,
+   "memMiB": 4911
+  },
+  {
+   "t": 9469,
+   "util": 14,
+   "memMiB": 5041
+  },
+  {
+   "t": 9577,
+   "util": 14,
+   "memMiB": 5041
+  },
+  {
+   "t": 9685,
+   "util": 14,
+   "memMiB": 5041
+  },
+  {
+   "t": 9795,
+   "util": 14,
+   "memMiB": 5045
+  },
+  {
+   "t": 9903,
+   "util": 14,
+   "memMiB": 5045
+  },
+  {
+   "t": 10012,
+   "util": 14,
+   "memMiB": 5045
+  },
+  {
+   "t": 10130,
+   "util": 14,
+   "memMiB": 5045
+  },
+  {
+   "t": 10231,
+   "util": 14,
+   "memMiB": 5045
+  },
+  {
+   "t": 10348,
+   "util": 49,
+   "memMiB": 5045
+  },
+  {
+   "t": 10450,
+   "util": 49,
+   "memMiB": 5045
+  },
+  {
+   "t": 10559,
+   "util": 49,
+   "memMiB": 5045
+  },
+  {
+   "t": 10667,
+   "util": 49,
+   "memMiB": 5045
+  },
+  {
+   "t": 10776,
+   "util": 49,
+   "memMiB": 5045
+  },
+  {
+   "t": 10885,
+   "util": 49,
+   "memMiB": 5045
+  },
+  {
+   "t": 10995,
+   "util": 49,
+   "memMiB": 5045
+  },
+  {
+   "t": 11102,
+   "util": 49,
+   "memMiB": 5045
+  },
+  {
+   "t": 11212,
+   "util": 49,
+   "memMiB": 5045
+  },
+  {
+   "t": 11321,
+   "util": 10,
+   "memMiB": 5045
+  },
+  {
+   "t": 11430,
+   "util": 10,
+   "memMiB": 5045
+  },
+  {
+   "t": 11539,
+   "util": 10,
+   "memMiB": 5045
+  },
+  {
+   "t": 11647,
+   "util": 10,
+   "memMiB": 5045
+  },
+  {
+   "t": 11756,
+   "util": 10,
+   "memMiB": 5045
+  },
+  {
+   "t": 11865,
+   "util": 10,
+   "memMiB": 5045
+  },
+  {
+   "t": 11975,
+   "util": 10,
+   "memMiB": 5046
+  },
+  {
+   "t": 12083,
+   "util": 10,
+   "memMiB": 5046
+  },
+  {
+   "t": 12191,
+   "util": 10,
+   "memMiB": 5046
+  },
+  {
+   "t": 12300,
+   "util": 3,
+   "memMiB": 5046
+  },
+  {
+   "t": 12409,
+   "util": 3,
+   "memMiB": 5046
+  },
+  {
+   "t": 12519,
+   "util": 3,
+   "memMiB": 5046
+  },
+  {
+   "t": 12627,
+   "util": 3,
+   "memMiB": 5046
+  },
+  {
+   "t": 12736,
+   "util": 3,
+   "memMiB": 5046
+  },
+  {
+   "t": 12844,
+   "util": 3,
+   "memMiB": 5046
+  },
+  {
+   "t": 12955,
+   "util": 3,
+   "memMiB": 5046
+  },
+  {
+   "t": 13064,
+   "util": 3,
+   "memMiB": 5046
+  },
+  {
+   "t": 13174,
+   "util": 3,
+   "memMiB": 5046
+  },
+  {
+   "t": 13283,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5046
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5047
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5047
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5047
+  },
+  {
+   "t": 15640,
+   "util": 4,
+   "memMiB": 5047
+  },
+  {
+   "t": 15677,
+   "util": 4,
+   "memMiB": 5047
+  },
+  {
+   "t": 15786,
+   "util": 4,
+   "memMiB": 5047
+  },
+  {
+   "t": 15894,
+   "util": 4,
+   "memMiB": 5047
+  },
+  {
+   "t": 16003,
+   "util": 4,
+   "memMiB": 5047
+  },
+  {
+   "t": 17008,
+   "util": 4,
+   "memMiB": 5047
+  },
+  {
+   "t": 17008,
+   "util": 4,
+   "memMiB": 5047
+  },
+  {
+   "t": 17008,
+   "util": 42,
+   "memMiB": 5047
+  },
+  {
+   "t": 17008,
+   "util": 42,
+   "memMiB": 5047
+  },
+  {
+   "t": 17008,
+   "util": 42,
+   "memMiB": 5047
+  },
+  {
+   "t": 17008,
+   "util": 42,
+   "memMiB": 5047
+  },
+  {
+   "t": 17008,
+   "util": 42,
+   "memMiB": 5047
+  },
+  {
+   "t": 17008,
+   "util": 42,
+   "memMiB": 5047
+  },
+  {
+   "t": 17008,
+   "util": 42,
+   "memMiB": 5047
+  },
+  {
+   "t": 17092,
+   "util": 42,
+   "memMiB": 5047
+  },
+  {
+   "t": 17200,
+   "util": 42,
+   "memMiB": 5047
+  },
+  {
+   "t": 17311,
+   "util": 2,
+   "memMiB": 5047
+  },
+  {
+   "t": 17421,
+   "util": 2,
+   "memMiB": 5047
+  },
+  {
+   "t": 17529,
+   "util": 2,
+   "memMiB": 5047
+  },
+  {
+   "t": 18549,
+   "util": 2,
+   "memMiB": 5047
+  },
+  {
+   "t": 18549,
+   "util": 2,
+   "memMiB": 5047
+  },
+  {
+   "t": 18549,
+   "util": 2,
+   "memMiB": 5047
+  },
+  {
+   "t": 18549,
+   "util": 2,
+   "memMiB": 5047
+  },
+  {
+   "t": 18549,
+   "util": 2,
+   "memMiB": 5047
+  },
+  {
+   "t": 18549,
+   "util": 2,
+   "memMiB": 5047
+  },
+  {
+   "t": 18549,
+   "util": 3,
+   "memMiB": 5047
+  },
+  {
+   "t": 18549,
+   "util": 3,
+   "memMiB": 5047
+  },
+  {
+   "t": 18549,
+   "util": 3,
+   "memMiB": 5047
+  },
+  {
+   "t": 18614,
+   "util": 3,
+   "memMiB": 5047
+  },
+  {
+   "t": 18723,
+   "util": 3,
+   "memMiB": 5047
+  },
+  {
+   "t": 18832,
+   "util": 3,
+   "memMiB": 5047
+  },
+  {
+   "t": 18941,
+   "util": 3,
+   "memMiB": 5047
+  },
+  {
+   "t": 19048,
+   "util": 3,
+   "memMiB": 5047
+  },
+  {
+   "t": 20104,
+   "util": 3,
+   "memMiB": 5047
+  },
+  {
+   "t": 20104,
+   "util": 3,
+   "memMiB": 5045
+  },
+  {
+   "t": 20104,
+   "util": 5,
+   "memMiB": 5045
+  },
+  {
+   "t": 20104,
+   "util": 5,
+   "memMiB": 5045
+  },
+  {
+   "t": 20104,
+   "util": 5,
+   "memMiB": 5041
+  },
+  {
+   "t": 20104,
+   "util": 5,
+   "memMiB": 5041
+  },
+  {
+   "t": 20104,
+   "util": 5,
+   "memMiB": 5041
+  },
+  {
+   "t": 20104,
+   "util": 5,
+   "memMiB": 5041
+  },
+  {
+   "t": 20104,
+   "util": 5,
+   "memMiB": 5041
+  },
+  {
+   "t": 20141,
+   "util": 5,
+   "memMiB": 5041
+  },
+  {
+   "t": 20251,
+   "util": 5,
+   "memMiB": 5041
+  },
+  {
+   "t": 20360,
+   "util": 7,
+   "memMiB": 5041
+  },
+  {
+   "t": 20468,
+   "util": 7,
+   "memMiB": 5041
+  },
+  {
+   "t": 20578,
+   "util": 7,
+   "memMiB": 5041
+  },
+  {
+   "t": 20686,
+   "util": 7,
+   "memMiB": 5041
+  },
+  {
+   "t": 20794,
+   "util": 7,
+   "memMiB": 5041
+  },
+  {
+   "t": 20903,
+   "util": 7,
+   "memMiB": 5041
+  },
+  {
+   "t": 21012,
+   "util": 7,
+   "memMiB": 5041
+  },
+  {
+   "t": 21122,
+   "util": 7,
+   "memMiB": 5041
+  },
+  {
+   "t": 21227,
+   "util": 7,
+   "memMiB": 5041
+  },
+  {
+   "t": 21336,
+   "util": 10,
+   "memMiB": 5041
+  },
+  {
+   "t": 21446,
+   "util": 10,
+   "memMiB": 5041
+  },
+  {
+   "t": 21554,
+   "util": 10,
+   "memMiB": 5041
+  },
+  {
+   "t": 21663,
+   "util": 10,
+   "memMiB": 5041
+  },
+  {
+   "t": 21771,
+   "util": 10,
+   "memMiB": 5041
+  },
+  {
+   "t": 21879,
+   "util": 10,
+   "memMiB": 5041
+  },
+  {
+   "t": 21987,
+   "util": 10,
+   "memMiB": 5041
+  },
+  {
+   "t": 23054,
+   "util": 10,
+   "memMiB": 5041
+  },
+  {
+   "t": 23054,
+   "util": 10,
+   "memMiB": 5041
+  },
+  {
+   "t": 23054,
+   "util": 10,
+   "memMiB": 5041
+  },
+  {
+   "t": 23054,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23054,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23054,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23054,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23054,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23054,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23077,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23185,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23294,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23403,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23511,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23620,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23729,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23838,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 23950,
+   "util": 15,
+   "memMiB": 5041
+  },
+  {
+   "t": 24056,
+   "util": 15,
+   "memMiB": 5041
+  }
+ ],
+ "endedAt": "2026-11-06T13:47:21.544Z"
+}

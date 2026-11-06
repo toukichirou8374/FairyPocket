@@ -51,6 +51,14 @@ export async function startFakeOllama(opts = {}) {
         res.writeHead(200, { 'content-type': 'application/json' });
         return void res.end(JSON.stringify({ models: st.models }));
       }
+      if (req.method === 'GET' && req.url === '/api/version') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return void res.end(JSON.stringify({ version: 'fake' }));
+      }
+      if (req.method === 'GET' && req.url === '/api/ps') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return void res.end(JSON.stringify({ models: [] }));
+      }
       if (req.method !== 'POST' || req.url !== '/api/chat') return void res.writeHead(404).end();
       st.requests++;
       let j = {};
