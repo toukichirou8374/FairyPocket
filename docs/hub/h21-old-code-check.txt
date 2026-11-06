@@ -1,0 +1,204 @@
+✖ P1-2 舊手機快照不能蓋掉較新的狀態：VITALS_SYNC 在取得新 revision／epoch 後也被拒（暫停使用） (118.2468ms)
+✖ P1-3 推論期間換了世代：過期回答不寫入、不標成新 epoch（409 STALE_EPOCH）；之後同一個 opId 可以重新正常處理 (23.1332ms)
+✖ P1-4 綁定：第 1 份（綁定碼作廢）成功、第 2 份（悅靈文件）失敗 → 沒有任何授權；碼不能再用；狀態為 failed (14.9922ms)
+✖ P1-4 確認與撤銷都是單一文件：寫入失敗時授權不生效（或維持原狀），重試才生效；重啟後一致 (38.4105ms)
+✖ P1-4 hub.json 損壞：所有綁定操作 fail-closed（503），既有授權只看悅靈文件 (29.6208ms)
+✖ P1-5 撤銷後正式檔損壞：不退回前一版、不重新開放權限、不讓 epoch 回退；整隻 fail-closed 並保留證據 (32.8253ms)
+✖ P1-7 Minecraft 大量新增共享記憶與對話：手機的私人記憶與對話一筆都不會被刪；Minecraft 只擠掉自己的舊內容 (43.1082ms)
+✖ P1-8 逾時：馬上回規則台詞並取消底層請求；名額要等底層真的結束才釋放 → 底層實際並行數永遠 1 (694.2984ms)
+✖ P2 同一個 talk opId 同時送 3 次：只推論 1 次，三個回應是同一個意圖 (159.9234ms)
+ℹ tests 9
+ℹ suites 0
+ℹ pass 0
+ℹ fail 9
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1263.632
+
+✖ failing tests:
+
+test at scripts\hub\test\old-check.test.mjs:15:1
+✖ P1-2 舊手機快照不能蓋掉較新的狀態：VITALS_SYNC 在取得新 revision／epoch 後也被拒（暫停使用） (118.2468ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   200,
+  +   undefined,
+  +   undefined
+  -   403,
+  -   'FORBIDDEN',
+  -   'VITALS_SYNC_DISABLED'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h2-old/scripts/hub/test/old-check.test.mjs:23:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 200, undefined, undefined ],
+    expected: [ 403, 'FORBIDDEN', 'VITALS_SYNC_DISABLED' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\old-check.test.mjs:28:1
+✖ P1-3 推論期間換了世代：過期回答不寫入、不標成新 epoch（409 STALE_EPOCH）；之後同一個 opId 可以重新正常處理 (23.1332ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   200,
+  +   undefined,
+  +   undefined
+  -   409,
+  -   'STALE_EPOCH',
+  -   2
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h2-old/scripts/hub/test/old-check.test.mjs:38:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 200, undefined, undefined ],
+    expected: [ 409, 'STALE_EPOCH', 2 ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\old-check.test.mjs:46:1
+✖ P1-4 綁定：第 1 份（綁定碼作廢）成功、第 2 份（悅靈文件）失敗 → 沒有任何授權；碼不能再用；狀態為 failed (14.9922ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   200,
+  +   undefined
+  -   503,
+  -   'STORE_UNAVAILABLE'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h2-old/scripts/hub/test/old-check.test.mjs:56:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 200, undefined ],
+    expected: [ 503, 'STORE_UNAVAILABLE' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\old-check.test.mjs:63:1
+✖ P1-4 確認與撤銷都是單一文件：寫入失敗時授權不生效（或維持原狀），重試才生效；重啟後一致 (38.4105ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'active'
+  - 'revoked'
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h2-old/scripts/hub/test/old-check.test.mjs:88:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'active',
+    expected: 'revoked',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\old-check.test.mjs:91:1
+✖ P1-4 hub.json 損壞：所有綁定操作 fail-closed（503），既有授權只看悅靈文件 (29.6208ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 503
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h2-old/scripts/hub/test/old-check.test.mjs:97:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 503,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\old-check.test.mjs:103:1
+✖ P1-5 撤銷後正式檔損壞：不退回前一版、不重新開放權限、不讓 epoch 回退；整隻 fail-closed 並保留證據 (32.8253ms)
+  AssertionError [ERR_ASSERTION]: 沒有重新開放已撤銷的權限
+  
+  200 !== 503
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h2-old/scripts/hub/test/old-check.test.mjs:112:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 503,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\old-check.test.mjs:121:1
+✖ P1-7 Minecraft 大量新增共享記憶與對話：手機的私人記憶與對話一筆都不會被刪；Minecraft 只擠掉自己的舊內容 (43.1082ms)
+  AssertionError [ERR_ASSERTION]: 手機的 40 條私人記憶全部還在
+  
+  0 !== 40
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h2-old/scripts/hub/test/old-check.test.mjs:145:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 40,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\old-check.test.mjs:153:1
+✖ P1-8 逾時：馬上回規則台詞並取消底層請求；名額要等底層真的結束才釋放 → 底層實際並行數永遠 1 (694.2984ms)
+  AssertionError [ERR_ASSERTION]: 底層實際並行數 1（逾時沒有讓請求疊加）
+  
+  4 !== 1
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h2-old/scripts/hub/test/old-check.test.mjs:166:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\old-check.test.mjs:172:1
+✖ P2 同一個 talk opId 同時送 3 次：只推論 1 次，三個回應是同一個意圖 (159.9234ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(rs.every((r) => r.status === 200))
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h2-old/scripts/hub/test/old-check.test.mjs:177:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

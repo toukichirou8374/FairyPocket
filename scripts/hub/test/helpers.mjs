@@ -37,14 +37,38 @@ export function fakeAI(opts = {}) {
     delay: opts.delay ?? 0,
     failNext: false,
     reply: opts.reply ?? '[開心] 好呀，我們一起去探險！',
-    async ask(system, messages) {
+    /** 底層實際並行數（用來驗證逾時後不會讓請求繼續疊加） */
+    inFlight: 0,
+    maxInFlight: 0,
+    aborted: 0,
+    /** true：收到取消就立刻停止；false：模擬不理會取消、照樣跑完的底層請求 */
+    honorAbort: opts.honorAbort ?? true,
+    onAsk: null,
+    async ask(system, messages, o = {}) {
       ai.calls.push({ system, messages });
-      if (ai.delay) await new Promise((r) => setTimeout(r, ai.delay));
-      if (ai.failNext) {
-        ai.failNext = false;
-        throw new Error('fake failure');
+      ai.inFlight++;
+      ai.maxInFlight = Math.max(ai.maxInFlight, ai.inFlight);
+      try {
+        if (ai.onAsk) await ai.onAsk();
+        if (ai.delay)
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(resolve, ai.delay);
+            o.signal?.addEventListener('abort', () => {
+              ai.aborted++;
+              if (ai.honorAbort) {
+                clearTimeout(timer);
+                reject(new Error('aborted'));
+              }
+            });
+          });
+        if (ai.failNext) {
+          ai.failNext = false;
+          throw new Error('fake failure');
+        }
+        return ai.reply;
+      } finally {
+        ai.inFlight--;
       }
-      return ai.reply;
     },
   };
   return ai;

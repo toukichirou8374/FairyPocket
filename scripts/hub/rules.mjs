@@ -3,8 +3,22 @@
 
 import { clamp, fail, FAVORITE_FOOD, FOODS, LIMITS, SLEEPINESS } from './schema.mjs';
 
-export const MAX_MEMORIES = 40;
-export const MAX_DIALOGUE = 32;
+/** 記憶與對話的額度依來源分開：一個來源只會擠掉自己的舊內容，不會刪到別的來源（例如手機的私人記憶） */
+export const MEMORY_QUOTA = { fp: 40, mc: 20 };
+export const DIALOGUE_QUOTA = { fp: 32, mc: 32 };
+export const MAX_MEMORIES = MEMORY_QUOTA.fp + MEMORY_QUOTA.mc;
+export const MAX_DIALOGUE = DIALOGUE_QUOTA.fp + DIALOGUE_QUOTA.mc;
+
+/** 只移除同一個來源最舊的項目，直到該來源不超過額度 */
+function trimOwn(list, role, quota) {
+  let n = list.filter((x) => x.srcRole === role).length;
+  for (let i = 0; i < list.length && n > quota; ) {
+    if (list[i].srcRole === role) {
+      list.splice(i, 1);
+      n--;
+    } else i++;
+  }
+}
 export const MAX_ADVENTURES = 500;
 export const ADVENTURE_DAYS = 30;
 /** 每日上限（Minecraft 事件） */
@@ -131,7 +145,7 @@ export function applyEvent(doc, ev) {
     case 'MEMORY_ADD': {
       if (doc.memories.some((m) => m.memoryId === p.memoryId)) return { result: 'exists' };
       doc.memories.push({ memoryId: p.memoryId, text: p.text, visibility: p.visibility, srcRole: ev.role, srcSource: ev.source, srcOpId: ev.opId, at: ev.at || ev.now });
-      if (doc.memories.length > MAX_MEMORIES) doc.memories.splice(0, doc.memories.length - MAX_MEMORIES);
+      trimOwn(doc.memories, ev.role, MEMORY_QUOTA[ev.role]);
       return { result: 'ok' };
     }
     case 'MEMORY_REMOVE': {
@@ -144,7 +158,7 @@ export function applyEvent(doc, ev) {
     case 'DIALOGUE_ADD': {
       if (doc.dialogue.some((d) => d.messageId === p.messageId)) return { result: 'exists' };
       doc.dialogue.push({ messageId: p.messageId, who: p.who, name: p.name, text: p.text, srcRole: ev.role, srcSource: ev.source, at: ev.at || ev.now });
-      if (doc.dialogue.length > MAX_DIALOGUE) doc.dialogue.splice(0, doc.dialogue.length - MAX_DIALOGUE);
+      trimOwn(doc.dialogue, ev.role, DIALOGUE_QUOTA[ev.role]);
       return { result: 'ok' };
     }
     case 'ADVENTURE':

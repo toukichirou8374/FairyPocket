@@ -138,8 +138,11 @@ export const OP_ID_RE = /^[A-Za-z0-9_.-]{8,80}$/;
 export const SOURCE_RE = /^[A-Za-z0-9_-]{8,64}$/;
 export const NUMERIC_TYPES = ['FED', 'PETTED', 'PLAYED', 'TIME_PASSED', 'GIFT', 'FOUND', 'DEFEATED', 'HURT', 'DIED', 'VITALS_SYNC'];
 export const PLAIN_TYPES = ['MEMORY_ADD', 'MEMORY_REMOVE', 'DIALOGUE_ADD', 'ADVENTURE'];
+// H2.1：VITALS_SYNC（整份數值快照）暫停使用。舊手機快照可能在取得新的 revision／epoch 後蓋掉較新的狀態，
+// 等正式的交接調和機制完成前，任何角色送來都拒絕（403 FORBIDDEN，where = VITALS_SYNC_DISABLED）。
+export const DISABLED_TYPES = ['VITALS_SYNC'];
 const ROLE_TYPES = {
-  fp: ['FED', 'PETTED', 'PLAYED', 'VITALS_SYNC', 'MEMORY_ADD', 'MEMORY_REMOVE', 'DIALOGUE_ADD'],
+  fp: ['FED', 'PETTED', 'PLAYED', 'MEMORY_ADD', 'MEMORY_REMOVE', 'DIALOGUE_ADD'],
   mc: ['FED', 'PETTED', 'PLAYED', 'TIME_PASSED', 'GIFT', 'FOUND', 'DEFEATED', 'HURT', 'DIED', 'MEMORY_ADD', 'MEMORY_REMOVE', 'DIALOGUE_ADD', 'ADVENTURE'],
 };
 const ADVENTURE_KINDS = ['dimension', 'biome', 'structure', 'achievement', 'sleep', 'wake'];
@@ -150,6 +153,7 @@ export function validateEvent(e, role) {
   onlyKeys(e, ['opId', 'type', 'at', 'payload'], 'event');
   if (typeof e.opId !== 'string' || !OP_ID_RE.test(e.opId)) fail(400, 'SCHEMA', { where: 'event.opId' });
   if (!NUMERIC_TYPES.includes(e.type) && !PLAIN_TYPES.includes(e.type)) fail(400, 'SCHEMA', { where: 'event.type' });
+  if (DISABLED_TYPES.includes(e.type)) fail(403, 'FORBIDDEN', { where: 'VITALS_SYNC_DISABLED', type: e.type });
   if (!ROLE_TYPES[role].includes(e.type)) fail(403, 'FORBIDDEN', { where: 'event.type', type: e.type });
   const at = e.at === undefined ? 0 : range(e.at, [0, Number.MAX_SAFE_INTEGER], 'event.at');
   const p = e.payload ?? {};

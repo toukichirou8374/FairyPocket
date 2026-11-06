@@ -183,11 +183,14 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   if (/^enabled[ \t]*=[ \t]*1\b/m.test(hubCfg)) {
     const { createHub } = await import('./hub/hub.mjs');
     const { ollamaAdapter } = await import('./hub/localai.mjs');
+    // 本機模型白名單（Minecraft 用）：model＝使用的模型；model_digest＝（建議）固定的 digest。
+    // 每次推論前向本機 Ollama 驗證：不在清單、雲端模型、沒有本機檔案、digest 不符 → 一律改用規則台詞。
     const model = hubCfg.match(/^model[ \t]*=[ \t]*([^\s#]+)/m)?.[1] ?? 'gemma3:4b';
+    const digest = hubCfg.match(/^model_digest[ \t]*=[ \t]*([a-f0-9]{64})/m)?.[1];
     mcToken = loadToken(path.join(ROOT, 'private', 'hub-mc-token.txt'), 'Fairy Hub 的 Minecraft 伺服器通行碼（Paper 插件用，跟手機的不同）。');
-    hub = createHub({ ai: ollamaAdapter(model) });
+    hub = createHub({ ai: ollamaAdapter(model, { allow: [model], digest }) });
     const r = hub.report.pets;
-    console.log(`Fairy Hub：載入 ${r.loaded.length} 隻、復原 ${r.recovered.length}、無法載入 ${r.failed.length}`);
+    console.log(`Fairy Hub：載入 ${r.loaded.length} 隻、無法載入（資料損壞，已保留證據）${r.failed.length}、中斷的第一次建立 ${r.aborted.length}`);
   }
   const server = createRelay({ token, mcToken, hub, cloud });
   server.listen(11435, '127.0.0.1', () => console.log(`AI 轉接程式：http://127.0.0.1:11435 → Ollama 127.0.0.1:11434${hub ? '（含 Fairy Hub）' : ''}`));

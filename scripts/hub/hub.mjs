@@ -10,7 +10,7 @@ import {
   canonical, fail, HubError, LIMITS, mcPetId, MC_PET_RE, NUMERIC_TYPES, onlyKeys, optText, parseActor,
   PERSONALITIES, POCKET_ID_RE, range, sha256, SOURCE_RE, text, validateEvent, validatePocketState, OP_ID_RE,
 } from './schema.mjs';
-import { Store } from './store.mjs';
+import { backupFromStores, Store } from './store.mjs';
 
 const MAX_BODY = 64 * 1024;
 const OP_DAYS = 30;
@@ -78,14 +78,20 @@ function sendError(res, e) {
 export function createHub(opts = {}) {
   const dir = opts.dir ?? path.resolve(import.meta.dirname, '..', '..', 'private', 'allay-hub');
   const now = opts.now ?? (() => Date.now());
-  const pets = new Store(path.join(dir, 'pets'), { faults: opts.faults });
-  const global = new Store(dir, { faults: opts.faults });
+  const pets = new Store(path.join(dir, 'pets'), { faults: opts.faults, now });
+  const global = new Store(dir, { faults: opts.faults, now });
+  /** 進行中的聊天（同一個 opId 並行送達時共用同一次推論） */
+  const inflight = new Map();
   const adapter = opts.ai ?? { route: 'RULES', ask: async () => '' };
   checkRoute(adapter.route);
   const scheduler = new Scheduler(adapter, opts.scheduler);
 
   // ---------- 文件 ----------
-  const hubDoc = () => global.get('hub') ?? { codes: {}, pending: {}, finished: {}, locks: {}, index: {} };
+  function hubDoc() {
+    // hub.json 損壞：所有綁定相關操作 fail-closed
+    if (global.isBroken('hub')) fail(503, 'STORE_UNAVAILABLE');
+    return { codes: {}, linkIndex: {}, locks: {}, ...(global.get('hub') ?? {}) };
+  }
   function loadPet(pet) {
     if (typeof pet !== 'string' || !(POCKET_ID_RE.test(pet) || MC_PET_RE.test(pet))) fail(400, 'SCHEMA', { where: 'pet' });
     if (pets.isBroken(pet)) fail(503, 'STORE_UNAVAILABLE');
@@ -97,7 +103,7 @@ export function createHub(opts = {}) {
     return {
       pet, kind, owner, createdAt: now(), rev: 1, epoch: 1, controller,
       profile: init.profile, state: init.state, stats: init.stats, days: init.days,
-      memories: [], dialogue: [], adventures: [], links: [], ops: {}, intents: {}, daily: null,
+      memories: [], dialogue: [], adventures: [], links: [], pendingLinks: {}, ops: {}, intents: {}, daily: null,
     };
   }
 
@@ -290,16 +296,16 @@ export function createHub(opts = {}) {
       },
     },
 
-    // Minecraft：這位玩家可以用的悅靈
+    // Minecraft：這位玩家可以用的悅靈（授權只看悅靈文件本身，不依賴另一份索引）
     'GET /api/allay/whoami': {
       roles: ['mc'],
       async run(ctx) {
         const list = [];
         const own = mcPetId(ctx.actor.key);
         if (pets.has(own)) list.push({ pet: own, kind: 'mc' });
-        for (const pet of hubDoc().index[ctx.actor.key] ?? []) {
+        for (const pet of pets.names()) {
           const d = pets.get(pet);
-          if (d && canAccess(d, ctx)) list.push({ pet, kind: 'pocket' });
+          if (d.kind === 'pocket' && canAccess(d, ctx)) list.push({ pet, kind: 'pocket' });
         }
         return [200, { actor: ctx.actor.key, pets: list }];
       },
@@ -330,6 +336,8 @@ export function createHub(opts = {}) {
     },
 
     // ---------- 綁定 ----------
+    // H2.1：授權（links）與綁定流程（pendingLinks）都只存在悅靈文件裡，確認與撤銷都是「單一文件、單一交易」。
+    // hub.json 只放綁定碼（雜湊）、linkId → 悅靈的查詢表、鎖定狀態；它寫入成功或失敗都不會讓授權生效。
     'POST /api/allay/link/create': {
       roles: ['fp'],
       async run(ctx, body) {
@@ -367,14 +375,22 @@ export function createHub(opts = {}) {
           global.commit('hub', h);
           fail(409, 'CODE_INVALID');
         }
-        delete h.codes[hash]; // 單次使用：用過就作廢
+        delete h.codes[hash]; // 單次使用：用過就作廢（即使後面失敗也不能再用）
         if (hit.exp < now()) {
           global.commit('hub', h);
           fail(410, 'CODE_EXPIRED');
         }
+        const doc = loadPet(hit.pet);
         const linkId = randomBytes(12).toString('hex');
-        h.pending[linkId] = { pet: hit.pet, actor: { key: ctx.actor.key, platform: ctx.actor.platform, id: ctx.actor.id, name: ctx.actor.name }, exp: now() + PENDING_MS, source: ctx.source };
+        for (const [k, v] of Object.entries(h.linkIndex)) if (v.at < now() - 86_400_000) delete h.linkIndex[k];
+        h.linkIndex[linkId] = { pet: hit.pet, at: now() };
+        // 第 1 份：先作廢綁定碼（fail-closed：之後失敗只會讓這次綁定作廢，不會產生授權）
         global.commit('hub', h);
+        // 第 2 份：悅靈文件記下待確認（授權仍未生效，要等手機確認）
+        doc.pendingLinks ??= {};
+        for (const [k, v] of Object.entries(doc.pendingLinks)) if (v.at < now() - 86_400_000) delete doc.pendingLinks[k];
+        doc.pendingLinks[linkId] = { actor: { key: ctx.actor.key, platform: ctx.actor.platform, id: ctx.actor.id, name: ctx.actor.name }, exp: now() + PENDING_MS, source: ctx.source, status: 'pending', at: now() };
+        pets.commit(doc.pet, doc);
         return [200, { linkId, status: 'pending' }];
       },
     },
@@ -384,8 +400,8 @@ export function createHub(opts = {}) {
       async run(ctx, _b, q) {
         const doc = loadPet(q.get('pet'));
         access(doc, ctx);
-        const list = Object.entries(hubDoc().pending)
-          .filter(([, p]) => p.pet === doc.pet && p.exp >= now())
+        const list = Object.entries(doc.pendingLinks ?? {})
+          .filter(([, p]) => p.status === 'pending' && p.exp >= now())
           .map(([linkId, p]) => ({ linkId, platform: p.actor.platform, name: p.actor.name, idPrefix: p.actor.id.slice(0, 8), expiresAt: p.exp }));
         return [200, { pending: list }];
       },
@@ -396,32 +412,27 @@ export function createHub(opts = {}) {
       async run(ctx, body) {
         onlyKeys(body, ['linkId', 'accept'], 'body');
         if (typeof body.linkId !== 'string' || !/^[a-f0-9]{24}$/.test(body.linkId) || typeof body.accept !== 'boolean') fail(400, 'SCHEMA', { where: 'body' });
-        const h = hubDoc();
-        const p = h.pending[body.linkId];
+        const ref = hubDoc().linkIndex[body.linkId];
+        if (!ref) fail(404, 'NOT_FOUND');
+        const doc = loadPet(ref.pet);
+        access(doc, ctx);
+        const p = doc.pendingLinks?.[body.linkId];
         if (!p) fail(404, 'NOT_FOUND');
+        if (p.status !== 'pending') fail(409, 'ALREADY_DECIDED');
         if (p.exp < now()) {
-          delete h.pending[body.linkId];
-          h.finished[body.linkId] = { status: 'expired', at: now() };
-          global.commit('hub', h);
+          p.status = 'expired';
+          pets.commit(doc.pet, doc);
           fail(410, 'CODE_EXPIRED');
         }
-        const doc = loadPet(p.pet);
-        access(doc, ctx);
+        p.status = body.accept ? 'active' : 'rejected';
+        p.decidedAt = now();
         if (body.accept) {
-          if (!doc.links.some((l) => l.key === p.actor.key && l.status === 'active')) {
-            doc.links = doc.links.filter((l) => l.key !== p.actor.key);
-            doc.links.push({ key: p.actor.key, platform: p.actor.platform, name: p.actor.name, status: 'active', at: now() });
-            pets.commit(doc.pet, doc);
-          }
-          const idx = new Set(h.index[p.actor.key] ?? []);
-          idx.add(doc.pet);
-          h.index[p.actor.key] = [...idx];
+          doc.links = doc.links.filter((l) => l.key !== p.actor.key);
+          doc.links.push({ key: p.actor.key, platform: p.actor.platform, name: p.actor.name, status: 'active', at: now() });
         }
-        delete h.pending[body.linkId];
-        h.finished[body.linkId] = { status: body.accept ? 'active' : 'rejected', pet: body.accept ? doc.pet : undefined, actor: p.actor.key, at: now() };
-        for (const [k, v] of Object.entries(h.finished)) if (v.at < now() - 86_400_000) delete h.finished[k];
-        global.commit('hub', h);
-        return [200, { status: body.accept ? 'active' : 'rejected' }];
+        // 單一文件、單一交易：寫入失敗就什麼都沒生效
+        pets.commit(doc.pet, doc);
+        return [200, { status: p.status }];
       },
     },
 
@@ -429,16 +440,16 @@ export function createHub(opts = {}) {
       roles: ['mc'],
       async run(ctx, _b, q) {
         const id = q.get('linkId') ?? '';
-        const h = hubDoc();
-        const p = h.pending[id];
-        if (p) {
-          if (p.actor.key !== ctx.actor.key) fail(403, 'FORBIDDEN');
-          return [200, { status: p.exp < now() ? 'expired' : 'pending' }];
-        }
-        const f = h.finished[id];
-        if (!f) fail(404, 'NOT_FOUND');
-        if (f.actor && f.actor !== ctx.actor.key) fail(403, 'FORBIDDEN');
-        return [200, f.status === 'active' ? { status: 'active', pet: f.pet } : { status: f.status }];
+        const ref = /^[a-f0-9]{24}$/.test(id) ? hubDoc().linkIndex[id] : undefined;
+        if (!ref) fail(404, 'NOT_FOUND');
+        const doc = loadPet(ref.pet);
+        const p = doc.pendingLinks?.[id];
+        // 綁定碼已作廢、但悅靈文件沒寫成功：這次綁定失敗，要重新產生綁定碼
+        if (!p) return [200, { status: 'failed' }];
+        if (p.actor.key !== ctx.actor.key) fail(403, 'FORBIDDEN');
+        if (p.status === 'pending') return [200, { status: p.exp < now() ? 'expired' : 'pending' }];
+        const active = p.status === 'active' && canAccess(doc, ctx);
+        return [200, active ? { status: 'active', pet: doc.pet } : { status: p.status === 'active' ? 'revoked' : p.status }];
       },
     },
 
@@ -458,12 +469,8 @@ export function createHub(opts = {}) {
           doc.rev++;
           changed = true;
         }
+        // 單一文件、單一交易
         if (changed) pets.commit(doc.pet, doc);
-        const h = hubDoc();
-        if (h.index[body.actor]) {
-          h.index[body.actor] = h.index[body.actor].filter((p) => p !== doc.pet);
-          global.commit('hub', h);
-        }
         return [200, { revoked: changed, epoch: doc.epoch }];
       },
     },
@@ -484,54 +491,72 @@ export function createHub(opts = {}) {
         }
         const key = opKey(ctx, needOpId(body.opId));
         const hash = sha256(canonical({ said, lang, place, speaker: speaker.key }));
-        let doc = loadPet(body.pet);
-        access(doc, ctx);
-        const prior = seen(doc, key, hash);
+        const doc0 = loadPet(body.pet);
+        access(doc0, ctx);
+        const prior = seen(doc0, key, hash);
         if (prior) return [200, { status: 'DUPLICATE', ...prior.result }];
+        // 同一個 opId 並行送達：等正在進行的那一個，不重複推論
+        const running = inflight.get(`${body.pet}|${key}`);
+        if (running) {
+          if (running.hash !== hash) fail(409, 'ID_COLLISION');
+          const result = await running.promise;
+          return [200, { status: 'DUPLICATE', ...result }];
+        }
+        const work = (async () => {
+          // 推論開始時記下世代與決策基準
+          const basis = { epoch: doc0.epoch, rev: doc0.rev };
+          const pub = view(doc0, 'mc');
+          const isOwner = doc0.owner === speaker.key || doc0.links.some((l) => l.key === speaker.key && l.status === 'active');
+          const system = [
+            `你是「${pub.profile.name}」，一隻藍色的小精靈（悅靈），是主人的夥伴。現在和大家一起在 Minecraft 的世界冒險。不要說自己是 AI。`,
+            `個性：${PERSONA[pub.profile.personality]}。`,
+            `感情：${Math.round(pub.state.affection)}/100；心情：${Math.round(pub.state.mood)}/100；精神：${Math.round(pub.state.energy)}/100。`,
+            place ? `現在在：${place}。` : '',
+            `跟你說話的是：${speaker.name || '玩家'}${isOwner ? '（你的主人）' : '（主人的朋友）'}。`,
+            pub.memories.length ? `你記得的事：\n${pub.memories.slice(-20).map((m) => `・${m.text}`).join('\n')}` : '',
+            '規則：回答 1–2 句、40 字以內；不用表情符號和 Markdown；內容適合兒童，危險的事要提醒找大人；知識要正確，不知道就說不知道；知識與價值觀以台灣、日本、美國為主，不使用中國大陸的說法。開頭可以加一個心情標籤：[開心] [難過] [驚訝] [害羞] [想睡]。',
+            LANG_RULE[lang],
+          ].filter(Boolean).join('\n');
+          const messages = pub.dialogue.slice(-12).map((d) => ({ role: d.who === 'allay' ? 'assistant' : 'user', content: d.who === 'user' && d.name ? `${d.name}：${d.text}` : d.text }));
+          messages.push({ role: 'user', content: speaker.name ? `${speaker.name}：${said}` : said });
+          while (messages.length && messages[0].role !== 'user') messages.shift();
 
-        const pub = view(doc, 'mc');
-        const isOwner = doc.owner === speaker.key || doc.links.some((l) => l.key === speaker.key && l.status === 'active');
-        const system = [
-          `你是「${pub.profile.name}」，一隻藍色的小精靈（悅靈），是主人的夥伴。現在和大家一起在 Minecraft 的世界冒險。不要說自己是 AI。`,
-          `個性：${PERSONA[pub.profile.personality]}。`,
-          `感情：${Math.round(pub.state.affection)}/100；心情：${Math.round(pub.state.mood)}/100；精神：${Math.round(pub.state.energy)}/100。`,
-          place ? `現在在：${place}。` : '',
-          `跟你說話的是：${speaker.name || '玩家'}${isOwner ? '（你的主人）' : '（主人的朋友）'}。`,
-          pub.memories.length ? `你記得的事：\n${pub.memories.slice(-20).map((m) => `・${m.text}`).join('\n')}` : '',
-          '規則：回答 1–2 句、40 字以內；不用表情符號和 Markdown；內容適合兒童，危險的事要提醒找大人；知識要正確，不知道就說不知道；知識與價值觀以台灣、日本、美國為主，不使用中國大陸的說法。開頭可以加一個心情標籤：[開心] [難過] [驚訝] [害羞] [想睡]。',
-          LANG_RULE[lang],
-        ].filter(Boolean).join('\n');
-        const messages = pub.dialogue.slice(-12).map((d) => ({ role: d.who === 'allay' ? 'assistant' : 'user', content: d.who === 'user' && d.name ? `${d.name}：${d.text}` : d.text }));
-        messages.push({ role: 'user', content: speaker.name ? `${speaker.name}：${said}` : said });
-        while (messages.length && messages[0].role !== 'user') messages.shift();
+          const reply = await scheduler.submit(doc0.pet, system, messages, ruleLine(lang, doc0.rev));
+          let emotion = null;
+          let out = String(reply.text).replace(/<think>[\s\S]*?<\/think>/g, '');
+          out = out.replace(/[\[［【]\s*(?:記住|记住|覚えて|remember)\s*[:：][^\]］】]*[\]］】]/gi, '');
+          out = out.replace(/[\[［【]\s*([^\]］】]{1,10})\s*[\]］】]/g, (m, f) => (FEELINGS[f.trim()] ? ((emotion ??= FEELINGS[f.trim()]), '') : m));
+          out = out.replace(/[*_#`>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200) || ruleLine(lang, 1);
 
-        const reply = await scheduler.submit(doc.pet, system, messages, ruleLine(lang, doc.rev));
-        let emotion = null;
-        let out = String(reply.text).replace(/<think>[\s\S]*?<\/think>/g, '');
-        out = out.replace(/[\[［【]\s*(?:記住|记住|覚えて|remember)\s*[:：][^\]］】]*[\]］】]/gi, '');
-        out = out.replace(/[\[［【]\s*([^\]］】]{1,10})\s*[\]］】]/g, (m, f) => (FEELINGS[f.trim()] ? ((emotion ??= FEELINGS[f.trim()]), '') : m));
-        out = out.replace(/[*_#`>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200) || ruleLine(lang, 1);
-
-        // AI 回答期間可能有變化：重新讀取、重新檢查權限與去重，再寫入
-        doc = loadPet(body.pet);
-        access(doc, ctx);
-        const again = seen(doc, key, hash);
-        if (again) return [200, { status: 'DUPLICATE', ...again.result }];
-        room(doc, 1);
-        const intent = {
-          intentId: randomBytes(12).toString('hex'), pet: doc.pet, kind: 'DIALOGUE', emotion: emotion ?? 'happy', dialogueText: out,
-          epoch: doc.epoch, basisRevision: doc.rev, expiresAt: now() + INTENT_MS, soundPolicy: SOUND_POLICY, textPolicy: TEXT_POLICY,
-        };
-        doc.rev++;
-        const t = now();
-        applyEvent(doc, { type: 'DIALOGUE_ADD', payload: { messageId: `${body.opId}-u`, who: 'user', name: speaker.name, text: said }, role: 'mc', source: ctx.source, at: t, now: t });
-        applyEvent(doc, { type: 'DIALOGUE_ADD', payload: { messageId: `${body.opId}-a`, who: 'allay', name: '', text: out }, role: 'mc', source: ctx.source, at: t + 1, now: t });
-        for (const [k, v] of Object.entries(doc.intents)) if (v.expiresAt < t - 3600_000) delete doc.intents[k];
-        doc.intents[intent.intentId] = intent;
-        const result = { route: reply.route, intent };
-        doc.ops[key] = { hash, rev: doc.rev, result, at: t };
-        pets.commit(doc.pet, doc);
-        return [200, { status: 'APPLIED', ...result }];
+          // 完成時重新驗證：權限、去重、世代。推論期間換了世代 → 這個回答過期，不寫入、不標成新 epoch
+          const doc = loadPet(body.pet);
+          access(doc, ctx);
+          const again = seen(doc, key, hash);
+          if (again) return again.result;
+          if (doc.epoch !== basis.epoch) fail(409, 'STALE_EPOCH', { epoch: doc.epoch });
+          room(doc, 1);
+          const intent = {
+            intentId: randomBytes(12).toString('hex'), pet: doc.pet, kind: 'DIALOGUE', emotion: emotion ?? 'happy', dialogueText: out,
+            epoch: basis.epoch, basisRevision: basis.rev, expiresAt: now() + INTENT_MS, soundPolicy: SOUND_POLICY, textPolicy: TEXT_POLICY,
+          };
+          doc.rev++;
+          const t = now();
+          applyEvent(doc, { type: 'DIALOGUE_ADD', payload: { messageId: `${body.opId}-u`, who: 'user', name: speaker.name, text: said }, role: 'mc', source: ctx.source, at: t, now: t });
+          applyEvent(doc, { type: 'DIALOGUE_ADD', payload: { messageId: `${body.opId}-a`, who: 'allay', name: '', text: out }, role: 'mc', source: ctx.source, at: t + 1, now: t });
+          for (const [k, v] of Object.entries(doc.intents)) if (v.expiresAt < t - 3600_000) delete doc.intents[k];
+          doc.intents[intent.intentId] = intent;
+          const result = { route: reply.route, intent };
+          doc.ops[key] = { hash, rev: doc.rev, result, at: t };
+          pets.commit(doc.pet, doc);
+          return result;
+        })();
+        const entry = { hash, promise: work };
+        inflight.set(`${body.pet}|${key}`, entry);
+        try {
+          return [200, { status: 'APPLIED', ...(await work) }];
+        } finally {
+          inflight.delete(`${body.pet}|${key}`);
+        }
       },
     },
 
@@ -577,7 +602,9 @@ export function createHub(opts = {}) {
     }
   }
 
-  return { handle, routes: Object.keys(routes), pets, global, scheduler, report: { pets: pets.report, global: global.report } };
+  /** 從執行中的快取建立一致的快照（同步完成，是同一個時間點的資料） */
+  const backup = (destRoot, o) => backupFromStores([['', global], ['pets/', pets]], destRoot, now(), o);
+  return { handle, backup, routes: Object.keys(routes), pets, global, scheduler, report: { pets: pets.report, global: global.report } };
 }
 
 export const HUB_PATHS = [
