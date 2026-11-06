@@ -115,6 +115,7 @@
 4. `POST /api/allay/link/confirm {linkId, accept}`（fp）：主人在手機上確認後才生效；待確認 10 分鐘內沒確認就失效。
 5. `GET /api/allay/link/status?linkId=…`（mc）→ `pending`／`active`（附 pet）／`rejected`／`expired`／`revoked`／`failed`（綁定碼已作廢但沒完成，要重新產生）。
 6. `POST /api/allay/link/revoke {pet, actor}`（fp）：解除綁定。
+- **授權版本（H2.2）**：每隻悅靈有持久化、只增不減的 `authVersion`；綁定生效、撤銷（包括非控制者）都 +1。撤銷非控制者不會改 rev／epoch，所以還原比較要靠它（§10）。
 - 有效期限：10 分鐘（`410 CODE_EXPIRED`）。
 - 嘗試限制：每個 Paper 來源 10 分鐘內錯 5 次就鎖 15 分鐘（`429 LOCKED`）；鎖定狀態寫入磁碟，重啟後仍有效。
 
@@ -145,8 +146,8 @@
 - **一次寫入就是一個交易**：先寫暫存檔並 fsync → 原檔改名為前一版 → 暫存檔改名為正式檔。每份文件帶 SHA-256 檢查碼。
 - 寫入成功才更新記憶體並回 ACK；寫入失敗回 `503 STORE_UNAVAILABLE`，記憶體與檔案都維持原狀。
 - **啟動時的復原（H2.1，fail-closed）**：正式檔正確就使用（殘留的暫存檔是沒 ACK 的寫入，移到 quarantine/）。只有暫存檔（第一次建立就中斷、從未 ACK）→ 當作不存在。正式檔損壞或不見（但有前一版）→ **不自動退回前一版**（避免撤銷過的權限重新開放、事件或 epoch 靜默回退），整份 fail-closed（503、拒絕覆寫、拒絕重新登記），所有檔案複製到 quarantine/ 保留證據，由管理者用 `recover` 指令明確處理。
-- **備份（H2.1）**：拒絕不存在的來源、意外的空資料、損壞的文件、跨文件不一致（悅靈名稱、綁定碼與 linkId 指向不存在的悅靈、缺少 hub.json）。一致的視圖：CLI 讀兩次確認沒變（最多 3 次，否則 `BACKUP_UNSTABLE`）；執行中的 Hub 用 `hub.backup()` 從快取同步建立。
-- **還原（H2.1）**：先完整驗證（清單、雜湊、檢查碼、清單外的檔案、跨文件一致性）；目前資料比快照新時拒絕回退（`409 ROLLBACK_REFUSED`，要 `--allow-rollback` 才放行）；複製中途失敗原資料不動，替換時失敗會把原資料夾改回來。
+- **備份（H2.1／H2.2）**：拒絕不存在的來源、意外的空資料、損壞的文件、跨文件不一致（悅靈名稱、綁定碼與 linkId 指向不存在的悅靈、缺少 hub.json）。**H2.2：只要有尚未處理的損壞文件（Store 啟動時判定損壞的、正式檔不見但有前一版的、殘留暫存檔的），完整備份一律拒絕（`BACKUP_SOURCE_CORRUPT`，why = unresolved）**；快照清單帶 `complete: true`，驗證時要求這個標記。全新的資料夾在 Hub 啟動時建立空的 hub.json，所以「有悅靈卻沒有 hub.json」永遠代表資料不完整。一致的視圖：CLI 讀兩次確認沒變（最多 3 次，否則 `BACKUP_UNSTABLE`）；執行中的 Hub 用 `hub.backup()` 從快取同步建立。
+- **還原（H2.1）**：先完整驗證（清單、雜湊、檢查碼、清單外的檔案、跨文件一致性）；目前資料比快照新時拒絕回退（`409 ROLLBACK_REFUSED`，要 `--allow-rollback` 才放行）。**H2.2：比較項目為 rev、epoch、授權版本；授權版本相同但目前生效的授權（active 的身分與控制者）不同也拒絕**；複製中途失敗原資料不動，替換時失敗會把原資料夾改回來。
 - 資料位置：`private/allay-hub/`（不會上傳）。
 
 ## 11. 錯誤碼

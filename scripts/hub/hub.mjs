@@ -85,6 +85,11 @@ export function createHub(opts = {}) {
   const adapter = opts.ai ?? { route: 'RULES', ask: async () => '' };
   checkRoute(adapter.route);
   const scheduler = new Scheduler(adapter, opts.scheduler);
+  // H2.2：全新的資料夾（沒有任何悅靈、也沒有 hub.json）先建立空的 hub.json，讓「有悅靈卻沒有 hub.json」
+  // 永遠代表資料不完整（備份會拒絕），不會跟「還沒綁定過」混在一起
+  if (!global.has('hub') && !global.isBroken('hub') && pets.names().length === 0 && pets.report.failed.length === 0) {
+    global.commit('hub', { codes: {}, linkIndex: {}, locks: {} });
+  }
 
   // ---------- 文件 ----------
   function hubDoc() {
@@ -104,6 +109,8 @@ export function createHub(opts = {}) {
       pet, kind, owner, createdAt: now(), rev: 1, epoch: 1, controller,
       profile: init.profile, state: init.state, stats: init.stats, days: init.days,
       memories: [], dialogue: [], adventures: [], links: [], pendingLinks: {}, ops: {}, intents: {}, daily: null,
+      // H2.2：授權版本（綁定生效、撤銷都 +1，只增不減）。還原時用來判斷快照的授權是不是比較舊
+      authVersion: 0,
     };
   }
 
@@ -429,6 +436,7 @@ export function createHub(opts = {}) {
         if (body.accept) {
           doc.links = doc.links.filter((l) => l.key !== p.actor.key);
           doc.links.push({ key: p.actor.key, platform: p.actor.platform, name: p.actor.name, status: 'active', at: now() });
+          doc.authVersion = (doc.authVersion ?? 0) + 1;
         }
         // 單一文件、單一交易：寫入失敗就什麼都沒生效
         pets.commit(doc.pet, doc);
@@ -469,9 +477,11 @@ export function createHub(opts = {}) {
           doc.rev++;
           changed = true;
         }
+        // H2.2：撤銷（包括非控制者）一定讓授權版本 +1，還原舊備份時才擋得住
+        if (changed) doc.authVersion = (doc.authVersion ?? 0) + 1;
         // 單一文件、單一交易
         if (changed) pets.commit(doc.pet, doc);
-        return [200, { revoked: changed, epoch: doc.epoch }];
+        return [200, { revoked: changed, epoch: doc.epoch, authVersion: doc.authVersion ?? 0 }];
       },
     },
 

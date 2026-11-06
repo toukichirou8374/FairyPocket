@@ -1,0 +1,140 @@
+✖ 問題一 回歸：綁定 → 備份 → 撤銷非控制者 → 403 → 不帶 --allow-rollback 還原 → 被拒；重啟後舊玩家仍是 403 (94.9239ms)
+✔ 問題一 對照：沒有任何變更時，正常備份 → 還原 → 重啟，資料與權限都相同 (43.1846ms)
+✔ 問題一：明確加上 --allow-rollback 才會回到舊授權（管理者的決定） (36.6158ms)
+✖ 問題一：版本相同但生效的授權不同 → 拒絕危險覆寫（含沒有授權版本的舊格式） (18.8811ms)
+✖ 問題二 回歸：一隻正常、一隻損壞 → 重啟標記損壞 → hub.backup() 拒絕，不產生少一隻的快照 (15.0186ms)
+✖ 問題二：正式檔不見、只剩前一版（尚未處理的損壞）→ 離線備份也拒絕 (15.1566ms)
+✖ 問題二 對照：全部正常時可以完整備份，兩隻都在，驗證通過 (12.6655ms)
+✖ 問題二：沒有「完整」標記的快照（例如舊版產生、可能漏掉損壞文件）驗證不通過 (9.5124ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 2
+ℹ fail 6
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 353.5582
+
+✖ failing tests:
+
+test at scripts\hub\test\h22.test.mjs:28:1
+✖ 問題一 回歸：綁定 → 備份 → 撤銷非控制者 → 403 → 不帶 --allow-rollback 還原 → 被拒；重啟後舊玩家仍是 403 (94.9239ms)
+  AssertionError [ERR_ASSERTION]: 授權版本 +1（綁定 1 → 撤銷 2）
+  
+  undefined !== 2
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h21-old/scripts/hub/test/h22.test.mjs:35:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h22.test.mjs:77:1
+✖ 問題一：版本相同但生效的授權不同 → 拒絕危險覆寫（含沒有授權版本的舊格式） (18.8811ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'ok'
+  - '409 ROLLBACK_REFUSED auth_state'
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h21-old/scripts/hub/test/h22.test.mjs:84:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'ok',
+    expected: '409 ROLLBACK_REFUSED auth_state',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h22.test.mjs:95:1
+✖ 問題二 回歸：一隻正常、一隻損壞 → 重啟標記損壞 → hub.backup() 拒絕，不產生少一隻的快照 (15.0186ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '400 BACKUP_INVALID hub_missing'
+  - '500 BACKUP_SOURCE_CORRUPT unresolved'
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h21-old/scripts/hub/test/h22.test.mjs:104:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '400 BACKUP_INVALID hub_missing',
+    expected: '500 BACKUP_SOURCE_CORRUPT unresolved',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h22.test.mjs:110:1
+✖ 問題二：正式檔不見、只剩前一版（尚未處理的損壞）→ 離線備份也拒絕 (15.1566ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '400 BACKUP_INVALID hub_missing'
+  - '500 BACKUP_SOURCE_CORRUPT unresolved'
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h21-old/scripts/hub/test/h22.test.mjs:118:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '400 BACKUP_INVALID hub_missing',
+    expected: '500 BACKUP_SOURCE_CORRUPT unresolved',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h22.test.mjs:121:1
+✖ 問題二 對照：全部正常時可以完整備份，兩隻都在，驗證通過 (12.6655ms)
+  Error: BACKUP_INVALID
+      at checkConsistency (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h21-old/scripts/hub/store.mjs:177:31)
+      at writeSnapshot (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h21-old/scripts/hub/store.mjs:196:20)
+      at backupFromStores (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h21-old/scripts/hub/store.mjs:231:10)
+      at Object.backup (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h21-old/scripts/hub/hub.mjs:606:35)
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h21-old/scripts/hub/test/h22.test.mjs:125:22)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    status: 400,
+    code: 'BACKUP_INVALID',
+    extra: { why: 'hub_missing' }
+  }
+
+test at scripts\hub\test\h22.test.mjs:131:1
+✖ 問題二：沒有「完整」標記的快照（例如舊版產生、可能漏掉損壞文件）驗證不通過 (9.5124ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'ok'
+  - '400 BACKUP_INVALID not_complete'
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h21-old/scripts/hub/test/h22.test.mjs:139:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'ok',
+    expected: '400 BACKUP_INVALID not_complete',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

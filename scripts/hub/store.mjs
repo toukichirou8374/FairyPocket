@@ -168,6 +168,7 @@ export function checkConsistency(docs) {
     if (!m) continue;
     if (body?.pet !== m[1]) throw new HubError(400, 'BACKUP_INVALID', { why: 'pet_name_mismatch', rel });
     if (!Number.isInteger(body.rev) || !Number.isInteger(body.epoch)) throw new HubError(400, 'BACKUP_INVALID', { why: 'pet_fields', rel });
+    if (body.authVersion !== undefined && !(Number.isInteger(body.authVersion) && body.authVersion >= 0)) throw new HubError(400, 'BACKUP_INVALID', { why: 'pet_fields', rel });
     pets.add(m[1]);
   }
   const hub = docs['hub.json'];
@@ -176,6 +177,39 @@ export function checkConsistency(docs) {
     for (const v of Object.values(hub.linkIndex ?? {})) if (!pets.has(typeof v === 'string' ? v : v?.pet)) throw new HubError(400, 'BACKUP_INVALID', { why: 'link_without_pet' });
   } else if (pets.size) throw new HubError(400, 'BACKUP_INVALID', { why: 'hub_missing' });
   return pets.size;
+}
+
+// ---------- H2.2：授權的還原比較 ----------
+const authVersion = (d) => (Number.isInteger(d?.authVersion) ? d.authVersion : 0);
+/** 目前生效的授權（active 的身分），排序後取雜湊；用來發現「版本相同、授權卻不同」 */
+export function authFingerprint(d) {
+  const active = (d?.links ?? []).filter((l) => l?.status === 'active').map((l) => String(l.key)).sort();
+  return sha256(canonical({ active, controller: d?.controller?.actor ?? null }));
+}
+/** 用快照（old）蓋掉目前資料（cur）是不是危險的回退 */
+export function isRollback(old, cur) {
+  if (!old) return 'missing_in_snapshot';
+  if (old.rev < cur.rev) return 'rev';
+  if (old.epoch < cur.epoch) return 'epoch';
+  if (authVersion(old) < authVersion(cur)) return 'auth_version';
+  if (authVersion(old) === authVersion(cur) && authFingerprint(old) !== authFingerprint(cur)) return 'auth_state';
+  return null;
+}
+
+/** 還沒處理的損壞：有前一版或暫存檔、卻沒有正式檔（啟動時會判定損壞，或是寫到一半） */
+function unresolved(dir) {
+  const out = [];
+  for (const sub of ['', 'pets']) {
+    const from = path.join(dir, sub);
+    if (!fs.existsSync(from)) continue;
+    const files = new Set(fs.readdirSync(from));
+    for (const f of files) {
+      const m = /^([A-Za-z0-9_-]+)\.(tmp|prev)\.json$/.exec(f);
+      if (!m) continue;
+      if (m[2] === 'tmp' || !files.has(`${m[1]}.json`)) out.push(sub ? `${sub}/${f}` : f);
+    }
+  }
+  return out.sort();
 }
 
 function listDocs(dir) {
@@ -202,7 +236,8 @@ function writeSnapshot(files, destRoot, now, allowEmpty) {
     fs.writeFileSync(path.join(snap, rel), files[rel]);
     hashes[rel] = sha256(files[rel]);
   }
-  fs.writeFileSync(path.join(snap, 'manifest.json'), JSON.stringify({ format: 'fairy-hub-backup', hubSchema: HUB_SCHEMA, createdAt: now, petCount, allowEmpty: !!allowEmpty, files: hashes }, null, 1));
+  // complete：建立時已確認沒有未處理的損壞文件（H2.2）；驗證時要求這個標記
+  fs.writeFileSync(path.join(snap, 'manifest.json'), JSON.stringify({ format: 'fairy-hub-backup', hubSchema: HUB_SCHEMA, createdAt: now, petCount, allowEmpty: !!allowEmpty, complete: true, files: hashes }, null, 1));
   return snap;
 }
 
@@ -212,6 +247,9 @@ function writeSnapshot(files, destRoot, now, allowEmpty) {
  */
 export function backup(dir, destRoot, now = Date.now(), opts = {}) {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new HubError(400, 'BACKUP_SOURCE_MISSING');
+  // H2.2：有未處理的損壞（正式檔不見但有前一版、殘留暫存檔）就拒絕，不產生看似完整的快照
+  const bad = unresolved(dir);
+  if (bad.length) throw new HubError(500, 'BACKUP_SOURCE_CORRUPT', { why: 'unresolved', files: bad });
   const readAll = () => Object.fromEntries(listDocs(dir).map((rel) => [rel, fs.readFileSync(path.join(dir, rel), 'utf8')]));
   for (let attempt = 0; attempt < 3; attempt++) {
     const a = readAll();
@@ -226,6 +264,9 @@ export function backup(dir, destRoot, now = Date.now(), opts = {}) {
 
 /** 從執行中的 Hub 快取建立快照（同步完成，所以是同一個時間點的一致視圖） */
 export function backupFromStores(stores, destRoot, now = Date.now(), opts = {}) {
+  // H2.2：Store 啟動時判定損壞、還沒處理的文件 → 完整備份拒絕（不能默默少一隻）
+  const broken = stores.flatMap(([prefix, store]) => store.report.failed.map((x) => `${prefix}${x.name}`));
+  if (broken.length) throw new HubError(500, 'BACKUP_SOURCE_CORRUPT', { why: 'unresolved', files: broken });
   const files = {};
   for (const [prefix, store] of stores) for (const name of store.names()) files[`${prefix}${name}.json`] = wrap(store.get(name));
   return writeSnapshot(files, destRoot, now, opts.allowEmpty);
@@ -241,6 +282,7 @@ export function verifyBackup(snap) {
     throw new HubError(400, 'BACKUP_INVALID', { why: 'manifest' });
   }
   if (man?.format !== 'fairy-hub-backup' || man.hubSchema !== HUB_SCHEMA || typeof man.files !== 'object' || man.files === null) throw new HubError(400, 'BACKUP_INVALID', { why: 'manifest' });
+  if (man.complete !== true) throw new HubError(400, 'BACKUP_INVALID', { why: 'not_complete' });
   const rels = Object.keys(man.files);
   if (!rels.length && !man.allowEmpty) throw new HubError(400, 'BACKUP_EMPTY');
   const docs = {};
@@ -266,7 +308,8 @@ export function verifyBackup(snap) {
 /**
  * 還原（服務必須先停止）：
  * 1. 完整驗證快照
- * 2. 拒絕回退：目前資料裡任何一隻悅靈的 rev／epoch 比快照新，或快照裡沒有 → ROLLBACK_REFUSED（opts.allowRollback 才放行）
+ * 2. 拒絕回退：目前資料裡任何一隻悅靈的 rev／epoch／授權版本比快照新、授權版本相同但生效的授權不同、
+ *    或快照裡沒有 → ROLLBACK_REFUSED（opts.allowRollback 才放行）
  * 3. 寫到暫存資料夾；中途失敗刪掉暫存、原資料完全不動
  * 4. 原資料夾改名保留 → 暫存資料夾改名成正式；第二步失敗就把原資料夾改回來
  */
@@ -277,8 +320,9 @@ export function restore(snap, dir, now = Date.now(), opts = {}) {
     for (const rel of listDocs(dir).filter((r) => r.startsWith('pets/'))) {
       const cur = unwrap(fs.readFileSync(path.join(dir, rel), 'utf8'));
       if (!cur) continue; // 目前已損壞的文件不比較（還原正是要處理它）
-      const old = docs[rel];
-      if (!old || old.rev < cur.rev || old.epoch < cur.epoch) throw new HubError(409, 'ROLLBACK_REFUSED', { rel });
+      // H2.2：除了 rev／epoch，也比較授權版本與目前生效的授權（撤銷非控制者不會改 rev／epoch）
+      const why = isRollback(docs[rel], cur);
+      if (why) throw new HubError(409, 'ROLLBACK_REFUSED', { rel, why });
     }
   }
   const staging = `${dir}.restore-${now}`;
