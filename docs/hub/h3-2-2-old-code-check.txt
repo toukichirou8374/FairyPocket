@@ -1,0 +1,87 @@
+=== H3-2.2 回歸測試在 H3-2.1（0cef7c8）的 localai.mjs 上（測試用的假 Ollama 為新版，只增加 tagsStatus／chatStatus 選項）===
+✖ /api/tags 回 500＋格式正確、符合白名單的模型清單 → 規則台詞，新增的聊天推論為 0 (72.3421ms)
+✖ /api/chat 回 500＋正確 model 與有效文字 → 規則台詞；經過 Hub 時異常文字不會輸出、也不會保存 (27.4685ms)
+✖ 其他非 200 狀態（201、204、301、400、404、429、503）：清單或回答都安全拒絕 (32.1176ms)
+✔ 對照：HTTP 200＋有效資料 → 正常的本機推論 (30.2827ms)
+✔ 對照：HTTP 200 但資料不合法 → 原有的格式驗證照樣生效（清單沒有 digest、回答沒有 model） (30.0402ms)
+✔ 逾時、取消、名額釋放維持不變：回應很慢時仍會取消，且名額等底層結束才釋放 (155.9224ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 3
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 455.4878
+
+✖ failing tests:
+
+test at scripts\hub\test\h322.test.mjs:12:1
+✖ /api/tags 回 500＋格式正確、符合白名單的模型清單 → 規則台詞，新增的聊天推論為 0 (72.3421ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'LOCAL_OLLAMA',
+  +   undefined
+  -   'RULES',
+  -   'error'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h321-old/scripts/hub/test/h322.test.mjs:18:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'LOCAL_OLLAMA', undefined ],
+    expected: [ 'RULES', 'error' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h322.test.mjs:25:1
+✖ /api/chat 回 500＋正確 model 與有效文字 → 規則台詞；經過 Hub 時異常文字不會輸出、也不會保存 (27.4685ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'LOCAL_OLLAMA',
+  +   undefined,
+  +   '狀態碼失敗的回答不能交給玩家'
+  -   'RULES',
+  -   'error',
+  -   'RULE'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h321-old/scripts/hub/test/h322.test.mjs:30:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'LOCAL_OLLAMA', undefined, '狀態碼失敗的回答不能交給玩家' ],
+    expected: [ 'RULES', 'error', 'RULE' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h322.test.mjs:42:1
+✖ 其他非 200 狀態（201、204、301、400、404、429、503）：清單或回答都安全拒絕 (32.1176ms)
+  AssertionError [ERR_ASSERTION]: tags 201
+  + actual - expected
+  
+  + 'LOCAL_OLLAMA'
+  - 'RULES'
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h321-old/scripts/hub/test/h322.test.mjs:51:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'LOCAL_OLLAMA',
+    expected: 'RULES',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

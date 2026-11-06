@@ -59,6 +59,13 @@ export function verifyLocalModel(tags, model, allow, digest) {
 function getJson(host, port, path, timeoutMs, signal) {
   return new Promise((resolve, reject) => {
     const req = http.request({ host, port, method: 'GET', path, timeout: timeoutMs, signal }, (r) => {
+      // H3-2.2：先確認 HTTP 狀態是 200；不是 200 就算內容格式正確也不採用（讀掉內容、釋放連線）
+      if (r.statusCode !== 200) {
+        r.resume();
+        const e = new Error(`http_${r.statusCode}`);
+        e.code = 'HTTP_STATUS';
+        return reject(e);
+      }
       let out = '';
       r.setEncoding('utf8');
       r.on('data', (c) => (out += c));
@@ -99,8 +106,9 @@ export function ollamaAdapter(model, opts = {}) {
       let r;
       try {
         r = verifyLocalModel(await getJson(host, port, '/api/tags', 5_000, signal), model, allow, opts.digest);
-      } catch {
-        r = { ok: false, why: 'unreachable' };
+      } catch (e) {
+        // 連不上、逾時、JSON 壞掉、HTTP 狀態不是 200 → 都不採用（原因沿用 unreachable，狀態碼放在 detail）
+        r = { ok: false, why: 'unreachable', detail: String(e?.message ?? e) };
       }
       adapter.lastCheck = r;
       return r.ok;
@@ -112,6 +120,12 @@ export function ollamaAdapter(model, opts = {}) {
         const req = http.request(
           { host, port, method: 'POST', path: '/api/chat', headers: { 'content-type': 'application/json' }, timeout: timeoutMs, signal },
           (r) => {
+            // H3-2.2：先確認 HTTP 狀態是 200，才驗證 model、文字與其他欄位；
+            // 不是 200 就算回答內容格式正確也不接受（讀掉內容、釋放連線，交給排程器改用規則台詞）
+            if (r.statusCode !== 200) {
+              r.resume();
+              return reject(new Error(`http_${r.statusCode}`));
+            }
             let out = '';
             r.setEncoding('utf8');
             r.on('data', (c) => (out += c));

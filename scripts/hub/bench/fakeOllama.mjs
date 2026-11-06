@@ -31,6 +31,9 @@ export async function startFakeOllama(opts = {}) {
     replyModel: (requested) => requested,
     /** 回應額外加的欄位（例如 remote_host） */
     replyExtra: {},
+    // H3-2.2：回應的 HTTP 狀態碼（預設 200；用來模擬「狀態碼失敗、但 JSON 內容正確」）
+    tagsStatus: 200,
+    chatStatus: 200,
   };
   let n = 0;
   const latency = opts.latencyMs ?? (() => 20);
@@ -64,7 +67,8 @@ export async function startFakeOllama(opts = {}) {
           res.writeHead(200, { 'content-type': 'application/json' });
           return void res.end('{"models": [');
         }
-        res.writeHead(200, { 'content-type': 'application/json' });
+        // H3-2.2：tagsStatus 可以模擬「狀態碼不是 200、但內容是正確的模型清單」
+        res.writeHead(st.tagsStatus, { 'content-type': 'application/json' });
         return void res.end(JSON.stringify({ models: st.models }));
       }
       if (req.method === 'GET' && req.url === '/api/version') {
@@ -115,7 +119,7 @@ export async function startFakeOllama(opts = {}) {
       st.completed++;
       release();
       if (res.destroyed) return;
-      res.writeHead(200, { 'content-type': 'application/json' });
+      res.writeHead(st.chatStatus, { 'content-type': 'application/json' });
       const reply = { ...st.replyExtra, message: { role: 'assistant', content: st.reply }, done: true };
       const rm = st.replyModel(j.model);
       if (rm !== OMIT) reply.model = rm;
