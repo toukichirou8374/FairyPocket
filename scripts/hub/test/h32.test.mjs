@@ -76,3 +76,27 @@ for (const players of [1, 2, 5, 10, 20])
     assert.deepEqual(r.modelsSeen, ['gemma3:4b']);
     if (players <= 5) assert.ok(r.localRate >= 0.9, `${players} 位玩家時幾乎都由本機 AI 回答（${Math.round(r.localRate * 100)}%）`);
   });
+
+// ---------- 離線：真實模型清單的格式（2026-11-06 唯讀取得）＋固定 digest ----------
+const REAL = JSON.parse(fs.readFileSync(path.resolve(import.meta.dirname, 'fixtures/ollama-tags-2026-11-06.json'), 'utf8'));
+const REAL_4B = '68ceab7e468a31c988b44d5a4984a0e21f58c4f7158c6ce29c1804babac38df7';
+
+test('真實清單格式：gemma3:4b＋固定 digest 通過；digest 不符、12b 不在白名單、雲端名稱都拒絕；清單中沒有遠端模型', async () => {
+  const { verifyLocalModel } = await import('../localai.mjs');
+  assert.deepEqual(verifyLocalModel(REAL, 'gemma3:4b', ['gemma3:4b'], REAL_4B), { ok: true, digest: REAL_4B });
+  assert.equal(verifyLocalModel(REAL, 'gemma3:4b', ['gemma3:4b'], '0'.repeat(64)).why, 'digest_mismatch');
+  assert.equal(verifyLocalModel(REAL, 'gemma3:12b', ['gemma3:4b']).why, 'not_allowed');
+  assert.equal(verifyLocalModel(REAL, 'gemma3:4b-cloud', ['gemma3:4b-cloud']).why, 'model_name');
+  assert.equal(REAL.models.filter((m) => 'remote_host' in m || 'remote_model' in m).length, 0);
+});
+
+test('假 Ollama 提供真實清單：固定 digest 的設定走本機 AI；Ollama 端模型被換掉（digest 改變）→ 規則台詞、零聊天請求', async (t) => {
+  const fake = await startFakeOllama({ models: REAL.models });
+  t.after(() => fake.close());
+  const ok = await ask(new Scheduler(ollamaAdapter('gemma3:4b', { port: fake.port, allow: ['gemma3:4b'], digest: REAL_4B })));
+  assert.equal(ok.route, 'LOCAL_OLLAMA');
+  fake.stats.models = REAL.models.map((m) => (m.name === 'gemma3:4b' ? { ...m, digest: 'f'.repeat(64) } : m));
+  const before = fake.stats.requests;
+  const changed = await ask(new Scheduler(ollamaAdapter('gemma3:4b', { port: fake.port, allow: ['gemma3:4b'], digest: REAL_4B })));
+  assert.deepEqual([changed.route, fake.stats.requests - before], ['RULES', 0]);
+});

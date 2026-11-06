@@ -1,0 +1,19 @@
+{
+  "_note": "2026-11-06 唯讀取得的本機 Ollama 0.40.14 GET /api/tags（只保留名稱、大小、digest 與規格；離線測試用，不連真正的 Ollama）",
+  "models": [
+    {
+      "name": "gemma3:12b",
+      "model": "gemma3:12b",
+      "size": 8164039732,
+      "digest": "b92b218582c521ba287f38f1d6057dcd3c6cbff036f13cac97b5d861f5e58ec3",
+      "details": { "format": "gguf", "family": "gemma3", "parameter_size": "11.8B", "quantization_level": "Q4_K_M", "context_length": 131072 }
+    },
+    {
+      "name": "gemma3:4b",
+      "model": "gemma3:4b",
+      "size": 3350272403,
+      "digest": "68ceab7e468a31c988b44d5a4984a0e21f58c4f7158c6ce29c1804babac38df7",
+      "details": { "format": "gguf", "family": "gemma3", "parameter_size": "3.9B", "quantization_level": "Q4_K_M", "context_length": 131072 }
+    }
+  ]
+}
