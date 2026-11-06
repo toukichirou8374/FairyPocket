@@ -953,3 +953,39 @@ body.motion #sky { display: none; }
 .chat-line b { font-weight: normal; color: #ffff55; }
 .chat-line.old { opacity: 0; }
 #overlay:has(.modal-back) .assist-chat { display: none !important; }
+
+/* ---------- 運動場 ---------- */
+.sp .sp-status { font-size: 13px; opacity: 0.9; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.sp-msg {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  transform: translate(-50%, -50%) scale(0.9);
+  font-size: 26px;
+  color: #fff;
+  text-shadow: 3px 3px 0 #3f3f3f;
+  opacity: 0;
+  transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.sp-msg.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.sp-msg.good { color: #ffff55; }
+.sp-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px max(12px, env(safe-area-inset-right)) calc(env(safe-area-inset-bottom) + 12px) max(12px, env(safe-area-inset-left));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.sp-controls { display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: auto; }
+.sp-hint { max-width: 560px; text-align: center; font-size: 13px; line-height: 1.5; color: #fff; text-shadow: var(--shadow); background: rgba(0, 0, 0, 0.35); padding: 4px 10px; }
+.sp-pitches .btn.on { background: #5fb8f0; }
+.sp-meter { width: min(70vw, 260px); height: 14px; border: 2px solid #1c1c1c; background: rgba(0, 0, 0, 0.4); }
+.sp-meter-fill { height: 100%; width: 0; background: linear-gradient(90deg, #55ff55, #ffff55 70%, #ff5555); }
+.sp-result { font-size: 16px; line-height: 1.6; white-space: pre-line; }

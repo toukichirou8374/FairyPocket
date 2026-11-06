@@ -68,6 +68,8 @@ export interface KeyGameHost {
   moveAllay(): void;
   /** 打開貼紙簿 */
   openStickerBook(): void;
+  /** 打開運動場（第一次用到時才下載） */
+  openSports(): void;
   /** 貼紙簿的錄音（存檔名 → 錄音） */
   stickerClips(): Promise<Map<string, Clip>>;
   /** 播放貼紙簿的錄音（提示用）；回傳長度（秒） */
@@ -169,6 +171,7 @@ export class KeyGameUI {
     const games: { id: string; title: string; desc: string; ready: boolean }[] = [
       { id: 'sticker', title: t('game.sticker'), desc: t('sb.short'), ready: true },
       { id: 'dance', title: t('kg.title'), desc: t('kg.short'), ready: true },
+      { id: 'sports', title: t('game.sports'), desc: t('sp.short'), ready: true },
     ];
     for (const g of games) {
       const b = el('button', 'btn kggame', list);
@@ -179,6 +182,7 @@ export class KeyGameUI {
         this.host.click();
         back.remove();
         if (g.id === 'dance') this.openMenu();
+        else if (g.id === 'sports') this.host.openSports();
         else this.host.openStickerBook();
       });
     }

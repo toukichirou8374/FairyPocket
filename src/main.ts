@@ -172,6 +172,41 @@ async function babbleStats(text: string, p: PetState['personality'] = pet.person
   return { sec, peak, rms: Math.sqrt(sum / d.length) };
 }
 
+// ---------- 運動場（第一次打開時才下載程式） ----------
+let sportsField: import('./sports/sports').SportsField | null = null;
+async function openSports(): Promise<void> {
+  if (!sportsField) {
+    const { SportsField } = await import('./sports/sports');
+    sportsField = new SportsField({
+      root: overlay,
+      scene: stage.scene,
+      ballTexture: () => stage.itemTexture('slime'),
+      lang: getLang,
+      personality: () => pet.personality,
+      begin: () => {
+        sound.unlock();
+        // 先離開說話模式（泡泡才會顯示在悅靈頭上），收起場地上的方塊、床等道具
+        hud.setSelected(null);
+        ctrl.setPose('fly');
+        for (const o of [stage.noteBlock, stage.cake, stage.bed, stage.jukebox]) if (o) o.visible = false;
+      },
+      end: () => {
+        for (const o of [stage.noteBlock, stage.cake, stage.bed, stage.jukebox]) if (o) o.visible = true;
+        ctrl.setPose(null);
+      },
+      allayTo: (x, y, z) => ctrl.posePos.set(x, y, z),
+      react: (m, d) => ctrl.perform(m, d),
+      allayHead: () => ctrl.headTop(new THREE.Vector3()),
+      spawn: (k, at, n) => stage.spawn(k, at, n),
+      say: (text) => hud.say(text),
+      chirp: () => sound.speak(pet.personality),
+      sfx: (e) => playSfx(e),
+      click: () => playSfx('click'),
+    });
+  }
+  sportsField.open();
+}
+
 /** 最後一次有人跟悅靈說話的時間（剛聊完不主動閒聊） */
 let lastUserAt = -Infinity;
 
@@ -1277,6 +1312,7 @@ const keyGame = new KeyGameUI({
   motionActivity: (x, y, r) => motion.activity(x, y, r),
   motionOverall: () => motion.overall(),
   openStickerBook: () => void stickerBook.open(),
+  openSports: () => void openSports(),
   stickerClips,
   playClip: (c) => {
     sound.unlock();
