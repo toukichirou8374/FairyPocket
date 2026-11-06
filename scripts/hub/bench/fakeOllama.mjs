@@ -8,6 +8,8 @@ import http from 'node:http';
 
 export const LOCAL_DIGEST = 'a'.repeat(64);
 export const localModel = (over = {}) => ({ name: 'gemma3:4b', model: 'gemma3:4b', size: 3_338_801_804, digest: LOCAL_DIGEST, details: { format: 'gguf', family: 'gemma3' }, ...over });
+/** replyModel 回傳這個值時，回應裡完全不放 model 欄位 */
+export const OMIT = Symbol('omit');
 export const cloudModel = () => ({ name: 'gpt-oss:120b-cloud', model: 'gpt-oss:120b-cloud', size: 384, digest: 'c'.repeat(64), remote_host: 'https://ollama.com:443', remote_model: 'gpt-oss:120b' });
 
 /**
@@ -21,6 +23,14 @@ export async function startFakeOllama(opts = {}) {
     reply: opts.reply ?? '[開心] 好呀，我們一起去探險！',
     inFlight: 0, maxInFlight: 0, requests: 0, completed: 0, aborted: 0, cloudRequested: 0,
     modelsSeen: [], options: [], waiting: [],
+    // H3-2.1：模擬異常回應與清單
+    tagsRequests: 0,
+    /** 'json'：回傳壞掉的 JSON；'status'：回 500 */
+    tagsBroken: null,
+    /** 回應的 model 欄位（預設與請求相同；回傳 OMIT 表示不放） */
+    replyModel: (requested) => requested,
+    /** 回應額外加的欄位（例如 remote_host） */
+    replyExtra: {},
   };
   let n = 0;
   const latency = opts.latencyMs ?? (() => 20);
@@ -48,6 +58,12 @@ export async function startFakeOllama(opts = {}) {
     req.on('data', (c) => (body += c));
     req.on('end', async () => {
       if (req.method === 'GET' && req.url === '/api/tags') {
+        st.tagsRequests++;
+        if (st.tagsBroken === 'status') return void res.writeHead(500).end();
+        if (st.tagsBroken === 'json') {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          return void res.end('{"models": [');
+        }
         res.writeHead(200, { 'content-type': 'application/json' });
         return void res.end(JSON.stringify({ models: st.models }));
       }
@@ -100,7 +116,10 @@ export async function startFakeOllama(opts = {}) {
       release();
       if (res.destroyed) return;
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ model: j.model, message: { role: 'assistant', content: st.reply }, done: true }));
+      const reply = { ...st.replyExtra, message: { role: 'assistant', content: st.reply }, done: true };
+      const rm = st.replyModel(j.model);
+      if (rm !== OMIT) reply.model = rm;
+      res.end(JSON.stringify(reply));
     });
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));

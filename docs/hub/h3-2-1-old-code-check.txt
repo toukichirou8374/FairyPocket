@@ -1,0 +1,153 @@
+=== H3-2.1 回歸測試在修補前（4277520）的 localai.mjs 上（測試用的假 Ollama 為新版，只增加模擬異常的選項）===
+✖ P1-1（Astra 情境）同一個適配器：第一次驗證成功 → Ollama 的 digest 改變並加上遠端欄位 → 第二次降級為規則台詞、沒有新增聊天推論 (112.8305ms)
+✖ P1-1 每一次推論前都重新查詢：只換 digest、只加遠端欄位、清單壞掉、清單查詢失敗、模型被移除，都降級且不送聊天推論 (61.1991ms)
+✖ P1-1 對照：連續 5 次推論 → 模型清單查詢剛好 5 次（不沿用快取），都是本機 AI (154.3956ms)
+✖ P1-2 回應的 model 缺少、null、數字、物件、名稱不符、只差大小寫：一律降級為規則台詞（推論已送出，但異常內容不被接受） (31.0742ms)
+✖ P1-2 回應帶遠端欄位、或內容不是字串：降級為規則台詞 (30.3756ms)
+✔ P1-2 對照：model 完全相同的正常回應 → 本機 AI，文字照常回傳 (31.4875ms)
+✖ P1-2 經過 Hub：model 欄位缺少時，玩家拿到規則台詞；異常內容不會出現在意圖或保存的對話裡；音效政策不變 (70.3198ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 1
+ℹ fail 6
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 614.7362
+
+✖ failing tests:
+
+test at scripts\hub\test\h321.test.mjs:14:1
+✖ P1-1（Astra 情境）同一個適配器：第一次驗證成功 → Ollama 的 digest 改變並加上遠端欄位 → 第二次降級為規則台詞、沒有新增聊天推論 (112.8305ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   'LOCAL_OLLAMA',
+  +   undefined
+  -   'RULES',
+  -   'error'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h32-old/scripts/hub/test/h321.test.mjs:24:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ 'LOCAL_OLLAMA', undefined ],
+    expected: [ 'RULES', 'error' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h321.test.mjs:29:1
+✖ P1-1 每一次推論前都重新查詢：只換 digest、只加遠端欄位、清單壞掉、清單查詢失敗、模型被移除，都降級且不送聊天推論 (61.1991ms)
+  AssertionError [ERR_ASSERTION]: digest_mismatch
+  + actual - expected
+  
+  + 'LOCAL_OLLAMA'
+  - 'RULES'
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h32-old/scripts/hub/test/h321.test.mjs:49:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'LOCAL_OLLAMA',
+    expected: 'RULES',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h321.test.mjs:55:1
+✖ P1-1 對照：連續 5 次推論 → 模型清單查詢剛好 5 次（不沿用快取），都是本機 AI (154.3956ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   undefined,
+  +   1,
+      5,
+  -   5,
+  -   5
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h32-old/scripts/hub/test/h321.test.mjs:61:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ undefined, 1, 5 ],
+    expected: [ 5, 5, 5 ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h321.test.mjs:67:1
+✖ P1-2 回應的 model 缺少、null、數字、物件、名稱不符、只差大小寫：一律降級為規則台詞（推論已送出，但異常內容不被接受） (31.0742ms)
+  AssertionError [ERR_ASSERTION]: 缺少
+  + actual - expected
+  
+    [
+  +   'LOCAL_OLLAMA',
+  +   undefined,
+  +   '異常回答不能交給玩家'
+  -   'RULES',
+  -   'error',
+  -   'RULE'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h32-old/scripts/hub/test/h321.test.mjs:86:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 'LOCAL_OLLAMA', undefined, '異常回答不能交給玩家' ],
+    expected: [ 'RULES', 'error', 'RULE' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h321.test.mjs:90:1
+✖ P1-2 回應帶遠端欄位、或內容不是字串：降級為規則台詞 (30.3756ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'LOCAL_OLLAMA'
+  - 'RULES'
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h32-old/scripts/hub/test/h321.test.mjs:95:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'LOCAL_OLLAMA',
+    expected: 'RULES',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h321.test.mjs:108:1
+✖ P1-2 經過 Hub：model 欄位缺少時，玩家拿到規則台詞；異常內容不會出現在意圖或保存的對話裡；音效政策不變 (70.3198ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'LOCAL_OLLAMA'
+  - 'RULES'
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/Desktop/FairyPoket/.worktrees/h32-old/scripts/hub/test/h321.test.mjs:116:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'LOCAL_OLLAMA',
+    expected: 'RULES',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -84,14 +84,18 @@ export function ollamaAdapter(model, opts = {}) {
   const host = '127.0.0.1';
   const port = opts.port ?? 11434;
   const allow = opts.allow ?? [model];
-  const ttl = opts.verifyTtlMs ?? 60_000;
-  let verified = { at: -Infinity, ok: false };
   const adapter = {
     route: 'LOCAL_OLLAMA',
     lastCheck: null,
-    /** 每次推論前驗證（結果快取 ttl 毫秒；驗證失敗不快取，下次重驗） */
+    /** 本機模型清單查詢次數（測試用） */
+    checks: 0,
+    /**
+     * H3-2.1：每一次推論前都重新向 Ollama 查詢並驗證目前的模型資料，不沿用任何先前的成功結果。
+     * 查詢失敗、資料不完整、digest 不符、出現遠端特徵 → false（呼叫端改用規則台詞，不送聊天推論）。
+     * 注意：查詢與實際推論之間仍有時間差，這不能完全消除服務層的風險。
+     */
     async verify(signal) {
-      if (verified.ok && Date.now() - verified.at < ttl) return true;
+      adapter.checks++;
       let r;
       try {
         r = verifyLocalModel(await getJson(host, port, '/api/tags', 5_000, signal), model, allow, opts.digest);
@@ -99,7 +103,6 @@ export function ollamaAdapter(model, opts = {}) {
         r = { ok: false, why: 'unreachable' };
       }
       adapter.lastCheck = r;
-      verified = { at: Date.now(), ok: r.ok };
       return r.ok;
     },
     async ask(system, messages, { signal, timeoutMs } = {}) {
@@ -122,9 +125,12 @@ export function ollamaAdapter(model, opts = {}) {
                   prompt_eval_count: j?.prompt_eval_count, prompt_eval_duration: j?.prompt_eval_duration,
                   eval_count: j?.eval_count, eval_duration: j?.eval_duration,
                 });
-                // 回應的模型必須就是驗證過的那個
-                if (j?.model !== undefined && j.model !== model) return reject(new Error('model_changed'));
-                resolve(String(j?.message?.content ?? ''));
+                // H3-2.1：回應的模型身分必須存在、是字串、且與本次允許的模型名稱完全相同；
+                // 缺少、null、型別錯誤、名稱不符 → 不接受（呼叫端改用規則台詞，異常內容不會交給玩家）
+                if (typeof j?.model !== 'string' || j.model !== model) return reject(new Error('model_identity'));
+                if (Object.keys(j).some((k) => /remote/i.test(k))) return reject(new Error('remote_reply'));
+                if (typeof j?.message?.content !== 'string') return reject(new Error('bad_reply'));
+                resolve(j.message.content);
               } catch {
                 reject(new Error('bad_reply'));
               }

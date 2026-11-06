@@ -8,7 +8,7 @@
 | 項目 | 現況 | 結論 |
 |---|---|---|
 | 雲端禁止 | ① 路由白名單只有 RULES／LOCAL_OLLAMA ② mc 憑證碰 `/api/cloud/*` 一律 403 ③ 每次推論前驗證本機模型（白名單、已安裝、非雲端：名稱含 cloud 或帶 remote_host／remote_model、本機大小、digest，可固定 digest）④ 回應模型名稱要相同 | 主人本人在 Minecraft 也一樣沒有雲端路徑；FairyPocket 個人雲端 AI 不變 |
-| 模型限制 | 固定 127.0.0.1:11434，不能設網址；`num_predict 160` 限制回答長度；驗證結果快取 60 秒 | 新增測試確認：Minecraft 送給 Ollama 的選項與 FairyPocket **完全相同**（同模型、temperature 0.8、num_predict 160、keep_alive 30m、沒有 num_ctx／num_gpu）→ Ollama 不會因為兩邊設定不同而反覆重新載入模型 |
+| 模型限制 | 固定 127.0.0.1:11434，不能設網址；`num_predict 160` 限制回答長度；~~驗證結果快取 60 秒~~ → H3-2.1 改為每一次推論前都重新驗證 | 新增測試確認：Minecraft 送給 Ollama 的選項與 FairyPocket **完全相同**（同模型、temperature 0.8、num_predict 160、keep_alive 30m、沒有 num_ctx／num_gpu）→ Ollama 不會因為兩邊設定不同而反覆重新載入模型 |
 | 推論取消 | 逾時 → AbortSignal → HTTP 請求中斷；名額等底層真的結束才釋放 | 假 Ollama 驗證：收到斷線、沒有完成推論。**真正的 Ollama 收到斷線是否立即停止 GPU 運算，尚待實測** |
 | 逾時降級 | 推論逾時或失敗 → 規則台詞；不改用雲端 | 不變 |
 | 並行 | Hub 同時最多 1 個 Minecraft 推論；FairyPocket 直接問 Ollama（不經過 Hub 排程） | Ollama 最多同時面對「1 個 Minecraft＋手機」；手機最多多等約一句的時間 |
