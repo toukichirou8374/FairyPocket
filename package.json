@@ -10,7 +10,8 @@
     "test": "vitest run",
     "icons": "node scripts/gen-icons.mjs",
     "pack": "node scripts/make-pack.mjs",
-    "font": "node scripts/make-font.mjs"
+    "font": "node scripts/make-font.mjs",
+    "test:hub": "node --test scripts/hub/test/"
   },
   "dependencies": {
     "@wasm-audio-decoders/ogg-vorbis": "^0.1.20",
