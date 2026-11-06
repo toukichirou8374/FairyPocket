@@ -30,7 +30,7 @@ import { VoiceAge, voiceAgeOn, type AgeGuess } from './voiceAge';
 import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeople, voiceFeatures, voiceIdOn } from './voiceId';
 import { langHello, voiceIdLine } from './assist/assistant';
 import { askedLang, textLang } from './game/langDetect';
-import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
+import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { Recognizer, speechSupported } from './speech';
 import { neuralBuffer } from './neuralVoice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
@@ -350,6 +350,55 @@ function cloudNotice(why: 'budget' | 'nokey' | 'denied' | 'refusal' | 'net'): vo
   hud.toast(t(`cloud.${why}`));
 }
 
+// ---------- 雲端 AI 額度用完：悅靈會喊累、露出疲倦的樣子，讓主人知道 ----------
+const TIRED_KEY = 'fairypocket.cloudtired.v1';
+/** 額度用完的狀態：until＝額度恢復的時間（隔天 0 點／下個月 1 號），check＝下次再試雲端的時間 */
+let cloudTired: { scope: 'day' | 'month'; until: number; check: number } | null = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(TIRED_KEY) ?? 'null') as typeof cloudTired;
+    return v && v.until > Date.now() ? v : null;
+  } catch {
+    return null;
+  }
+})();
+function setCloudTired(scope: 'day' | 'month' | null): void {
+  if (!scope) cloudTired = null;
+  else {
+    const d = new Date();
+    const until = scope === 'month' ? new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime() : new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+    // 30 分鐘後再試一次（主人可能在電腦上調高了上限）
+    cloudTired = { scope, until, check: Date.now() + 30 * 60_000 };
+  }
+  try {
+    if (cloudTired) localStorage.setItem(TIRED_KEY, JSON.stringify(cloudTired));
+    else localStorage.removeItem(TIRED_KEY);
+  } catch {
+    /* 存不了也沒關係 */
+  }
+}
+function isCloudTired(): boolean {
+  if (cloudTired && cloudTired.until <= Date.now()) setCloudTired(null);
+  return !!cloudTired;
+}
+const TIRED_LINES: Record<'day' | 'month', Record<Lang, string[]>> = {
+  day: {
+    zh_tw: ['呼啊…今天動腦動太多，雲端的魔力用完了，好累喔…', '好睏…今天的雲端魔力用光了，明天再幫你想更厲害的答案', '哈啊～腦袋轉不動了…今天的雲端魔力沒了'],
+    ja_jp: ['ふわぁ…きょうはいっぱい考えたから、クラウドのまりょくがなくなっちゃった…つかれた…', 'ねむい…きょうのクラウドのまりょくはおしまい。またあしたね', 'あたまがまわらないよ…きょうのまりょく、つかいきっちゃった'],
+    en_us: ["Yawn… I thought so hard today that my cloud magic ran out… so tired…", "So sleepy… today's cloud magic is used up. More clever answers tomorrow!", "My head is spinning… no more cloud magic today"],
+  },
+  month: {
+    zh_tw: ['呼…這個月的雲端魔力全部用完了，好累好累…下個月再幫你喔', '累癱了…這個月的雲端魔力見底了，先用家裡的小腦袋陪你'],
+    ja_jp: ['ふぅ…こんげつのクラウドのまりょく、ぜんぶつかっちゃった…へとへと…らいげつまたね', 'くたくた…こんげつのまりょくはもうないよ。いえのあたまでおはなしするね'],
+    en_us: ["Phew… all of this month's cloud magic is gone… I'm exhausted… see you next month", "Worn out… this month's cloud magic is empty. I'll use my little home brain for now"],
+  },
+};
+/** 疲倦的樣子：慢慢拍翅膀、閉眼、冒 zzz */
+function tiredLook(): void {
+  ctrl.setMode('rest', 6);
+  stage.spawn('zzz', ctrl.headTop(new THREE.Vector3()), 3);
+  window.setTimeout(() => stage.spawn('zzz', ctrl.headTop(new THREE.Vector3()), 2), 2200);
+}
+
 async function brainAnswer(text: string): Promise<boolean> {
   const cfg = loadBrain();
   if (!cfg.on || !cfg.url || brainBusy) return false;
@@ -361,12 +410,21 @@ async function brainAnswer(text: string): Promise<boolean> {
   const lang = talkLang();
   const system = buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f), speaker: currentSpeaker(), person: personNow() });
   // AI 模式（第三層）：先問雲端 AI；不能用（沒金鑰、額度用完、不是本人、連不上）就退回家裡電腦的 AI
-  let useCloud = cloudMode;
+  // 額度用完了：不再去問雲端（每 30 分鐘再試一次）
+  let useCloud = cloudMode && (!isCloudTired() || Date.now() >= (cloudTired?.check ?? 0));
+  let justTired = null as 'day' | 'month' | null;
   const once = async (): Promise<string | null> => {
     if (useCloud) {
       const c = await askCloud(cfg, system, brainMem, text, lang);
-      if (c.ok) return c.text;
+      if (c.ok) {
+        if (cloudTired) setCloudTired(null);
+        return c.text;
+      }
       useCloud = false;
+      if (c.why === 'budget') {
+        if (!cloudTired) justTired = c.scope ?? 'day';
+        setCloudTired(c.scope ?? 'day');
+      }
       cloudNotice(c.why);
     }
     return ask(cfg, system, brainMem, text, 25000, lang);
@@ -389,7 +447,22 @@ async function brainAnswer(text: string): Promise<boolean> {
   remember(brainMem, 'allay', r.text);
   for (const n of r.notes) addNote(brainMem, n);
   saveMemory(brainMem);
-  assistSay(r.text, r.feeling ? FEELING_MOOD[r.feeling] : 'happy');
+  const tired = cloudMode && isCloudTired();
+  if (justTired) {
+    // 剛用完額度：先喊累，再用家裡電腦的 AI 回答
+    const lines = TIRED_LINES[justTired][lang];
+    const line = lines[Math.floor(Math.random() * lines.length)];
+    assistSay(line, 'sleepy');
+    tiredLook();
+    const answer = r.text;
+    window.setTimeout(() => {
+      assistSay(answer, 'sleepy');
+      tiredLook();
+    }, Math.max(3600, line.length * (lang === 'en_us' ? 70 : 230)));
+  } else {
+    assistSay(r.text, tired ? 'sleepy' : r.feeling ? FEELING_MOOD[r.feeling] : 'happy');
+    if (tired) tiredLook();
+  }
   return true;
 }
 
@@ -1919,4 +1992,4 @@ function frame(now: number): void {
 requestAnimationFrame(frame);
 
 // 方便自動化測試與除錯
-Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound, music, keyGame, STICKERS, stickerCanvas, babbleStats } });
+Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound, music, keyGame, STICKERS, stickerCanvas, babbleStats, brainDev: { answer: brainAnswer, setCloudMode: (v: boolean) => (cloudMode = v), saveBrain, loadBrain, isCloudTired } } });

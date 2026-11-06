@@ -313,7 +313,9 @@ export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, te
 }
 
 // ---------- 雲端 AI（第三層：Claude Haiku 5.5，經由家裡電腦代送；只有主人本人能用） ----------
-export type CloudResult = { ok: true; text: string } | { ok: false; why: 'budget' | 'nokey' | 'denied' | 'refusal' | 'net' };
+export type CloudResult =
+  | { ok: true; text: string }
+  | { ok: false; why: 'budget' | 'nokey' | 'denied' | 'refusal' | 'net'; /** 額度用完時：今天的還是這個月的 */ scope?: 'day' | 'month' };
 
 /** 問雲端 AI（金鑰在家裡電腦，手機只送對話） */
 export async function askCloud(cfg: BrainConfig, system: string, mem: BrainMemory, text: string, lang: Lang, timeoutMs = 35000): Promise<CloudResult> {
@@ -326,7 +328,10 @@ export async function askCloud(cfg: BrainConfig, system: string, mem: BrainMemor
       body: JSON.stringify({ system, messages, langRule: LANG_RULE[lang] }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (r.status === 402) return { ok: false, why: 'budget' };
+    if (r.status === 402) {
+      const j = (await r.json().catch(() => ({}))) as { scope?: string };
+      return { ok: false, why: 'budget', scope: j.scope === 'month' ? 'month' : 'day' };
+    }
     if (r.status === 503) return { ok: false, why: 'nokey' };
     if (r.status === 403) return { ok: false, why: 'denied' };
     if (r.status === 422) return { ok: false, why: 'refusal' };
