@@ -27,20 +27,18 @@ export interface SportsHost {
   click(): void;
 }
 
-type GameId = 'basket' | 'soccer' | 'volley' | 'baseball';
+type GameId = 'soccer' | 'volley' | 'baseball';
 
 // ---------- 文字 ----------
 const L = {
   zh_tw: {
     title: '運動場',
     pick: '用史萊姆球和悅靈一起運動！',
-    basket: '籃球', basketDesc: '往上滑投籃，籃框會移動',
     soccer: '足球 PK', soccerDesc: '滑動射門，悅靈當守門員',
     volley: '排球', volleyDesc: '放開手指把球打回去，不計分',
     baseball: '棒球', baseballDesc: '投球或打擊，各三個打席',
     balls: '球數', pitch: '投球（悅靈打擊）', bat: '打擊（悅靈投球）',
     start: '開始', close: '關閉', again: '再玩一次', menu: '回選單',
-    basketHint: '手指往上滑投籃：滑得越長投得越遠，左右偏就往左右',
     soccerHint: '手指滑向球門射門：滑的方向和長度決定位置，畫弧線球會彎',
     volleyHint: '球飛到面前時，按住再放開把球打回去（點左邊打左邊）',
     pitchHint: '選球種 → 按住蓄力，力量條越滿越快越平 → 放開投出（按住時左右拖可以瞄準）',
@@ -52,20 +50,18 @@ const L = {
     strike: '好球！', ball: '壞球', foul: '界外球', out: '出局', single: '一壘安打', double: '二壘安打', homer: '全壘打！',
     strikeout: '三振！', walk: '四壞球保送',
     fast: '直球', curve: '曲球', slider: '滑球', splitter: '指叉球',
-    result: '結果', resBasket: '投進 {a}／{b} 球', resSoccer: '踢進 {a}／{b} 球', resVolley: '最多連續來回 {b} 次',
+    result: '結果', resSoccer: '踢進 {a}／{b} 球', resVolley: '最多連續來回 {b} 次',
     resPitch: '悅靈 3 個打席：{r}', resBat: '你 3 個打席：{r}',
     cheerGood: ['好厲害！', '太棒了！', '耶！'], cheerBad: ['沒關係！', '再一次！', '加油！'],
   },
   ja_jp: {
     title: 'うんどうじょう',
     pick: 'スライムボールでアレイといっしょに運動しよう！',
-    basket: 'バスケ', basketDesc: '上にスワイプしてシュート、ゴールが動くよ',
     soccer: 'サッカー PK', soccerDesc: 'スワイプでシュート、アレイがキーパー',
     volley: 'バレー', volleyDesc: '指をはなしてボールを打ち返そう（点数なし）',
     baseball: '野球', baseballDesc: 'ピッチングかバッティング、3 打席ずつ',
     balls: 'ボールの数', pitch: 'ピッチング（アレイが打つ）', bat: 'バッティング（アレイが投げる）',
     start: 'スタート', close: '閉じる', again: 'もう一回', menu: 'メニューへ',
-    basketHint: '指を上にスワイプしてシュート：長いほど遠くへ、左右にずらすと左右へ',
     soccerHint: 'ゴールに向かってスワイプ：向きと長さで場所が決まり、カーブを描くと曲がるよ',
     volleyHint: 'ボールが目の前に来たら、おしてはなして打ち返そう（左をおすと左へ）',
     pitchHint: '球種をえらぶ → おしてためる（メーターが満タンほど速くてまっすぐ）→ はなして投げる（おしたまま左右で狙える）',
@@ -77,20 +73,18 @@ const L = {
     strike: 'ストライク！', ball: 'ボール', foul: 'ファウル', out: 'アウト', single: 'ヒット', double: 'ツーベース', homer: 'ホームラン！',
     strikeout: '三振！', walk: 'フォアボール',
     fast: 'ストレート', curve: 'カーブ', slider: 'スライダー', splitter: 'フォーク',
-    result: '結果', resBasket: '{a}／{b} 球シュート成功', resSoccer: '{a}／{b} 球ゴール', resVolley: 'さいこう {b} 回ラリー',
+    result: '結果', resSoccer: '{a}／{b} 球ゴール', resVolley: 'さいこう {b} 回ラリー',
     resPitch: 'アレイの 3 打席：{r}', resBat: 'あなたの 3 打席：{r}',
     cheerGood: ['すごい！', 'やったね！', 'わーい！'], cheerBad: ['だいじょうぶ！', 'もう一回！', 'がんばれ！'],
   },
   en_us: {
     title: 'Sports Field',
     pick: 'Play sports with the slime ball and your allay!',
-    basket: 'Basketball', basketDesc: 'Swipe up to shoot; the hoop moves',
     soccer: 'Soccer PK', soccerDesc: 'Swipe to shoot; the allay is the goalie',
     volley: 'Volleyball', volleyDesc: 'Release to hit the ball back (no score)',
     baseball: 'Baseball', baseballDesc: 'Pitch or bat, three at-bats each',
     balls: 'Balls', pitch: 'Pitch (allay bats)', bat: 'Bat (allay pitches)',
     start: 'Start', close: 'Close', again: 'Play again', menu: 'Menu',
-    basketHint: 'Swipe up to shoot: longer swipes go farther, tilt left or right to aim',
     soccerHint: 'Swipe toward the goal: direction and length pick the spot, curve your swipe to bend it',
     volleyHint: 'When the ball reaches you, press and release to hit it back (press left to aim left)',
     pitchHint: 'Pick a pitch, hold to charge (fuller bar = faster and flatter), release to throw (drag sideways while holding to aim)',
@@ -102,7 +96,7 @@ const L = {
     strike: 'Strike!', ball: 'Ball', foul: 'Foul', out: 'Out', single: 'Single', double: 'Double', homer: 'Home run!',
     strikeout: 'Strikeout!', walk: 'Walk',
     fast: 'Fastball', curve: 'Curve', slider: 'Slider', splitter: 'Splitter',
-    result: 'Result', resBasket: 'Made {a}/{b}', resSoccer: 'Scored {a}/{b}', resVolley: 'Best rally {b}',
+    result: 'Result', resSoccer: 'Scored {a}/{b}', resVolley: 'Best rally {b}',
     resPitch: "Allay's 3 at-bats: {r}", resBat: 'Your 3 at-bats: {r}',
     cheerGood: ['Amazing!', 'Great job!', 'Yay!'], cheerBad: ["It's okay!", 'Try again!', 'You got this!'],
   },
@@ -245,119 +239,6 @@ interface Pt {
   x: number;
   y: number;
   t: number;
-}
-
-// ===== 籃球 =====
-class Basketball implements Game {
-  private hoop = new THREE.Vector3(0, 2.05, -1.4);
-  private ring: THREE.Mesh;
-  private board: THREE.Group;
-  private made = 0;
-  private shot = 0;
-  private flying = false;
-  private scoredThis = false;
-  private wait = 0;
-  private start: Pt | null = null;
-  private time = 0;
-  private readonly from = new THREE.Vector3(0, 0.95, 3.2);
-
-  constructor(private c: Ctx, private total: number) {
-    this.ring = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.02, 8, 24), mat(0xff7a1a));
-    this.ring.rotation.x = Math.PI / 2;
-    this.board = new THREE.Group();
-    const b = box(1.0, 0.65, 0.03, 0xffffff, 0.92);
-    b.position.set(0, 0.25, -0.3);
-    const sq = box(0.36, 0.26, 0.035, 0xff4444);
-    sq.position.set(0, 0.16, -0.29);
-    this.board.add(b, sq);
-    c.props.add(this.ring, this.board);
-    c.host.allayTo(0.8, 1.3, -1.0);
-    this.next();
-  }
-
-  private next(): void {
-    if (this.shot >= this.total) {
-      this.c.ball.hide();
-      this.c.done(this.c.t.resBasket.replace('{a}', String(this.made)).replace('{b}', String(this.total)));
-      return;
-    }
-    this.flying = false;
-    this.scoredThis = false;
-    this.c.ball.place(this.from);
-    this.c.status(`${this.c.t.score.replace('{a}', String(this.made)).replace('{b}', String(this.shot))}・${this.c.t.left.replace('{n}', String(this.total - this.shot))}`);
-  }
-
-  update(dt: number): void {
-    this.time += dt;
-    // 籃框越投進越會動
-    const amp = this.made < 2 ? 0 : Math.min(1.1, 0.35 + (this.made - 2) * 0.12);
-    const speed = 0.8 + this.made * 0.07;
-    this.hoop.x = amp * Math.sin(this.time * speed);
-    this.ring.position.copy(this.hoop);
-    this.board.position.copy(this.hoop);
-    this.c.host.allayTo(THREE.MathUtils.clamp(this.hoop.x + (this.hoop.x > 0 ? -0.8 : 0.8), -0.8, 0.8), 1.3, -1.0);
-    const ball = this.c.ball;
-    if (!this.flying) return;
-    const prevY = ball.pos.y;
-    ball.step(dt);
-    // 籃板
-    const boardZ = this.hoop.z - 0.3;
-    if (ball.pos.z < boardZ + R && ball.vel.z < 0 && Math.abs(ball.pos.x - this.hoop.x) < 0.5 && ball.pos.y > this.hoop.y - 0.1 && ball.pos.y < this.hoop.y + 0.6) {
-      ball.pos.z = boardZ + R;
-      ball.vel.z = -ball.vel.z * 0.45;
-      this.c.host.sfx('wood');
-    }
-    // 穿過籃框的高度（往下掉時）
-    if (!this.scoredThis && prevY > this.hoop.y && ball.pos.y <= this.hoop.y) {
-      const d = Math.hypot(ball.pos.x - this.hoop.x, ball.pos.z - this.hoop.z);
-      if (d < 0.24 - R * 0.5) {
-        this.scoredThis = true;
-        this.made++;
-        ball.vel.multiplyScalar(0.3);
-        this.c.msg(this.c.t.nice, true);
-        this.c.cheer(true);
-        this.c.host.sfx('levelup');
-      } else if (d < 0.24 + R) {
-        // 打到籃框：彈開
-        ball.vel.y = Math.abs(ball.vel.y) * 0.4;
-        ball.vel.x += (ball.pos.x - this.hoop.x) * 4;
-        ball.vel.z += (ball.pos.z - this.hoop.z) * 4;
-        this.c.host.sfx('slime');
-      }
-    }
-    if (ball.bounce()) this.c.host.sfx('slime');
-    this.wait += dt;
-    if (this.wait > 2.6 || ball.pos.z > 4.5) {
-      if (!this.scoredThis) {
-        this.c.msg(this.c.t.miss);
-        this.c.cheer(false);
-      }
-      this.next();
-    }
-  }
-
-  down(x: number, y: number): void {
-    if (this.flying) return;
-    this.start = { x, y, t: performance.now() };
-  }
-  move(): void {}
-  up(x: number, y: number): void {
-    const s = this.start;
-    this.start = null;
-    if (!s || this.flying || this.shot >= this.total) return;
-    const dy = y - s.y;
-    const dx = x - s.x;
-    if (dy < 0.08) return;
-    // 滑得越長投得越遠：滑螢幕高度的 37% 左右剛好到籃框
-    const from = this.from.clone();
-    const dist = 2.4 + dy * 6.2;
-    const target = new THREE.Vector3(from.x + dx * 3.2, this.hoop.y, from.z - dist);
-    this.c.ball.throw(from, launch(from, target, 0.95));
-    this.flying = true;
-    this.wait = 0;
-    this.shot++;
-    this.c.host.sfx('throw');
-  }
 }
 
 // ===== 足球 PK =====
@@ -884,7 +765,6 @@ export class SportsField {
     el('div', 'info', box).textContent = t.pick;
     const list = el('div', 'kglist', box);
     const games: [GameId, string, string][] = [
-      ['basket', t.basket, t.basketDesc],
       ['soccer', t.soccer, t.soccerDesc],
       ['volley', t.volley, t.volleyDesc],
       ['baseball', t.baseball, t.baseballDesc],
@@ -958,7 +838,7 @@ export class SportsField {
     const bottom = el('div', 'sp-bottom', layer);
     const controls = el('div', 'sp-controls', bottom);
     el('div', 'sp-hint', bottom).textContent =
-      id === 'basket' ? t.basketHint : id === 'soccer' ? t.soccerHint : id === 'volley' ? t.volleyHint : n ? t.batHint : t.pitchHint;
+      id === 'soccer' ? t.soccerHint : id === 'volley' ? t.volleyHint : n ? t.batHint : t.pitchHint;
 
     this.props = new THREE.Group();
     this.host.scene.add(this.props);
@@ -984,7 +864,7 @@ export class SportsField {
       },
     };
     this.game =
-      id === 'basket' ? new Basketball(ctx, n) : id === 'soccer' ? new Soccer(ctx, n) : id === 'volley' ? new Volleyball(ctx) : new Baseball(ctx, n ? 'bat' : 'pitch', controls);
+      id === 'soccer' ? new Soccer(ctx, n) : id === 'volley' ? new Volleyball(ctx) : new Baseball(ctx, n ? 'bat' : 'pitch', controls);
 
     // 手指（滑鼠左鍵）：位置換成以螢幕高度為比例的座標
     const pt = (e: PointerEvent): [number, number] => {
