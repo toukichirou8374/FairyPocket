@@ -894,3 +894,15 @@ describe('babble mandarin', () => {
     setZhuyin(null);
   });
 });
+
+describe('mixed language', () => {
+  it('看出日文回答裡混了中文', async () => {
+    const { mixedLanguage, dropMixedSentences } = await import('../brain/brain');
+    expect(mixedLanguage('きょうはね、お部屋で歌ってたの！', 'ja_jp')).toBe(false);
+    expect(mixedLanguage('きょうはね、我們一起玩吧！', 'ja_jp')).toBe(true);
+    expect(mixedLanguage('今天天氣很好', 'ja_jp')).toBe(true);
+    expect(mixedLanguage('I like pizza!', 'en_us')).toBe(false);
+    expect(mixedLanguage('I like 披薩!', 'en_us')).toBe(true);
+    expect(dropMixedSentences('わーい！這個很好吃嗎？またあそぼうね！', 'ja_jp')).toBe('わーい！またあそぼうね！');
+  });
+});

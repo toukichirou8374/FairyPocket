@@ -8,6 +8,7 @@
 // - 要有通行碼（private/ai-token.txt，第一次執行時自動產生；private/ 不會上傳）。
 // - 只接受悅靈網站（與本機開發用網址）的瀏覽器連線。
 // - 每次請求最多 64KB、每分鐘最多 40 次，避免被拿去大量使用、拖慢電腦（同一台還有 Minecraft 伺服器）。
+// - 雲端 AI（/api/cloud/…，要花錢）：另外只限電腦主人本人的 Tailscale 帳號，並有每日／每月花費上限（見 cloud-ai.mjs）。
 //
 //   node scripts/ai-proxy.mjs
 
@@ -15,13 +16,16 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { cloudChat, cloudStatus, isOwner } from './cloud-ai.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TOKEN_FILE = path.join(ROOT, 'private', 'ai-token.txt');
 const LISTEN = { host: '127.0.0.1', port: 11435 };
 const OLLAMA = { host: '127.0.0.1', port: 11434 };
 const ORIGINS = new Set(['https://toukichirou8374.github.io', 'http://localhost:4173', 'http://localhost:5173']);
-const ROUTES = new Set(['GET /api/tags', 'POST /api/chat']);
+const ROUTES = new Set(['GET /api/tags', 'POST /api/chat', 'POST /api/cloud/chat', 'GET /api/cloud/status']);
+/** 雲端 AI（要花錢）：只有電腦主人本人的 Tailscale 帳號能用 */
+const CLOUD = new Set(['POST /api/cloud/chat', 'GET /api/cloud/status']);
 const MAX_BODY = 64 * 1024;
 const PER_MINUTE = 40;
 
@@ -87,6 +91,38 @@ const server = http.createServer((req, res) => {
   if (!tokenOk(req.headers.authorization)) return void res.writeHead(401).end();
   if (!rateOk()) return void res.writeHead(429).end();
   if (Number(req.headers['content-length'] ?? 0) > MAX_BODY) return void res.writeHead(413).end();
+
+  if (CLOUD.has(route)) {
+    // 連到同一個 Tailscale 網路的其他人不能用雲端 AI；電腦主人本人在外面也可以
+    if (!isOwner(req)) return void res.writeHead(403).end();
+    const json = (code, obj) => {
+      res.writeHead(code, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(obj));
+    };
+    if (route === 'GET /api/cloud/status') return void json(200, cloudStatus());
+    let body = '';
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > MAX_BODY) {
+        req.destroy();
+        return;
+      }
+      body += c;
+    });
+    req.on('end', async () => {
+      if (size > MAX_BODY) return json(413, { error: 'too_big' });
+      let parsed = null;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        return json(400, { error: 'bad_json' });
+      }
+      const [code, obj] = await cloudChat(parsed);
+      json(code, obj);
+    });
+    return;
+  }
 
   // 轉給 Ollama：改成本機連線，拿掉通行碼和來源（CORS 由這裡處理）
   const headers = { 'content-type': req.headers['content-type'] ?? 'application/json', host: `${OLLAMA.host}:${OLLAMA.port}` };

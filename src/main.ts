@@ -30,7 +30,7 @@ import { VoiceAge, voiceAgeOn, type AgeGuess } from './voiceAge';
 import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeople, voiceFeatures, voiceIdOn } from './voiceId';
 import { langHello, voiceIdLine } from './assist/assistant';
 import { askedLang, textLang } from './game/langDetect';
-import { addNote, ask, buildSystem, initBrain, loadBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
+import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { Recognizer, speechSupported } from './speech';
 import { neuralBuffer } from './neuralVoice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
@@ -305,6 +305,16 @@ function isLongTalk(text: string, lang: Lang): boolean {
   return lang === 'en_us' ? text.trim().split(/\s+/).length >= 5 : s.length >= 7;
 }
 
+/** 雲端 AI 不能用時告訴主人一次（同一種原因 10 分鐘內不重複） */
+const cloudNoticeAt: Record<string, number> = {};
+function cloudNotice(why: 'budget' | 'nokey' | 'denied' | 'refusal' | 'net'): void {
+  if (why === 'refusal' || why === 'net') return;
+  const now = performance.now();
+  if (now - (cloudNoticeAt[why] ?? -Infinity) < 600_000) return;
+  cloudNoticeAt[why] = now;
+  hud.toast(t(`cloud.${why}`));
+}
+
 async function brainAnswer(text: string): Promise<boolean> {
   const cfg = loadBrain();
   if (!cfg.on || !cfg.url || brainBusy) return false;
@@ -315,9 +325,27 @@ async function brainAnswer(text: string): Promise<boolean> {
   listener.pausedUntil = talkDeafUntil = performance.now() + 9000;
   const lang = talkLang();
   const system = buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f), speaker: currentSpeaker(), person: personNow() });
-  const raw = await ask(cfg, system, brainMem, text, 25000, lang);
+  // AI 模式（第三層）：先問雲端 AI；不能用（沒金鑰、額度用完、不是本人、連不上）就退回家裡電腦的 AI
+  let useCloud = cloudMode;
+  const once = async (): Promise<string | null> => {
+    if (useCloud) {
+      const c = await askCloud(cfg, system, brainMem, text, lang);
+      if (c.ok) return c.text;
+      useCloud = false;
+      cloudNotice(c.why);
+    }
+    return ask(cfg, system, brainMem, text, 25000, lang);
+  };
+  let raw = await once();
+  let r = raw ? parseReply(raw, lang) : null;
+  // 用日文（或英文）聊天時混進了中文：再請 AI 回答一次；還是混的話，把混到的句子拿掉
+  if (r?.text && mixedLanguage(r.text, lang)) {
+    raw = await once();
+    const again = raw ? parseReply(raw, lang) : null;
+    if (again?.text) r = again;
+    if (mixedLanguage(r.text, lang)) r = { ...r, text: dropMixedSentences(r.text, lang) };
+  }
   brainBusy = false;
-  const r = raw ? parseReply(raw, lang) : null;
   if (!r?.text) {
     listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil = 0;
     return false;
@@ -852,7 +880,7 @@ const hud = new Hud(overlay, {
     if (liveOn) void sensorOn();
     else sensorOff();
     assistant.showInput(liveOn || voice || slot === 'text' || slot === 'aitext');
-    if (cloudMode) hud.toast(t('ai.cloudLater'));
+    if (cloudMode) hud.toast(t('cloud.on'));
     if (slot !== 'note') stage.removeNoteBlock();
   },
   call: () => {

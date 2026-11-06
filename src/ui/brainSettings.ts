@@ -1,7 +1,7 @@
 // 設定頁：AI 大腦（家裡電腦的本機 AI）的開關、連線網址、模型、記憶。
 
 import { t } from '../i18n';
-import { listModels, loadBrain, loadMemory, saveBrain, saveMemory } from '../brain/brain';
+import { cloudInfo, listModels, loadBrain, loadMemory, saveBrain, saveMemory } from '../brain/brain';
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent?: HTMLElement): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -96,6 +96,28 @@ export function brainSettings(box: HTMLElement): void {
     }
     fillModels(names);
     status.textContent = t('ai.ok', { n: names.length });
+  });
+
+  // 雲端 AI（第三層）：狀態與今天、這個月的花費
+  el('label', '', box).textContent = t('cloud.title');
+  el('div', 'info', box).textContent = t('cloud.help');
+  const cinfo = el('div', 'info', box);
+  const cbtn = el('button', 'btn', box);
+  cbtn.textContent = t('cloud.check');
+  cbtn.addEventListener('click', async () => {
+    cinfo.textContent = t('ai.testing');
+    const r = await cloudInfo(cfg);
+    if (r === 'denied') cinfo.textContent = t('cloud.denied');
+    else if (r === 'net') cinfo.textContent = t('ai.fail');
+    else if (!r.ready) cinfo.textContent = t('cloud.nokey');
+    else
+      cinfo.textContent = t('cloud.usage', {
+        model: r.model,
+        d: Math.round(r.dayUsd * 150),
+        dmax: Math.round(r.daily * 150),
+        m: Math.round(r.monthUsd * 150),
+        mmax: Math.round(r.monthly * 150),
+      });
   });
 
   const mem = loadMemory();

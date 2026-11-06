@@ -126,9 +126,25 @@ type Personality = PetState['personality'];
 
 const LANG_RULE: Record<Lang, string> = {
   zh_tw: '一律用台灣的繁體中文和台灣用語回答（不要用簡體字、不要用中國大陸用語）。',
-  ja_jp: '必ず自然でやさしい日本語で答えてください。',
-  en_us: 'Always answer in simple, friendly American English.',
+  ja_jp: '必ず自然でやさしい日本語だけで答えてください。中国語の単語や文（「們」「這」「嗎」「呢」「沒」「說」などを使った中国語）は絶対にまぜないでください。ひらがなを多めに使ってください。',
+  en_us: 'Always answer in simple, friendly American English only. Do not mix in any Chinese or Japanese words.',
 };
+
+/** 日文回答裡混進來的中文：日文不會用的字（們這嗎呢沒說麼哪裡個 …） */
+const ZH_ONLY = /[們这這嗎吗呢沒没說说麼么哪裏裡个個啊吧咱妳她牠您覺觉還还給给讓让聽听]/;
+
+/** 這個回答是不是混了別的語言（日文裡有中文、英文裡有中日文） */
+export function mixedLanguage(text: string, lang: Lang): boolean {
+  if (lang === 'ja_jp') return ZH_ONLY.test(text) || (!/[\u3040-\u30ff]/.test(text) && /\p{Script=Han}{4,}/u.test(text));
+  if (lang === 'en_us') return /[\u3040-\u30ff\p{Script=Han}]/u.test(text);
+  return false;
+}
+
+/** 混了別的語言的句子拿掉（重答之後還是混的話才用） */
+export function dropMixedSentences(text: string, lang: Lang): string {
+  const parts = text.match(/[^。！？!?.]+[。！？!?.]*/g) ?? [text];
+  return parts.filter((p) => !mixedLanguage(p, lang)).join('').trim();
+}
 
 function level(v: number, lo: string, mid: string, hi: string): string {
   return v < 30 ? lo : v < 70 ? mid : hi;
@@ -293,5 +309,52 @@ export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, te
     return j.message?.content ?? null;
   } catch {
     return null;
+  }
+}
+
+// ---------- 雲端 AI（第三層：Claude Haiku 5.5，經由家裡電腦代送；只有主人本人能用） ----------
+export type CloudResult = { ok: true; text: string } | { ok: false; why: 'budget' | 'nokey' | 'denied' | 'refusal' | 'net' };
+
+/** 問雲端 AI（金鑰在家裡電腦，手機只送對話） */
+export async function askCloud(cfg: BrainConfig, system: string, mem: BrainMemory, text: string, lang: Lang, timeoutMs = 35000): Promise<CloudResult> {
+  if (!cfg.on || !cfg.url || !safeBrainUrl(cfg.url)) return { ok: false, why: 'net' };
+  const messages = [...mem.turns.map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: t.text })), { role: 'user', content: text }];
+  try {
+    const r = await fetch(`${base(cfg.url)}/api/cloud/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders(cfg) },
+      body: JSON.stringify({ system, messages, langRule: LANG_RULE[lang] }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (r.status === 402) return { ok: false, why: 'budget' };
+    if (r.status === 503) return { ok: false, why: 'nokey' };
+    if (r.status === 403) return { ok: false, why: 'denied' };
+    if (r.status === 422) return { ok: false, why: 'refusal' };
+    if (!r.ok) return { ok: false, why: 'net' };
+    const j = (await r.json()) as { text?: string };
+    return j.text ? { ok: true, text: j.text } : { ok: false, why: 'net' };
+  } catch {
+    return { ok: false, why: 'net' };
+  }
+}
+
+export interface CloudInfo {
+  ready: boolean;
+  model: string;
+  dayUsd: number;
+  monthUsd: number;
+  daily: number;
+  monthly: number;
+}
+/** 雲端 AI 的狀態與用量（開發者區看的；不含金鑰）；不能用回傳原因 */
+export async function cloudInfo(cfg: BrainConfig): Promise<CloudInfo | 'denied' | 'net'> {
+  if (!cfg.url || !safeBrainUrl(cfg.url)) return 'net';
+  try {
+    const r = await fetch(`${base(cfg.url)}/api/cloud/status`, { headers: authHeaders(cfg), signal: AbortSignal.timeout(8000) });
+    if (r.status === 403) return 'denied';
+    if (!r.ok) return 'net';
+    return (await r.json()) as CloudInfo;
+  } catch {
+    return 'net';
   }
 }
