@@ -12,6 +12,22 @@ import { fail } from './schema.mjs';
 
 export const ROUTES = Object.freeze(['RULES', 'LOCAL_OLLAMA']);
 
+/**
+ * H3-2：從 private/hub.txt 讀排程設定（超出範圍或格式錯就用預設值，不會讓排程失效）
+ *   ai_queue=8（1–32）、ai_timeout_ms=12000（1000–60000）、ai_wait_ms=（500–60000，預設＝ai_timeout_ms）
+ */
+export function schedulerOptsFrom(text = '') {
+  const get = (k, lo, hi) => {
+    const line = String(text).split(/\r?\n/).find((l) => l.split('=')[0].trim() === k);
+    const raw = line ? line.slice(line.indexOf('=') + 1).replace(/#.*/, '').trim() : '';
+    const v = /^\d+$/.test(raw) ? Number(raw) : NaN;
+    return Number.isInteger(v) && v >= lo && v <= hi ? v : undefined;
+  };
+  const o = { capacity: get('ai_queue', 1, 32) ?? 8, timeoutMs: get('ai_timeout_ms', 1000, 60000) ?? 12000 };
+  o.waitMs = get('ai_wait_ms', 500, 60000) ?? o.timeoutMs;
+  return o;
+}
+
 /** 檢查設定的路由；只有完全等於白名單的字串可以通過 */
 export function checkRoute(route) {
   if (typeof route !== 'string' || !ROUTES.includes(route)) fail(403, 'CLOUD_FORBIDDEN', { route: String(route).slice(0, 40) });
@@ -131,13 +147,15 @@ export const ruleLine = (lang, n = 0) => {
 export class Scheduler {
   /**
    * @param {{ ask(system:string, messages:object[], o:{signal:AbortSignal, timeoutMs:number}): Promise<string>, route:string }} adapter
-   * @param {{ capacity?: number, timeoutMs?: number }} opts
+   * @param {{ capacity?: number, timeoutMs?: number, waitMs?: number }} opts
+   *   timeoutMs：底層推論的逾時；waitMs（H3-2）：在佇列中最多等多久（預設與 timeoutMs 相同，跟之前一樣）
    */
   constructor(adapter, opts = {}) {
     checkRoute(adapter.route);
     this.adapter = adapter;
     this.capacity = opts.capacity ?? 8;
     this.timeoutMs = opts.timeoutMs ?? 12_000;
+    this.waitMs = opts.waitMs ?? this.timeoutMs;
     this.queue = [];
     /** 底層請求還在跑的工作（逾時後也要等它真的停下來才算空出名額） */
     this.running = null;
@@ -164,7 +182,7 @@ export class Scheduler {
           this.queue.splice(i, 1);
           this.#answer(job, { route: 'RULES', text: fallbackText, reason: 'queue_timeout' });
         }
-      }, this.timeoutMs);
+      }, this.waitMs);
       this.queue.push(job);
       this.#pump();
     });
