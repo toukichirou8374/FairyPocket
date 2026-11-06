@@ -1,4 +1,4 @@
-# 資料儲存與復原（H2.1／H2.2）
+# 資料儲存與復原（H2.1／H2.2／H2.3）
 
 ## 位置與格式
 - 資料夾：`private/allay-hub/`（在 private/ 底下，不會上傳）。
@@ -59,7 +59,7 @@ node scripts/hub/backup-cli.mjs verify <快照>
 - 拒絕：來源資料夾不存在（`BACKUP_SOURCE_MISSING`）、意外的空資料（`BACKUP_EMPTY`，要明確允許才可以）、損壞的文件（`BACKUP_SOURCE_CORRUPT`）、跨文件不一致（`BACKUP_INVALID`）。
 - **H2.2：尚未處理的損壞一律拒絕完整備份**（`BACKUP_SOURCE_CORRUPT`，why = `unresolved`，並列出檔案）：`hub.backup()` 檢查 Store 啟動時的損壞清單；離線備份檢查「正式檔不見但有前一版」與殘留的暫存檔。這樣不會產生默默少一隻悅靈、看起來卻完整的快照。處理方式：先用 `recover` 人工復原（或確認要放棄那份資料並移走），再備份。
 - 快照清單帶 `complete: true`（建立時已確認沒有未處理的損壞）；沒有這個標記的快照驗證不通過。
-- 全新的資料夾在 Hub 啟動時先建立空的 hub.json（H2.2），所以「有悅靈卻沒有 hub.json」只會出現在資料不完整時。
+- **hub.json 的初始化（H2.3）**：Hub 在建立 Store 之前先判斷資料夾是不是完全全新（不存在，或裡面含子資料夾都沒有任何檔案）；只有全新才建立空的 hub.json。既有悅靈、暫存檔、前一版、復原殘留、quarantine 證據都不算全新。初始化之後，hub.json 的有效狀態只有 ok／missing／broken 三種，所有綁定路徑都用同一個判定：不是 ok 就回 503，不回傳可寫入的空結構，所以不會有任何路徑重建索引、覆寫或刪除證據。
 - 跨文件一致性：悅靈文件的 `pet` 與檔名相同、有整數的 rev／epoch；綁定碼與 linkId 指向存在的悅靈；有悅靈文件時必須有 hub.json。
 - **一致的視圖**：CLI 把整組檔案讀兩次，內容完全相同才採用（最多 3 次，否則 `BACKUP_UNSTABLE`）。執行中的 Hub 可以用 `hub.backup(資料夾)` 從記憶體快取同步建立快照（同一個時間點，不會讀到寫一半的資料）。
 - 清單 `manifest.json`：每個檔案的 SHA-256、悅靈數量、是否明確允許空資料。
@@ -69,7 +69,7 @@ node scripts/hub/backup-cli.mjs verify <快照>
 node scripts/hub/backup-cli.mjs restore <快照> [--allow-rollback]    ← 先停止轉接服務
 ```
 1. 完整驗證：清單、每個檔案的雜湊與檢查碼、清單外多出來的檔案、跨文件一致性、悅靈數量。
-2. **拒絕回退**：目前資料裡任何一隻悅靈的 rev、epoch 或**授權版本（authVersion，H2.2）**比快照新、**授權版本相同但生效的授權不同**、或快照裡沒有這隻 → `409 ROLLBACK_REFUSED`（附 why：rev／epoch／auth_version／auth_state／missing_in_snapshot）。撤銷非控制者時 rev／epoch 不變，但授權版本會 +1，所以還原舊備份不會默默恢復被撤銷的權限。確定要回到舊資料時才加 `--allow-rollback`。（目前已損壞的文件不比較，因為還原正是要處理它。）
+2. **拒絕回退**：目前資料裡任何一隻悅靈的 rev、epoch 或**授權版本（authVersion，H2.2）**比快照新、**授權版本相同但生效的授權不同**、或快照裡沒有這隻 → `409 ROLLBACK_REFUSED`（附 why：rev／epoch／auth_version／auth_state／missing_in_snapshot）。撤銷非控制者時 rev／epoch 不變，但授權版本會 +1，所以還原舊備份不會默默恢復被撤銷的權限。確定要回到舊資料時才加 `--allow-rollback`。**使用 --allow-rollback 可能恢復已撤銷的玩家權限、舊 epoch 與過去的資料狀態，必須停用服務並經主人明確批准。**（目前已損壞的文件不比較，因為還原正是要處理它。）
 3. 寫到暫存資料夾；**中途失敗**就刪掉暫存資料夾，原資料完全不動。
 4. 原資料夾改名為 `allay-hub.old-<時間>` → 暫存資料夾改名成正式；**第二步失敗**就把原資料夾改回原位。
 

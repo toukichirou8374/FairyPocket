@@ -3,6 +3,7 @@
 // 一個請求從讀文件到寫入之間沒有 await（Node 單執行緒），所以每次寫入對同一份文件是原子的。
 
 import { randomBytes, randomInt } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { checkRoute, ruleLine, Scheduler } from './localai.mjs';
 import { applyEvent } from './rules.mjs';
@@ -75,9 +76,19 @@ function sendError(res, e) {
   send(res, e.status, { error: e.code, ...safe });
 }
 
+/** 資料夾不存在，或裡面（含所有子資料夾）沒有任何檔案 */
+function isFreshDir(dir) {
+  if (!fs.existsSync(dir)) return true;
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).every((e) => e.isDirectory() && walk(path.join(d, e.name)));
+  return walk(dir);
+}
+
 export function createHub(opts = {}) {
   const dir = opts.dir ?? path.resolve(import.meta.dirname, '..', '..', 'private', 'allay-hub');
   const now = opts.now ?? (() => Date.now());
+  // H2.3：在建立 Store「之前」判斷是不是完全全新的資料夾（Store 啟動時會把暫存檔移到 quarantine，
+  // 先判斷才不會把「只剩暫存檔」誤認成全新）。全新＝資料夾不存在，或裡面（含子資料夾）沒有任何檔案。
+  const fresh = isFreshDir(dir);
   const pets = new Store(path.join(dir, 'pets'), { faults: opts.faults, now });
   const global = new Store(dir, { faults: opts.faults, now });
   /** 進行中的聊天（同一個 opId 並行送達時共用同一次推論） */
@@ -85,17 +96,17 @@ export function createHub(opts = {}) {
   const adapter = opts.ai ?? { route: 'RULES', ask: async () => '' };
   checkRoute(adapter.route);
   const scheduler = new Scheduler(adapter, opts.scheduler);
-  // H2.2：全新的資料夾（沒有任何悅靈、也沒有 hub.json）先建立空的 hub.json，讓「有悅靈卻沒有 hub.json」
-  // 永遠代表資料不完整（備份會拒絕），不會跟「還沒綁定過」混在一起
-  if (!global.has('hub') && !global.isBroken('hub') && pets.names().length === 0 && pets.report.failed.length === 0) {
-    global.commit('hub', { codes: {}, linkIndex: {}, locks: {} });
-  }
+  // 只有完全全新的資料夾才建立空的 hub.json。既有悅靈、暫存檔、前一版、復原殘留、損壞證據都不算全新。
+  // 之後「hub.json 不存在」一律代表資料異常（hubDoc() 回 503），不會再有任何路徑重建它。
+  if (fresh) global.commit('hub', { codes: {}, linkIndex: {}, locks: {} });
+  /** hub.json 的有效狀態：ok／missing（已初始化卻不見）／broken（損壞）；初始化之後所有路徑都用這個判定 */
+  const hubStatus = () => (global.isBroken('hub') ? 'broken' : global.has('hub') ? 'ok' : 'missing');
 
   // ---------- 文件 ----------
   function hubDoc() {
-    // hub.json 損壞：所有綁定相關操作 fail-closed
-    if (global.isBroken('hub')) fail(503, 'STORE_UNAVAILABLE');
-    return { codes: {}, linkIndex: {}, locks: {}, ...(global.get('hub') ?? {}) };
+    // hub.json 損壞或不見：所有綁定相關操作 fail-closed，不回傳可寫入的空結構（不重建索引、不覆寫、不刪證據）
+    if (hubStatus() !== 'ok') fail(503, 'STORE_UNAVAILABLE');
+    return { codes: {}, linkIndex: {}, locks: {}, ...global.get('hub') };
   }
   function loadPet(pet) {
     if (typeof pet !== 'string' || !(POCKET_ID_RE.test(pet) || MC_PET_RE.test(pet))) fail(400, 'SCHEMA', { where: 'pet' });
@@ -614,7 +625,7 @@ export function createHub(opts = {}) {
 
   /** 從執行中的快取建立一致的快照（同步完成，是同一個時間點的資料） */
   const backup = (destRoot, o) => backupFromStores([['', global], ['pets/', pets]], destRoot, now(), o);
-  return { handle, backup, routes: Object.keys(routes), pets, global, scheduler, report: { pets: pets.report, global: global.report } };
+  return { handle, backup, routes: Object.keys(routes), pets, global, scheduler, report: { pets: pets.report, global: global.report, hub: hubStatus(), fresh } };
 }
 
 export const HUB_PATHS = [

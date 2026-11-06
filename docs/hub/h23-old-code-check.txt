@@ -1,0 +1,226 @@
+=== 只比較行為（移除新增的 report.fresh／report.hub 診斷欄位斷言）===
+✔ 真正全新的空資料夾：建立 hub.json，綁定流程正常 (94.2204ms)
+✖ 已有悅靈但 hub.json 遺失：503，不重建空索引 (20.9047ms)
+✖ 已有悅靈但只剩 hub.tmp.json：503，不重建；暫存檔保留在 quarantine 當證據 (18.5463ms)
+✔ 只剩 hub.prev.json、或 hub.json 損壞：繼續拒絕；不覆寫、不刪證據 (64.0021ms)
+✖ 不是全新：只有悅靈的暫存檔、或只有 quarantine 證據的資料夾，也不會建立 hub.json (10.9712ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 2
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 309.5571
+
+✖ failing tests:
+
+test at scripts\hub\test\h23b.test.mjs:44:1
+✖ 已有悅靈但 hub.json 遺失：503，不重建空索引 (20.9047ms)
+  AssertionError [ERR_ASSERTION]: link/create
+  + actual - expected
+  
+    [
+  +   200,
+  +   undefined
+  -   503,
+  -   'STORE_UNAVAILABLE'
+    ]
+  
+      at assertLinkClosed (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h22-old/scripts/hub/test/h23b.test.mjs:27:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h22-old/scripts/hub/test/h23b.test.mjs:48:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 200, undefined ],
+    expected: [ 503, 'STORE_UNAVAILABLE' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h23b.test.mjs:52:1
+✖ 已有悅靈但只剩 hub.tmp.json：503，不重建；暫存檔保留在 quarantine 當證據 (18.5463ms)
+  AssertionError [ERR_ASSERTION]: link/create
+  + actual - expected
+  
+    [
+  +   200,
+  +   undefined
+  -   503,
+  -   'STORE_UNAVAILABLE'
+    ]
+  
+      at assertLinkClosed (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h22-old/scripts/hub/test/h23b.test.mjs:27:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h22-old/scripts/hub/test/h23b.test.mjs:57:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: [ 200, undefined ],
+    expected: [ 503, 'STORE_UNAVAILABLE' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h23b.test.mjs:82:1
+✖ 不是全新：只有悅靈的暫存檔、或只有 quarantine 證據的資料夾，也不會建立 hub.json (10.9712ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(!fs.existsSync(path.join(a, 'hub.json')))
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h22-old/scripts/hub/test/h23b.test.mjs:89:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+=== 完整測試（含診斷欄位）===
+✖ 真正全新的空資料夾：建立 hub.json，綁定流程正常 (11.2077ms)
+✖ 已有悅靈但 hub.json 遺失：503，不重建空索引 (63.0543ms)
+✖ 已有悅靈但只剩 hub.tmp.json：503，不重建；暫存檔保留在 quarantine 當證據 (18.6935ms)
+✖ 只剩 hub.prev.json、或 hub.json 損壞：繼續拒絕；不覆寫、不刪證據 (33.7278ms)
+✖ 不是全新：只有悅靈的暫存檔、或只有 quarantine 證據的資料夾，也不會建立 hub.json (6.614ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 0
+ℹ fail 5
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 236.0613
+
+✖ failing tests:
+
+test at scripts\hub\test\h23.test.mjs:34:1
+✖ 真正全新的空資料夾：建立 hub.json，綁定流程正常 (11.2077ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   undefined,
+  +   undefined
+  -   true,
+  -   'ok'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h22-old/scripts/hub/test/h23.test.mjs:38:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ undefined, undefined ],
+    expected: [ true, 'ok' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h23.test.mjs:46:1
+✖ 已有悅靈但 hub.json 遺失：503，不重建空索引 (63.0543ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   undefined,
+  +   undefined
+  -   false,
+  -   'missing'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h22-old/scripts/hub/test/h23.test.mjs:50:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ undefined, undefined ],
+    expected: [ false, 'missing' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h23.test.mjs:55:1
+✖ 已有悅靈但只剩 hub.tmp.json：503，不重建；暫存檔保留在 quarantine 當證據 (18.6935ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   undefined,
+  +   undefined
+  -   false,
+  -   'missing'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h22-old/scripts/hub/test/h23.test.mjs:60:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ undefined, undefined ],
+    expected: [ false, 'missing' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h23.test.mjs:65:1
+✖ 只剩 hub.prev.json、或 hub.json 損壞：繼續拒絕；不覆寫、不刪證據 (33.7278ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + undefined
+  - 'broken'
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h22-old/scripts/hub/test/h23.test.mjs:72:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 'broken',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\hub\test\h23.test.mjs:88:1
+✖ 不是全新：只有悅靈的暫存檔、或只有 quarantine 證據的資料夾，也不會建立 hub.json (6.614ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   undefined,
+  +   undefined
+  -   false,
+  -   'missing'
+    ]
+  
+      at TestContext.<anonymous> (file:///C:/Users/gaday/AppData/Local/Temp/claude/5d14efcc890dcac4/06be4516-17ee-41a2-9119-8bd458f0231a/scratchpad/h22-old/scripts/hub/test/h23.test.mjs:95:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ undefined, undefined ],
+    expected: [ false, 'missing' ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

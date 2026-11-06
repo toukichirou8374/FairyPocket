@@ -2,6 +2,7 @@
 //   node scripts/hub/backup-cli.mjs backup <放快照的資料夾>        ※ 服務停止時用（會讀兩次確認資料沒變）
 //   node scripts/hub/backup-cli.mjs verify <快照資料夾>
 //   node scripts/hub/backup-cli.mjs restore <快照資料夾> [--allow-rollback]   ※ 先停止轉接服務
+//     使用 --allow-rollback 可能恢復已撤銷的玩家權限、舊 epoch 與過去的資料狀態，必須停用服務並經主人明確批准。
 //   node scripts/hub/backup-cli.mjs recover <文件名稱> prev|tmp [--pets]       ※ 損壞文件的人工處理，先停止轉接服務
 //   可以用 --dir <資料夾> 指定別的 Hub 資料夾（測試用）
 

@@ -1,7 +1,7 @@
 # H2 測試結果
 
 - 執行：`npm run test:hub`（= `node --test scripts/hub/test/`），Node v26.13.0，Windows 11。
-- 結果（H2.2）：**66 項全部通過**（連續執行 3 次皆 66/66；H2.1 的 58 項沒有退步）。完整輸出見 `test-output.txt`。H2.1、H2.2 的修補與證據見 `H21-REVIEW.md`、`H22-REVIEW.md`。
+- 結果（H2.3）：**71 項全部通過**（連續執行 3 次皆 71/71；H2.2 的 66 項沒有退步）。完整輸出見 `test-output.txt`。各輪的修補與證據見 `H21-REVIEW.md`、`H22-REVIEW.md`、`H23-REVIEW.md`。
 - 不需要任何新的相依套件；測試只用 Node 內建的 `node:test`。
 - 全部使用合成玩家與測試資料：假的本機 AI、假的雲端 AI（只用來證明 Minecraft 呼叫不到）、假的 Ollama，資料寫在系統暫存資料夾，測完刪除。
 
@@ -12,6 +12,7 @@
 | store.test.mjs | 12 | 重啟、寫入失敗、當機在暫存檔階段、首次建立中斷、損壞 fail-closed 與人工復原、備份的各種拒絕、一致視圖、驗證、拒絕回退、還原中途失敗、備份工具 |
 | h21.test.mjs | 13 | H2.1：八項 P1 與 P2 的回歸測試 |
 | h22.test.mjs | 8 | H2.2：撤銷後還原、備份漏掉損壞悅靈（回歸＋對照） |
+| h23.test.mjs | 5 | H2.3：hub.json 初始化只限全新資料夾、遺失／暫存檔／前一版／損壞都 fail-closed |
 | hub.test.mjs | 23 | 憑證與角色、雲端封鎖、路由權限、身分拒絕、登記、去重／碰撞／revision、並行重送、容量、epoch、Minecraft 不能改數值與每日上限、隔離、公開／私人、綁定（流程、逾時、鎖定、撤銷）、聊天、排程、多隻、意圖收據、重啟、儲存不可用 |
 | relay.test.mjs | 4 | 既有轉接服務不變：手機轉 Ollama、危險路徑 404、大小限制、預檢、Hub 開啟時的角色分流 |
 
