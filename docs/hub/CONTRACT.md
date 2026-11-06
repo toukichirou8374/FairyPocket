@@ -94,13 +94,14 @@
 | `MEMORY_REMOVE` | `{memoryId}` | 只能刪除自己這個角色加的記憶 |
 | `DIALOGUE_ADD` | `{messageId, who: user\|allay, name, text ≤ 200}` | 對話與記憶分開保存，並保留來源 |
 | `ADVENTURE` | `{kind: dimension\|biome\|structure\|achievement\|sleep\|wake, detail, place, with}` | 只記冒險紀錄，手機再轉成回憶 |
+| `RENAME`（H3-1） | `{name}`（1–12 字） | **只限 fp**；不需要控制權，但要符合目前的 epoch 與 revision；Minecraft 送 → 403 |
 
 - **額度依來源分開（H2.1）**：記憶 fp 40 條、mc 20 條；對話 fp 32 句、mc 32 句。超過時**只移除同一個來源最舊的項目**，Minecraft 新增的內容永遠不會擠掉手機的私人記憶或對話。冒險紀錄保留 30 天、最多 500 筆。
 - 未知的 `type`、未知的 payload 欄位、數值超出範圍：`400 SCHEMA`。
 
 ## 7. 讀取：公開與私人
 - `GET /api/allay/state?pet=…`
-  - `fp`：完整內容，包括所有記憶、對話、控制者。
+  - `fp`：完整內容，包括所有記憶、對話、控制者，以及上一個控制者的角色 `lastController`（H3-1：手機接回控制權時，用來判斷要不要採用 Minecraft 期間的數值）。
   - `mc`：只回**公開狀態**：名字、個性、數值、統計、相處天數、`rev`、`epoch`、控制者的角色、`visibility = shared` 的記憶、來源是 Minecraft 的對話。**手機的私人記憶與手機上的對話一律不回傳。**
 - `GET /api/allay/adventures?pet=…&since=<rev>`（只限 fp）：拿 `rev` 大於 since 的冒險紀錄。
 - `GET /api/allay/whoami`（mc）：這位行動者可以使用的悅靈（綁定的 Pocket 悅靈，或自己的 `mc_` 悅靈）。

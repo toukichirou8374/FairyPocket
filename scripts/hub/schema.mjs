@@ -137,12 +137,13 @@ export const mcPetId = (actorKey) => `mc_${sha256(`fairy-hub-mc-pet|${actorKey}`
 export const OP_ID_RE = /^[A-Za-z0-9_.-]{8,80}$/;
 export const SOURCE_RE = /^[A-Za-z0-9_-]{8,64}$/;
 export const NUMERIC_TYPES = ['FED', 'PETTED', 'PLAYED', 'TIME_PASSED', 'GIFT', 'FOUND', 'DEFEATED', 'HURT', 'DIED', 'VITALS_SYNC'];
-export const PLAIN_TYPES = ['MEMORY_ADD', 'MEMORY_REMOVE', 'DIALOGUE_ADD', 'ADVENTURE'];
+// H3-1：RENAME（改名）只限手機；不改數值，所以不需要控制權，但仍要符合目前的 epoch 與 revision
+export const PLAIN_TYPES = ['MEMORY_ADD', 'MEMORY_REMOVE', 'DIALOGUE_ADD', 'ADVENTURE', 'RENAME'];
 // H2.1：VITALS_SYNC（整份數值快照）暫停使用。舊手機快照可能在取得新的 revision／epoch 後蓋掉較新的狀態，
 // 等正式的交接調和機制完成前，任何角色送來都拒絕（403 FORBIDDEN，where = VITALS_SYNC_DISABLED）。
 export const DISABLED_TYPES = ['VITALS_SYNC'];
 const ROLE_TYPES = {
-  fp: ['FED', 'PETTED', 'PLAYED', 'MEMORY_ADD', 'MEMORY_REMOVE', 'DIALOGUE_ADD'],
+  fp: ['FED', 'PETTED', 'PLAYED', 'MEMORY_ADD', 'MEMORY_REMOVE', 'DIALOGUE_ADD', 'RENAME'],
   mc: ['FED', 'PETTED', 'PLAYED', 'TIME_PASSED', 'GIFT', 'FOUND', 'DEFEATED', 'HURT', 'DIED', 'MEMORY_ADD', 'MEMORY_REMOVE', 'DIALOGUE_ADD', 'ADVENTURE'],
 };
 const ADVENTURE_KINDS = ['dimension', 'biome', 'structure', 'achievement', 'sleep', 'wake'];
@@ -210,6 +211,10 @@ export function validateEvent(e, role) {
       if (typeof p.messageId !== 'string' || !OP_ID_RE.test(p.messageId)) fail(400, 'SCHEMA', { where: 'payload.messageId' });
       if (p.who !== 'user' && p.who !== 'allay') fail(400, 'SCHEMA', { where: 'payload.who' });
       payload = { messageId: p.messageId, who: p.who, name: optText(p.name, 32, 'payload.name'), text: text(p.text, 200, 'payload.text') };
+      break;
+    case 'RENAME':
+      onlyKeys(p, ['name'], 'payload');
+      payload = { name: text(p.name, NAME_MAX, 'payload.name') };
       break;
     case 'ADVENTURE':
       onlyKeys(p, ['kind', 'detail', 'place', 'with'], 'payload');

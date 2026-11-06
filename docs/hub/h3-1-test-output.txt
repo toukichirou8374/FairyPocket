@@ -1,0 +1,175 @@
+v26.13.0
+=== vitest（App 77 項＋H3-1 同步 11 項）===
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 改名、感情、記憶：同步後一致；App 重啟＋Hub 重啟後仍一致、不重複計算 110ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 離線：動作留在本機佇列；App 重啟後佇列還在；連上後只套用一次 20ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 回應遺失：Hub 其實已套用，重送只回 DUPLICATE，不會多算 20ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > revision 衝突：送出前 Minecraft 先改了 → 重新讀取、同樣的 opId 重送，兩邊的變化都在 43ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 控制權交接：Minecraft 控制中不搶（數值事件等待）；Minecraft 放開後接回，採用 Minecraft 期間的數值再送出 66ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 主人明確「叫回手機」：即使 Minecraft 沒放開也接管；Minecraft 舊世代的數值事件被拒 35ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 防倒退：Hub 被還原成較舊的資料 → 停止同步、不採用遠端數值、保留佇列 33ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 不送快照：適配器送出的事件只有 FED／PETTED／PLAYED／RENAME／MEMORY_*／DIALOGUE_ADD，沒有 VITALS_SYNC 19ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 記憶：刪除會同步；同一句記憶永遠同一個 ID；Minecraft 的記憶分開保存、不擠掉手機的記憶 40ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 改名 Minecraft 也看得到；Minecraft 不能改名 27ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 本機同步資料損壞：重建（只會少送、不會重複送），不影響 App 存檔 9ms
+ ✓ src/game/game.test.ts > pet state > feeds and refuses when full 6ms
+ ✓ src/game/game.test.ts > pet state > hunger drains while awake and energy recovers while asleep 0ms
+ ✓ src/game/game.test.ts > pet state > never drops health below 1 when starving 1ms
+ ✓ src/game/game.test.ts > pet state > offline time is gentle 0ms
+ ✓ src/game/game.test.ts > pet state > play raises affection and stats 0ms
+ ✓ src/game/game.test.ts > pet state > converts values to 10 icons 1ms
+ ✓ src/game/game.test.ts > daily life > follows the bedtime schedule 1ms
+ ✓ src/game/game.test.ts > daily life > misses you while away and cheers up with care 0ms
+ ✓ src/game/game.test.ts > link > round-trips a link code and keeps the pet id 24ms
+ ✓ src/game/game.test.ts > link > tells the same pet from another one 0ms
+ ✓ src/game/game.test.ts > link > gives old saves an id 0ms
+ ✓ src/game/game.test.ts > save > round-trips through serialize/parse 0ms
+ ✓ src/game/game.test.ts > save > rejects invalid files with a Chinese message 1ms
+ ✓ src/game/game.test.ts > save > sanitizes out-of-range values 0ms
+ ✓ src/game/game.test.ts > save > falls back to backup when main save is corrupted 0ms
+ ✓ src/game/game.test.ts > asset pack > reads a zip pack by original paths 1ms
+ ✓ src/game/game.test.ts > asset pack > reads a zip pack straight from the file without copying it (iPad) 0ms
+ ✓ src/game/game.test.ts > asset pack > converts a legacy json pack and drops unknown or non-png entries 0ms
+ ✓ src/game/game.test.ts > asset pack > rejects packs without the allay or of the wrong kind 0ms
+ ✓ src/game/game.test.ts > sound spec > uses the standard personality pitch and sound modes 1ms
+ ✓ src/game/game.test.ts > memory > counts days in a row and resets after a gap 0ms
+ ✓ src/game/game.test.ts > memory > remembers foods and celebrates milestones once 0ms
+ ✓ src/game/game.test.ts > memory > survives a save round trip 0ms
+ ✓ src/game/game.test.ts > memory > fills in counts in lines 1ms
+ ✓ src/game/game.test.ts > voice > trims silence and ignores near-silent recordings 0ms
+ ✓ src/game/game.test.ts > ar wave > detects a hand waving left and right, but not one sweep 0ms
+ ✓ src/game/game.test.ts > ar wave > 說話門檻跟著環境聲音調整 0ms
+ ✓ src/game/game.test.ts > context sounds > maps every situation to an original sound path 1ms
+ ✓ src/game/game.test.ts > context sounds > gets quieter with distance 0ms
+ ✓ src/game/game.test.ts > dialogue > fills in the name 0ms
+ ✓ src/game/game.test.ts > dialogue > speaks every language 0ms
+ ✓ src/game/game.test.ts > pixel font > has every character the game shows (run npm run font after changing text) 13ms
+ ✓ src/game/game.test.ts > pixel font > builds a valid-looking TrueType file 1ms
+ ✓ src/game/game.test.ts > i18n > has the same UI keys in every language 1ms
+ ✓ src/game/game.test.ts > i18n > picks a default language 0ms
+ ✓ src/game/game.test.ts > 變聲 > 聽得出原本的音高 38ms
+ ✓ src/game/game.test.ts > 變聲 > 少女、小孩、精靈的聲音一個比一個高，長度差不多 148ms
+ ✓ src/game/game.test.ts > 按鍵遊戲 > 答對才換題、答錯題目不變 1ms
+ ✓ src/game/game.test.ts > 按鍵遊戲 > 聲音玩法：題目沒有文字也能一直出下一題 0ms
+ ✓ src/game/game.test.ts > 按鍵遊戲 > 鍵盤：英文數字；繁中加注音、日文加假名、英文只有英數 1ms
+ ✓ src/game/game.test.ts > 按鍵遊戲 > 控制器：依廠牌顯示按鈕名稱 0ms
+ ✓ src/game/game.test.ts > 按鍵遊戲 > 最高紀錄 0ms
+ ✓ src/game/game.test.ts > 聲音玩法的貼紙 > 每類至少 6 個，圖都是 12×12、顏色都有定義 38ms
+ ✓ src/game/game.test.ts > 聲音玩法的貼紙 > 聽到名字或常見說法就算答對（三種語言） 1ms
+ ✓ src/game/game.test.ts > 各式變音器與貼紙簿 > 10 種聲音都能變，聲音不會爆掉 140ms
+ ✓ src/game/game.test.ts > 各式變音器與貼紙簿 > 貼紙簿：字母、數字、注音、假名、動物、交通工具、食物全部都有 1ms
+ ✓ src/game/game.test.ts > 貼紙簿 v0.26 > 字母、注音、假名不分語言，其他依語言分開存 0ms
+ ✓ src/game/game.test.ts > 貼紙簿 v0.26 > 聲音玩法只出現選到的類別裡、這個語言錄好的貼紙 0ms
+ ✓ src/game/game.test.ts > 貼紙簿 v0.26 > 數字、月份、星期依語言比對 0ms
+ ✓ src/game/game.test.ts > 跟悅靈說話 > 意思相近但不同的話分得出來 4ms
+ ✓ src/game/game.test.ts > 跟悅靈說話 > 看情境改變回答 0ms
+ ✓ src/game/game.test.ts > 跟悅靈說話 > 個性台詞也會出現 0ms
+ ✓ src/game/game.test.ts > 跟悅靈說話 > 每個意思三種語言都有回答 1ms
+ ✓ src/game/game.test.ts > 匯出存檔帶走遊戲資料與錄音 > 設定與錄音可以存進文字再還原 2ms
+ ✓ src/game/game.test.ts > allay demo speech > reads every zhuyin symbol it can, in Chinese 0ms
+ ✓ src/game/game.test.ts > allay demo speech > letters in English, kana in Japanese, others in the current language 0ms
+ ✓ src/game/game.test.ts > allay demo speech > keyboard mode says zhuyin with a readable character 0ms
+ ✓ src/game/game.test.ts > speaking voice > ranks premium > enhanced > normal > novelty 1ms
+ ✓ src/game/game.test.ts > speaking voice > only offers the exact language (no Mainland voice for zh-TW) 0ms
+ ✓ src/game/game.test.ts > speaking voice > auto picks the best, a saved choice wins 0ms
+ ✓ src/game/game.test.ts > speaking voice > labels quality with stars 0ms
+ ✓ src/game/game.test.ts > neural voice files > every demo word and fixed allay line has a voice file (rerun scripts/make-voices.mjs after changing texts) 2ms
+ ✓ src/game/game.test.ts > assistant > 聽懂要幫忙的事 4ms
+ ✓ src/game/game.test.ts > assistant > 聊天的話不會被當成指令 1ms
+ ✓ src/game/game.test.ts > assistant > 數字、時間、天氣的說法 1ms
+ ✓ src/game/game.test.ts > ai brain > 解析 AI 的回答：心情、要記住的事、多餘的符號 1ms
+ ✓ src/game/game.test.ts > ai brain > 悅靈的設定帶著名字、個性、記住的事；記憶有上限 0ms
+ ✓ src/game/game.test.ts > line variety > 同一個情境不會一直說同一句 0ms
+ ✓ src/game/game.test.ts > voice age > 聽聲音高低猜大人或小朋友 31ms
+ ✓ src/game/game.test.ts > voice id > 從自我介紹裡找名字 3ms
+ ✓ src/game/game.test.ts > voice id > 模糊認人：夠像才算，兩個人都很像就不猜 0ms
+ ✓ src/game/game.test.ts > developer gate > 答案比對前會整理：大小寫、空白、全形、片假名 31ms
+ ✓ src/game/game.test.ts > language flex > 看出是哪種語言、聽出換語言的要求 4ms
+ ✓ src/game/game.test.ts > babble > 把一句話拆成音節：假名照讀音、英文照母音、標點是停頓 1ms
+ ✓ src/game/game.test.ts > babble mandarin > 拼音 → 子音、母音、鼻音收尾、聲調 0ms
+ ✓ src/game/game.test.ts > babble mandarin > 有讀音表時中文字照讀音發聲 0ms
+ ✓ src/game/game.test.ts > mixed language > 看出日文回答裡混了中文 1ms
+ Test Files  2 passed (2)
+      Tests  88 passed (88)
+
+=== node:test（Hub 73 項）===
+✔ P1-1 模型驗證：雲端模型（名稱或 remote 欄位）、不在白名單、未安裝、沒有 digest、digest 不符都拒絕 (1.5843ms)
+✔ P1-1 端對端：本機模型通過驗證才推論；雲端模型、Ollama 沒回應、回應模型不符都改用規則，而且不送出聊天請求 (92.8533ms)
+✔ P1-2 舊手機快照不能蓋掉較新的狀態：VITALS_SYNC 在取得新 revision／epoch 後也被拒（暫停使用） (105.5669ms)
+✔ P1-3 推論期間換了世代：過期回答不寫入、不標成新 epoch（409 STALE_EPOCH）；之後同一個 opId 可以重新正常處理 (51.1066ms)
+✔ P1-4 綁定：第 1 份（綁定碼作廢）成功、第 2 份（悅靈文件）失敗 → 沒有任何授權；碼不能再用；狀態為 failed (42.7292ms)
+✔ P1-4 確認與撤銷都是單一文件：寫入失敗時授權不生效（或維持原狀），重試才生效；重啟後一致 (58.8629ms)
+✔ P1-4 hub.json 損壞：所有綁定操作 fail-closed（503），既有授權只看悅靈文件 (43.1683ms)
+✔ P1-5 撤銷後正式檔損壞：不退回前一版、不重新開放權限、不讓 epoch 回退；整隻 fail-closed 並保留證據 (49.7068ms)
+✔ P1-6 執行中的 Hub 快照：同一時間點的一致視圖；還原到新資料夾後狀態相同 (49.7808ms)
+✔ P1-7 Minecraft 大量新增共享記憶與對話：手機的私人記憶與對話一筆都不會被刪；Minecraft 只擠掉自己的舊內容 (66.9847ms)
+✔ P1-8 逾時：馬上回規則台詞並取消底層請求；名額要等底層真的結束才釋放 → 底層實際並行數永遠 1 (586.6905ms)
+✔ P1-8 取消會傳到底層：支援取消的請求會立刻停止並釋放名額 (90.8106ms)
+✔ P2 同一個 talk opId 同時送 3 次：只推論 1 次，三個回應是同一個意圖 (157.2873ms)
+✔ 問題一 回歸：綁定 → 備份 → 撤銷非控制者 → 403 → 不帶 --allow-rollback 還原 → 被拒；重啟後舊玩家仍是 403 (192.1723ms)
+✔ 問題一 對照：沒有任何變更時，正常備份 → 還原 → 重啟，資料與權限都相同 (73.9843ms)
+✔ 問題一：明確加上 --allow-rollback 才會回到舊授權（管理者的決定） (62.2574ms)
+✔ 問題一：版本相同但生效的授權不同 → 拒絕危險覆寫（含沒有授權版本的舊格式） (51.3156ms)
+✔ 問題二 回歸：一隻正常、一隻損壞 → 重啟標記損壞 → hub.backup() 拒絕，不產生少一隻的快照 (25.7776ms)
+✔ 問題二：正式檔不見、只剩前一版（尚未處理的損壞）→ 離線備份也拒絕 (27.078ms)
+✔ 問題二 對照：全部正常時可以完整備份，兩隻都在，驗證通過 (20.4927ms)
+✔ 問題二：沒有「完整」標記的快照（例如舊版產生、可能漏掉損壞文件）驗證不通過 (14.6757ms)
+✔ 真正全新的空資料夾：建立 hub.json，綁定流程正常 (187.5147ms)
+✔ 已有悅靈但 hub.json 遺失：503，不重建空索引 (50.5994ms)
+✔ 已有悅靈但只剩 hub.tmp.json：503，不重建；暫存檔保留在 quarantine 當證據 (37.6442ms)
+✔ 只剩 hub.prev.json、或 hub.json 損壞：繼續拒絕；不覆寫、不刪證據 (89.7555ms)
+✔ 不是全新：只有悅靈的暫存檔、或只有 quarantine 證據的資料夾，也不會建立 hub.json (11.73ms)
+✔ RENAME：手機可以改名（不需控制權，但要符合 epoch／revision）；Minecraft 403；名字超過 12 字 400 (221.21ms)
+✔ lastController：Minecraft 放開控制權後，手機看得到上一個控制者是 Minecraft；Minecraft 的公開狀態沒有這個欄位 (59.4835ms)
+✔ 憑證：沒有或錯的通行碼 401；別的網站 403；Hub 關閉時路徑不存在 (150.0646ms)
+✔ Minecraft 憑證：本機 AI 原始路徑 403、雲端 AI 一律 403 CLOUD_FORBIDDEN（雲端完全沒被呼叫）；FairyPocket 的雲端照常 (41.1471ms)
+✔ 路由權限：手機不能用 Minecraft 的路徑，Minecraft 不能用手機的路徑 (26.6514ms)
+✔ Minecraft 身分：沒有行動者、離線 UUID、偽造的 Floodgate UUID 都拒絕 (20.5382ms)
+✔ 登記：真實格式才收；同一隻不能重登（不覆寫） (22.5066ms)
+✔ 去重：重送回 DUPLICATE 不重算；同 ID 不同內容 ID_COLLISION；舊 revision 被拒並附最新 rev (29.771ms)
+✔ 並行重送：同一個事件同時送 4 次，只套用 1 次 (22.5259ms)
+✔ 容量：去重紀錄到上限時明確拒絕（507），不刪掉舊紀錄換取成功 (21.3122ms)
+✔ epoch：Minecraft 取得控制權後手機的數值事件被拒；舊世代失效；重複的舊事件只回歷史結果；手機再取回 (79.7332ms)
+✔ Minecraft 不能直接改數值：VITALS_SYNC 403；數值只由 Hub 依事件計算，並有每日上限 (38.1742ms)
+✔ 隔離：每位玩家一隻專用悅靈（冪等）；別的玩家、手機都不能讀寫；拒絕時不洩漏 revision (34.6575ms)
+✔ 公開與私人：Minecraft 拿不到手機的私人記憶與手機上的對話；聊天的 prompt 也不含 (41.1913ms)
+✔ 綁定：六位數碼 → 待確認 → 手機確認才生效；碼只能用一次；別的玩家查不到狀態 (54.1306ms)
+✔ 綁定：10 分鐘逾時；產生新碼舊碼作廢；待確認逾時不能確認 (45.6073ms)
+✔ 綁定：錯 5 次鎖 15 分鐘；鎖定寫入磁碟，重啟後仍有效 (53.1408ms)
+✔ 撤銷：解除綁定後所有請求立即 403（連重送也一樣）；若正拿著控制權則換新世代 (35.7194ms)
+✔ 聊天：只用本機 AI；意圖帶保留合成音效政策、沒有任何音訊欄位；重送不重問 AI (15.5785ms)
+✔ 聊天：AI 失敗或逾時就退回規則台詞（不會改用雲端） (77.5311ms)
+✔ 排程：每隻悅靈最多 1 個執行中＋1 個等待中；佇列滿了明確拒絕 (480.9631ms)
+✔ 多隻悅靈：1／2／5／10／20 隻同時聊天都完成，佇列不超過上限 (686.6117ms)
+✔ 意圖收據：Hub 簽發且有效才收；偽造、過期、舊世代都拒絕；重送 DUPLICATE (35.6256ms)
+✔ 重啟：狀態、epoch、去重紀錄、綁定都還在；斷線前已 ACK 的事件重送只回 DUPLICATE (34.1676ms)
+✔ 儲存不可用：回 503，不假報成功、不部分寫入；恢復後重送才套用 (16.522ms)
+✔ 手機照常使用本機 AI：轉給 Ollama，拿掉通行碼、改成本機 Host (149.0849ms)
+✔ Ollama 的危險功能、不在白名單的路徑一律 404；太大的請求 413；沒通行碼 401 (33.6416ms)
+✔ 預檢：允許的路徑回 204；Hub 關閉時 Hub 路徑的預檢 403 (16.5175ms)
+✔ Hub 開啟時：依通行碼把角色交給 Hub；Minecraft 憑證走 Ollama 一律 403 (14.1049ms)
+✔ 相容性：Hub 的數值常數與 FairyPocket v0.49.2 原碼一致 (2.9649ms)
+✔ PetState：接受 v0.49.2 格式；拒絕版本不符、多的欄位、超出範圍、名字太長、ID 格式錯 (0.6696ms)
+✔ 身分：Java 只收正版（版本 4）UUID；基岩版要 XUID 與 Floodgate UUID 相符；兩種來源不會撞 (0.5166ms)
+✔ 事件：角色不能送的種類 403；未知欄位、未知種類、超出範圍 400 (0.4291ms)
+✔ 本機 AI 政策：只有 RULES 與 LOCAL_OLLAMA；雲端、供應商名稱、網址、大小寫變形都拒絕 (0.2176ms)
+✔ 數值規則：FED／PETTED／PLAYED／tickPet 與 FairyPocket 相同 (0.4688ms)
+✔ 寫入後重啟仍在；檔案帶格式與 SHA-256 檢查碼 (8.6644ms)
+✔ 寫入失敗（寫檔前）：回 503，檔案與記憶體都不變 (4.957ms)
+✔ 當機在「暫存檔寫好、還沒換上」：用最後 ACK 的正式檔；暫存檔移到 quarantine 保留證據 (10.5171ms)
+✔ P1-5 第一次建立就中斷（只有暫存檔）：從未 ACK，當作不存在，之後可以正常建立 (8.331ms)
+✔ P1-5 正式檔損壞：不自動退回前一版；整份無法使用、拒絕覆寫；證據保留；可人工復原並留紀錄 (22.7615ms)
+✔ P1-5 正式檔不見但有前一版：視為損壞（不是首次建立），拒絕使用 (9.8758ms)
+✔ P1-6 備份：來源不存在、空資料、損壞的來源、跨文件不一致都拒絕 (39.4565ms)
+✔ P1-6 備份：資料在備份期間一直變動 → BACKUP_UNSTABLE；變動一次後穩定 → 成功並取得一致視圖 (41.4721ms)
+✔ P1-6 驗證：少檔、多檔、清單空白、雜湊不符都拒絕 (53.4379ms)
+✔ P1-6 還原：正常還原；目前資料比快照新時拒絕回退（明確允許才放行） (33.3851ms)
+✔ P1-6 還原中途失敗：複製到一半失敗 → 原資料不動、暫存資料夾清掉；替換時失敗 → 原資料夾復原 (34.0502ms)
+✔ 備份工具（CLI）：backup／verify／restore／recover (356.3636ms)
+ℹ tests 73
+ℹ suites 0
+ℹ pass 73
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2260.0664

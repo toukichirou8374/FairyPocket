@@ -161,6 +161,9 @@ export function applyEvent(doc, ev) {
       trimOwn(doc.dialogue, ev.role, DIALOGUE_QUOTA[ev.role]);
       return { result: 'ok' };
     }
+    case 'RENAME':
+      doc.profile.name = p.name;
+      return { result: 'ok' };
     case 'ADVENTURE':
       adventure(doc, ev, p.kind, p.detail, p);
       return { result: 'ok' };

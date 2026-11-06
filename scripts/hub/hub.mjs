@@ -184,7 +184,7 @@ export function createHub(opts = {}) {
     const base = { pet: doc.pet, kind: doc.kind, rev: doc.rev, epoch: doc.epoch, profile: doc.profile, stats: doc.stats, days: doc.days };
     if (role === 'fp')
       return {
-        ...base, state: doc.state, controller: doc.controller,
+        ...base, state: doc.state, controller: doc.controller, lastController: doc.lastController ?? null,
         memories: doc.memories.map(({ memoryId, text, visibility, srcRole, at }) => ({ memoryId, text, visibility, src: srcRole, at })),
         dialogue: doc.dialogue.map(({ messageId, who, name, text, srcRole, at }) => ({ messageId, who, name, text, src: srcRole, at })),
         links: doc.links.map(({ key, platform, name, status, at }) => ({ key, platform, name, status, at })),
@@ -283,6 +283,8 @@ export function createHub(opts = {}) {
         room(doc, 1);
         doc.epoch++;
         doc.rev++;
+        // H3-1：記下上一個控制者的角色（手機接回控制權時，用來判斷要不要採用 Minecraft 期間的數值）
+        if (doc.controller) doc.lastController = { role: doc.controller.role, at: now() };
         doc.controller = { role: ctx.role, source: ctx.source, actor: ctx.actor?.key ?? null, since: now() };
         const result = { epoch: doc.epoch, rev: doc.rev };
         doc.ops[key] = { hash: sha256(canonical({ claim: body.pet })), rev: doc.rev, result, at: now() };
@@ -306,6 +308,7 @@ export function createHub(opts = {}) {
         room(doc, 1);
         doc.epoch++;
         doc.rev++;
+        if (doc.controller) doc.lastController = { role: doc.controller.role, at: now() };
         doc.controller = null;
         const result = { epoch: doc.epoch, rev: doc.rev };
         doc.ops[key] = { hash, rev: doc.rev, result, at: now() };
@@ -483,6 +486,7 @@ export function createHub(opts = {}) {
         for (const l of doc.links) if (l.key === body.actor && l.status === 'active') ((l.status = 'revoked'), (l.at = now()), (changed = true));
         // 被撤銷的身分如果正拿著控制權：換新世代，舊 epoch 立刻失效
         if (doc.controller?.actor === body.actor) {
+          if (doc.controller) doc.lastController = { role: doc.controller.role, at: now() };
           doc.controller = null;
           doc.epoch++;
           doc.rev++;
