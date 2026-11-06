@@ -30,7 +30,7 @@ import { VoiceAge, voiceAgeOn, type AgeGuess } from './voiceAge';
 import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeople, voiceFeatures, voiceIdOn } from './voiceId';
 import { langHello, voiceIdLine } from './assist/assistant';
 import { askedLang, textLang } from './game/langDetect';
-import { addNote, ask, buildSystem, loadBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
+import { addNote, ask, buildSystem, initBrain, loadBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { Recognizer, speechSupported } from './speech';
 import { neuralBuffer } from './neuralVoice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
@@ -291,6 +291,8 @@ function voiceIdStep(text: string, feat: number[] | null): boolean {
 
 // ---------- AI 大腦（家裡電腦的本機 AI） ----------
 const brainMem = loadMemory();
+// AI 大腦的連線設定是加密存的：啟動時解密一次
+void initBrain();
 /** AI 模式（快捷欄的 AI 文字／語音／動態）：第三層的雲端 AI 之後接在這裡 */
 let cloudMode = false;
 let brainBusy = false;
@@ -825,6 +827,10 @@ function useNoteBlock(ray: THREE.Ray, hitBlock: boolean): void {
 
 const hud = new Hud(overlay, {
   voicePreview: () => void speakText(talkLine('greet', getLang(), pet.name, pet.personality)),
+  babblePreview: () => {
+    sound.unlock();
+    sound.babble(t('babble.sample'), pet.personality);
+  },
   senseTest: () =>
     new SenseTest({
       root: overlay,

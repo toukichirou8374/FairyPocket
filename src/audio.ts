@@ -4,7 +4,25 @@
 
 import type { Personality } from './game/state';
 import { packFile, type AssetPack } from './game/assets';
-import { speakBabble } from './babble';
+import { BABBLE_VOICE_SHAPE, loadZhuyin, speakBabble, type BabbleVoice } from './babble';
+
+const BABBLE_VOICE_KEY = 'fairypocket.babblevoice.v1';
+/** 悅靈語的聲音（清亮／溫柔／沉穩），只存在這台裝置 */
+export function loadBabbleVoice(): BabbleVoice {
+  try {
+    const v = localStorage.getItem(BABBLE_VOICE_KEY);
+    return v === 'bright' || v === 'calm' ? v : 'gentle';
+  } catch {
+    return 'gentle';
+  }
+}
+export function saveBabbleVoice(v: BabbleVoice): void {
+  try {
+    localStorage.setItem(BABBLE_VOICE_KEY, v);
+  } catch {
+    /* 存不了也沒關係 */
+  }
+}
 
 /** 悅靈語的音量倍率（實測：0.17 時平均音量跟上一版的「啾」差不多） */
 export const BABBLE_LEVEL = 0.17;
@@ -342,7 +360,9 @@ export class Sound {
   babble(text: string, p: Personality): number {
     const ctx = this.ctx;
     if (!ctx || ctx.state !== 'running' || this.level('voice') <= 0) return 0;
-    const len = speakBabble(ctx, this.bus(ctx, 'voice'), text, { f0: babbleF0(p), level: SOUND_MODES[this.mode].allay * BABBLE_LEVEL });
+    loadZhuyin(`${import.meta.env.BASE_URL}zhuyin.json`);
+    const shape = BABBLE_VOICE_SHAPE[loadBabbleVoice()];
+    const len = speakBabble(ctx, this.bus(ctx, 'voice'), text, { f0: babbleF0(p) * shape.pitch, scale: shape.scale, level: SOUND_MODES[this.mode].allay * BABBLE_LEVEL });
     if (len) void this.play(CHIME, SOUND_MODES[this.mode].chime * 0.6, SOUND_MODES[this.mode].chimePitch, 0, 'voice');
     return len;
   }

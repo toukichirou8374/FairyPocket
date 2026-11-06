@@ -1,5 +1,7 @@
 // 畫面上的 HTML 介面：名字、對話泡泡、愛心 / 飽食度、快捷欄、設定與開場。
 
+import { BABBLE_VOICES } from '../babble';
+import { loadBabbleVoice, saveBabbleVoice } from '../audio';
 import { devGate } from './devGate';
 import { loadPeople, savePeople, setVoiceIdOn, voiceIdOn } from '../voiceId';
 import { setVoiceAgeOn, voiceAgeOn } from '../voiceAge';
@@ -94,6 +96,8 @@ export interface HudActions {
   setVoiceStyle(v: VoiceStyle): void;
   /** 讓悅靈說一句話，聽聽目前的變聲 */
   voicePreview(): void;
+  /** 讓悅靈用悅靈語說一句話 */
+  babblePreview(): void;
   /** AR 攝影棚：換姿勢、轉向（turn）、讓悅靈自己行動（free） */
   arPose(p: Pose | 'turn' | 'free'): void;
   biome(): Biome;
@@ -795,8 +799,20 @@ export class Hud {
     c.addEventListener('click', close);
   }
 
-  /** 悅靈說話的變聲（精靈／小孩／少女…） */
+  /** 悅靈說話的變聲（精靈／小孩／少女…）＋悅靈語的聲音（清亮／溫柔／沉穩） */
   private voiceStyleEditor(box: HTMLElement): void {
+    el('label', '', box).textContent = t('babble.title');
+    el('div', 'info', box).textContent = t('babble.help');
+    const brow = el('div', 'btnrow', box);
+    for (const v of BABBLE_VOICES) {
+      const b = el('button', 'btn' + (v === loadBabbleVoice() ? ' on' : ''), brow);
+      b.textContent = t(`babble.${v}`);
+      b.addEventListener('click', () => {
+        brow.querySelectorAll('.btn').forEach((x) => x.classList.toggle('on', x === b));
+        saveBabbleVoice(v);
+        this.actions.babblePreview();
+      });
+    }
     el('label', '', box).textContent = t('voiceStyle.title');
     const vrow = el('div', 'pgrid voicegrid', box);
     for (const v of VOICE_STYLES) {

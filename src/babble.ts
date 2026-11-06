@@ -6,13 +6,15 @@
 export type Vowel = 'a' | 'i' | 'u' | 'e' | 'o' | 'n';
 /** 子音的種類：無、氣音（s/sh）、爆破音（t/k/p）、h、鼻音（m/n）、流音（r/y/w） */
 export type Cons = '' | 's' | 't' | 'k' | 'p' | 'h' | 'm' | 'n' | 'r';
-/** 聲調（中文字用）：平、升、降、先降後升 */
-export type Tone = 0 | 1 | 2 | 3;
+/** 音高走向：0 平、1 升（二聲）、2 降（四聲）、3 先降後升（三聲）、4 高平（一聲）、5 輕聲 */
+export type Tone = 0 | 1 | 2 | 3 | 4 | 5;
 
 export interface Syllable {
   c: Cons;
   v: Vowel;
   tone: Tone;
+  /** 鼻音收尾（ㄢㄣ = n、ㄤㄥ = ng） */
+  tail?: 'n' | 'ng';
 }
 /** null = 停頓（標點） */
 export type Unit = Syllable | null;
@@ -73,9 +75,58 @@ function english(word: string): Syllable[] {
   return out;
 }
 
-// ---------- 中文字：沒有讀音資料，用字決定一個固定的音節和聲調（同一個字每次都一樣） ----------
+// ---------- 中文字：照國語讀音（Unicode Unihan 的讀音表，台灣念法優先；public/zhuyin.json） ----------
+let zhuyin: { from: number; syl: string[]; map: Uint16Array } | null = null;
+let zhuyinLoading = false;
+
+/** 第一次用到時下載讀音表（約 64KB）；還沒下載好之前先用備用的方式 */
+export function loadZhuyin(url: string): void {
+  if (zhuyin || zhuyinLoading) return;
+  zhuyinLoading = true;
+  void fetch(url)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j: { from: number; syl: string[]; map: string } | null) => {
+      if (!j) return;
+      const bin = atob(j.map);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      zhuyin = { from: j.from, syl: j.syl, map: new Uint16Array(bytes.buffer) };
+    })
+    .catch(() => {})
+    .finally(() => (zhuyinLoading = false));
+}
+/** 測試用：直接給讀音表 */
+export function setZhuyin(t: { from: number; syl: string[]; map: Uint16Array } | null): void {
+  zhuyin = t;
+}
+
+const PY_INITIAL: Record<string, Cons> = {
+  b: 'p', p: 'p', m: 'm', f: 's', d: 't', t: 't', n: 'n', l: 'r', g: 'k', k: 'k', h: 'h',
+  j: 's', q: 's', x: 's', zh: 's', ch: 's', sh: 's', r: 'r', z: 's', c: 's', s: 's', y: 'r', w: 'r',
+};
+const PY_TONE: Record<string, Tone> = { '1': 4, '2': 1, '3': 3, '4': 2, '5': 5 };
+
+/** 拼音（例如 hao3、zhong1）→ 音節：聲母 → 子音、韻母的主要母音 → 母音、ㄢㄣㄤㄥ → 鼻音收尾、聲調 */
+export function pinyinSyllable(py: string): Syllable | null {
+  const m = /^(zh|ch|sh|[bpmfdtnlgkhjqxrzcsyw])?([a-zv]*)([1-5])$/.exec(py);
+  if (!m) return null;
+  const [, ini = '', fin, tone] = m;
+  const tail: Syllable['tail'] = /ng$/.test(fin) ? 'ng' : /n$/.test(fin) ? 'n' : undefined;
+  const body = fin.replace(/ng?$/, '');
+  // 舌尖母音（ㄓㄔㄕㄖㄗㄘㄙ 單念）比較接近 u
+  const apical = /^(zh|ch|sh|r|z|c|s)$/.test(ini) && body === 'i';
+  const v: Vowel = apical ? 'u' : body.includes('a') ? 'a' : body.includes('o') ? 'o' : body.includes('e') ? 'e' : body.includes('i') ? 'i' : body ? 'u' : 'n';
+  return { c: PY_INITIAL[ini] ?? '', v, tone: PY_TONE[tone], tail };
+}
+
 const HAN_CONS: Cons[] = ['', 's', 't', 'k', 'p', 'h', 'm', 'n', 'r', 's', 't', ''];
 function han(code: number): Syllable {
+  if (zhuyin) {
+    const i = zhuyin.map[code - zhuyin.from];
+    const s = i ? pinyinSyllable(zhuyin.syl[i]) : null;
+    if (s) return s;
+  }
+  // 讀音表還沒下載好、或是表裡沒有的字：用字決定一個固定的音節
   return { c: HAN_CONS[code % HAN_CONS.length], v: VOWELS[(code >> 3) % 5], tone: ((code >> 6) % 4) as Tone };
 }
 
@@ -117,9 +168,20 @@ function noise(ctx: BaseAudioContext): AudioBuffer {
   return noiseBuf;
 }
 
+/** 悅靈語的聲音：清亮（高）、溫柔（中）、沉穩（低）——不明講性別，只是聲音的高低和嘴形大小 */
+export type BabbleVoice = 'bright' | 'gentle' | 'calm';
+export const BABBLE_VOICES: BabbleVoice[] = ['bright', 'gentle', 'calm'];
+export const BABBLE_VOICE_SHAPE: Record<BabbleVoice, { pitch: number; scale: number }> = {
+  bright: { pitch: 1.12, scale: 1.36 },
+  gentle: { pitch: 1, scale: 1.26 },
+  calm: { pitch: 0.7, scale: 1.04 },
+};
+
 export interface BabbleOpts {
   /** 基本音高（Hz） */
   f0: number;
+  /** 嘴形大小（共振頻率的倍率；越大越像小小的嘴） */
+  scale?: number;
   /** 音量 */
   level: number;
   /** 每個音節的長度（秒） */
@@ -147,15 +209,15 @@ export function speakBabble(ctx: BaseAudioContext, out: AudioNode, text: string,
     const rise = question && last ? 2 ** ((4 + (i - (n - 2)) * 3) / 12) : 1;
     const f = o.f0 * decl * accent * rise;
     const dur = step * (last ? 1.35 : 0.9 + Math.random() * 0.2);
-    voice(ctx, out, u, f, t, dur, o.level);
-    t += dur;
+    voice(ctx, out, u, f, u.tone === 5 ? dur * 0.7 : dur, t, o.level, o.scale ?? SCALE);
+    t += u.tone === 5 ? dur * 0.7 : dur;
     i++;
   }
   return t - start;
 }
 
 /** 一個音節：子音（氣音、爆破、鼻音）＋母音（鋸齒波經過三個共振） */
-function voice(ctx: BaseAudioContext, out: AudioNode, s: Syllable, f: number, t: number, dur: number, level: number): void {
+function voice(ctx: BaseAudioContext, out: AudioNode, s: Syllable, f: number, dur: number, t: number, level: number, scale: number): void {
   // 子音
   const consDur = s.c === 's' ? 0.035 : s.c === 'h' ? 0.025 : s.c === 't' || s.c === 'k' || s.c === 'p' ? 0.014 : 0;
   if (consDur) {
@@ -179,24 +241,31 @@ function voice(ctx: BaseAudioContext, out: AudioNode, s: Syllable, f: number, t:
   const osc = ctx.createOscillator();
   osc.type = 'sawtooth';
   const tone = s.tone;
-  const [a, b] = tone === 1 ? [0.9, 1.12] : tone === 2 ? [1.12, 0.88] : tone === 3 ? [0.95, 1.05] : [1, 1];
+  // 一聲高平、二聲往上、三聲先降再升、四聲往下、輕聲短而低
+  const [a, b] = tone === 1 ? [0.9, 1.14] : tone === 2 ? [1.15, 0.85] : tone === 3 ? [0.94, 1.02] : tone === 4 ? [1.1, 1.1] : tone === 5 ? [0.94, 0.92] : [1, 1];
   osc.frequency.setValueAtTime(f * a, vt);
   if (tone === 3) osc.frequency.linearRampToValueAtTime(f * 0.88, vt + vdur * 0.5);
   osc.frequency.linearRampToValueAtTime(f * b, vt + vdur);
   // 嘴形：三個共振；鼻音（m/n）開頭先悶悶的
   const mix = ctx.createGain();
   mix.gain.value = 0;
-  const [f1, f2, f3] = FORMANTS[s.v].map((x) => x * SCALE);
+  const [f1, f2, f3] = FORMANTS[s.v].map((x) => x * scale);
+  const nasalEnd = s.tail ? FORMANTS.n.map((x) => x * scale) : null;
   const nasal = s.c === 'm' || s.c === 'n' || s.v === 'n';
   [
     [f1, 6, 1],
     [f2, 9, 0.55],
     [f3, 10, 0.25],
-  ].forEach(([fr, q, gv]) => {
+  ].forEach(([fr, q, gv], k) => {
     const bp = ctx.createBiquadFilter();
     bp.type = 'bandpass';
     bp.frequency.setValueAtTime(nasal ? fr * 0.6 : s.c === 'r' ? fr * 0.8 : fr, vt);
     bp.frequency.linearRampToValueAtTime(fr, vt + Math.min(0.03, vdur * 0.4));
+    // ㄢㄣㄤㄥ：最後一段滑向鼻音
+    if (nasalEnd) {
+      bp.frequency.setValueAtTime(fr, vt + vdur * 0.6);
+      bp.frequency.linearRampToValueAtTime(nasalEnd[k] * (s.tail === 'ng' ? 0.9 : 1), vt + vdur);
+    }
     bp.Q.value = q;
     const g = ctx.createGain();
     g.gain.value = gv;

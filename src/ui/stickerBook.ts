@@ -43,7 +43,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', parent?: HT
 export class StickerBook {
   private layer: HTMLDivElement | null = null;
   private clips = new Map<string, Clip>();
-  private mode: 'record' | 'listen' = 'record';
+  /** 預設是「聽」：先聽、要錄音再切過去，避免不小心蓋掉以前的錄音 */
+  private mode: 'record' | 'listen' = 'listen';
   private cat: SbCat = 'letter';
   private changed = false;
   private items = stickerBookItems();
@@ -72,7 +73,7 @@ export class StickerBook {
     });
     el('div', 'sb-title', top).textContent = t('game.sticker');
     const modes = el('div', 'sb-modes', top);
-    for (const m of ['record', 'listen'] as const) {
+    for (const m of ['listen', 'record'] as const) {
       const b = el('button', 'btn' + (m === this.mode ? ' on' : ''), modes);
       b.textContent = t(m === 'record' ? 'sb.record' : 'sb.listen');
       b.addEventListener('click', () => {
@@ -229,6 +230,8 @@ export class StickerBook {
       r.textContent = t(c ? 'sb.rerecord' : 'sb.recordBtn');
       r.addEventListener('click', () => {
         this.host.click();
+        // 已經有錄音：先確認，避免不小心蓋掉
+        if (c && !confirm(t('sb.rerecordAsk'))) return;
         void rec();
       });
       if (c) {

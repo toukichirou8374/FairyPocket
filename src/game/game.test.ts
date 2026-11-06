@@ -874,3 +874,23 @@ describe('babble', () => {
     expect(syllables('好')).toEqual(syllables('好'));
   });
 });
+
+describe('babble mandarin', () => {
+  it('拼音 → 子音、母音、鼻音收尾、聲調', async () => {
+    const { pinyinSyllable } = await import('../babble');
+    expect(pinyinSyllable('hao3')).toEqual({ c: 'h', v: 'a', tone: 3, tail: undefined });
+    expect(pinyinSyllable('zhong1')).toEqual({ c: 's', v: 'o', tone: 4, tail: 'ng' });
+    expect(pinyinSyllable('tian1')).toEqual({ c: 't', v: 'a', tone: 4, tail: 'n' });
+    expect(pinyinSyllable('shi4')?.v).toBe('u');
+    expect(pinyinSyllable('ma5')?.tone).toBe(5);
+    expect(pinyinSyllable('??')).toBe(null);
+  });
+  it('有讀音表時中文字照讀音發聲', async () => {
+    const { setZhuyin, syllables } = await import('../babble');
+    const map = new Uint16Array(0x9fff - 0x4e00 + 1);
+    map['好'.codePointAt(0)! - 0x4e00] = 1;
+    setZhuyin({ from: 0x4e00, syl: ['', 'hao3'], map });
+    expect(syllables('好')).toEqual([{ c: 'h', v: 'a', tone: 3, tail: undefined }]);
+    setZhuyin(null);
+  });
+});

@@ -3,6 +3,7 @@
 // AI 會帶著悅靈的名字、個性、心情、和你的回憶與最近的對話，所以說話像同一隻悅靈。
 // 對話與記住的事只存在這台裝置（會跟著備份），送到的地方只有你自己家裡的電腦。
 
+import { getSecret, putSecret } from '../secureStore';
 import type { Lang } from '../i18n';
 import { FOODS, type Food, type PetState } from '../game/state';
 
@@ -20,26 +21,33 @@ export interface BrainConfig {
 
 export const DEFAULT_MODEL = 'gemma3:4b';
 
+function normalize(c: Partial<BrainConfig> | null): BrainConfig {
+  return {
+    on: !!c?.on,
+    url: typeof c?.url === 'string' ? c.url : '',
+    model: typeof c?.model === 'string' && c.model ? c.model : DEFAULT_MODEL,
+    token: typeof c?.token === 'string' ? c.token : '',
+  };
+}
+
+/** 連線設定（網址、通行碼）加密存在這台裝置（見 secureStore.ts）；啟動時解密一次放在記憶體 */
+let cfgCache: BrainConfig | null = null;
+
+/** App 啟動時呼叫：讀出加密的設定；以前用原文存的舊設定會順便改成加密 */
+export async function initBrain(): Promise<BrainConfig> {
+  const v = await getSecret<Partial<BrainConfig>>(CFG_KEY);
+  cfgCache = normalize(v);
+  if (v) await putSecret(CFG_KEY, cfgCache);
+  return cfgCache;
+}
+
 export function loadBrain(): BrainConfig {
-  try {
-    const c = JSON.parse(localStorage.getItem(CFG_KEY) ?? 'null') as Partial<BrainConfig> | null;
-    return {
-      on: !!c?.on,
-      url: typeof c?.url === 'string' ? c.url : '',
-      model: typeof c?.model === 'string' && c.model ? c.model : DEFAULT_MODEL,
-      token: typeof c?.token === 'string' ? c.token : '',
-    };
-  } catch {
-    return { on: false, url: '', model: DEFAULT_MODEL, token: '' };
-  }
+  return { ...(cfgCache ?? normalize(null)) };
 }
 
 export function saveBrain(c: BrainConfig): void {
-  try {
-    localStorage.setItem(CFG_KEY, JSON.stringify(c));
-  } catch {
-    /* 存不了也沒關係 */
-  }
+  cfgCache = { ...c };
+  void putSecret(CFG_KEY, cfgCache);
 }
 
 // ---------- 記憶：最近的對話 + 記住的事 ----------

@@ -62,6 +62,23 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent?:
   return e;
 }
 
+const LOCK_KEY = 'fairypocket.devlock.v1';
+function loadLock(): { tries: number; until: number } {
+  try {
+    const v = JSON.parse(localStorage.getItem(LOCK_KEY) ?? 'null') as { tries: number; until: number } | null;
+    return v && typeof v.tries === 'number' ? v : { tries: 0, until: 0 };
+  } catch {
+    return { tries: 0, until: 0 };
+  }
+}
+function saveLock(v: { tries: number; until: number }): void {
+  try {
+    localStorage.setItem(LOCK_KEY, JSON.stringify(v));
+  } catch {
+    /* 存不了也沒關係 */
+  }
+}
+
 /** 打開開發者區：先過密碼這關，過了才呼叫 open() */
 export function devGate(root: HTMLElement, open: () => void): void {
   if (performance.now() - unlockedAt < UNLOCK_MS) return open();
@@ -126,19 +143,24 @@ export function devGate(root: HTMLElement, open: () => void): void {
   msg.textContent = t('dg.enter');
   const p = field(t('dg.pass'));
   const r = row();
-  let tries = 0;
-  btn(r, t('dg.open'), async () => {
-    if (await passOk(p.value)) return done();
-    tries++;
+  const openBtn = btn(r, t('dg.open'), async () => {
+    const lock = loadLock();
+    if (Date.now() < lock.until) return void (msg.textContent = t('dg.locked', { s: Math.ceil((lock.until - Date.now()) / 1000) }));
+    if (await passOk(p.value)) {
+      saveLock({ tries: 0, until: 0 });
+      return done();
+    }
+    lock.tries++;
     p.value = '';
     msg.textContent = t('dg.wrong');
-    // 連續打錯：稍等一下才能再試
-    if (tries >= 5) {
-      const b = r.querySelector('button') as HTMLButtonElement;
-      b.disabled = true;
-      setTimeout(() => (b.disabled = false), 30_000);
+    // 連續打錯 5 次以上：要等一下才能再試，而且越錯等越久（30 秒、1 分、2 分…最多 30 分鐘）
+    if (lock.tries >= 5) {
+      lock.until = Date.now() + Math.min(30 * 60_000, 30_000 * 2 ** Math.floor((lock.tries - 5) / 5));
+      msg.textContent = t('dg.locked', { s: Math.ceil((lock.until - Date.now()) / 1000) });
     }
+    saveLock(lock);
   });
+  void openBtn;
   btn(r, t('dg.forgot'), recover);
   btn(r, t('close'), close);
   p.addEventListener('keydown', (e) => e.key === 'Enter' && (r.querySelector('button') as HTMLButtonElement).click());

@@ -43,12 +43,16 @@ export function brainSettings(box: HTMLElement): void {
   el('div', 'info', box).textContent = t('ai.token');
   const token = el('input', 'name-input', box);
   token.type = 'password';
-  token.placeholder = 'xxxx-xxxx-xxxx-xxxx';
-  token.value = cfg.token;
+  // 存好的通行碼不再顯示（只顯示「已設定」）；要換的時候直接輸入新的
+  token.placeholder = cfg.token ? t('ai.tokenSet') : 'xxxx-xxxx-xxxx-xxxx';
+  token.value = '';
   token.autocomplete = 'off';
   token.spellcheck = false;
   token.addEventListener('change', () => {
+    if (!token.value.trim()) return;
     cfg.token = token.value.trim();
+    token.value = '';
+    token.placeholder = t('ai.tokenSet');
     saveBrain(cfg);
   });
 
@@ -73,7 +77,11 @@ export function brainSettings(box: HTMLElement): void {
   test.textContent = t('ai.test');
   test.addEventListener('click', async () => {
     cfg.url = url.value.trim();
-    cfg.token = token.value.trim();
+    if (token.value.trim()) {
+      cfg.token = token.value.trim();
+      token.value = '';
+      token.placeholder = t('ai.tokenSet');
+    }
     saveBrain(cfg);
     status.textContent = t('ai.testing');
     const res = await listModels(cfg);
