@@ -137,7 +137,8 @@ export class Stage {
   private shadowMat: THREE.MeshBasicMaterial;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    // 高解析度螢幕（iPhone、iPad）像素已經很細，不用再做反鋸齒，省電
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: window.devicePixelRatio < 2, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.camera.position.set(0, 1.45, 5.4);

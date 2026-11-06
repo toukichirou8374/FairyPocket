@@ -106,7 +106,7 @@ const RULES: [Intent, Words][] = [
     en_us: ['going out', 'going to school', 'off to school', 'heading out'],
   }],
   ['bye', {
-    zh_tw: ['掰掰', '拜拜', '再見', '再见', '我要走了'],
+    zh_tw: ['掰掰', '拜拜', '再見', '我要走了'],
     ja_jp: ['バイバイ', 'ばいばい', 'またね', 'さようなら'],
     en_us: ['bye', 'see you', 'goodbye'],
   }],

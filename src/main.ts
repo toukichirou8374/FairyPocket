@@ -1902,7 +1902,25 @@ let last = performance.now();
 let elapsed = 0;
 let statTimer = 0;
 
+// ---------- 省電：畫面更新次數 ----------
+// iPhone 的螢幕一秒可以更新 120 次，每次都畫很耗電。
+// 有人在操作、玩遊戲、開麥克風或鏡頭時：每秒 60 次（夠順）；
+// 一陣子沒人碰：每秒 30 次；悅靈睡覺時：每秒 20 次。
+let lastInputAt = performance.now();
+for (const ev of ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const) {
+  window.addEventListener(ev, () => (lastInputAt = performance.now()), { capture: true, passive: true });
+}
+function fpsCap(now: number): number {
+  if (overlay.classList.contains('kg-on') || liveOn || talkOn || listener.on || arCam.on || now - lastInputAt < 15_000) return 60;
+  return pet.asleep ? 20 : 30;
+}
+
 function frame(now: number): void {
+  // 還沒到下一次該畫的時間：先跳過（留 4ms 的餘裕，避免剛好差一點點就多等一輪）
+  if (now - last < 1000 / fpsCap(now) - 4) {
+    requestAnimationFrame(frame);
+    return;
+  }
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   elapsed += dt;
