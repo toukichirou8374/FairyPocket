@@ -67,13 +67,24 @@ interface FakeApp {
   shared: string[];
   sync: PocketSync;
   types: string[];
-  net: { offline: boolean; dropResponseOnce: boolean; beforeEvents: (() => Promise<void>) | null };
+  net: { offline: boolean; dropResponseOnce: boolean; beforeEvents: (() => Promise<void>) | null; beforeRegister: (() => void) | null; dropRegisterOnce: boolean; failReads: number };
+  calls: string[];
 }
 function makeApp(storage: KV, pet: PetState, notes: string[] = []): FakeApp {
-  const app = { pet, notes, shared: [] as string[], types: [] as string[], net: { offline: false, dropResponseOnce: false, beforeEvents: null as (() => Promise<void>) | null } } as FakeApp;
+  const app = { pet, notes, shared: [] as string[], types: [] as string[], net: { offline: false, dropResponseOnce: false, beforeEvents: null as (() => Promise<void>) | null, beforeRegister: null as (() => void) | null, dropRegisterOnce: false, failReads: 0 }, calls: [] as string[] } as FakeApp;
   const transport = (sourceId: string): Transport => {
     return async (method, p, body) => {
+      app.calls.push(`${method} ${p}`);
       if (app.net.offline) throw new Error('offline');
+      if (p === '/api/allay/pet/register' && app.net.beforeRegister) {
+        const hook = app.net.beforeRegister;
+        app.net.beforeRegister = null;
+        hook(); // 登記請求送出途中，使用者又做了動作
+      }
+      if (method === 'GET' && app.net.failReads > 0) {
+        app.net.failReads--;
+        return { status: 503, json: { error: 'STORE_UNAVAILABLE' } };
+      }
       if (p === '/api/allay/events' && body) {
         for (const e of (body as { events: { type: string }[] }).events) app.types.push(e.type);
         if (app.net.beforeEvents) {
@@ -83,6 +94,10 @@ function makeApp(storage: KV, pet: PetState, notes: string[] = []): FakeApp {
         }
       }
       const r = await httpTransport(hubUrl.current, FP_TOKEN, sourceId)(method, p, body);
+      if (app.net.dropRegisterOnce && p === '/api/allay/pet/register') {
+        app.net.dropRegisterOnce = false;
+        throw new Error('register response lost'); // 登記已到 Hub，回應遺失
+      }
       if (app.net.dropResponseOnce && p === '/api/allay/events') {
         app.net.dropResponseOnce = false;
         throw new Error('response lost'); // 請求已經到 Hub，但回應在路上遺失
@@ -321,15 +336,194 @@ describe('H3-1 Pocket 同步（隔離 Hub）', () => {
     expect(r.status).toBe(403);
   });
 
-  it('本機同步資料損壞：重建（只會少送、不會重複送），不影響 App 存檔', async () => {
+  // ---------- H3-1.1 P1-1：本機同步資料損壞 → 安全拒絕 ----------
+  it('P1-1 損壞（無法解析）：停止同步、不建新來源 ID、不覆寫原始內容、不連線；動作不會假裝記下；App 存檔不受影響', async () => {
     const hub = await startHub();
     hubUrl.current = hub.url;
     const kv = memoryKV();
     kv.setItem('fairypocket.save.v1', '{"keep":true}');
     kv.setItem(SYNC_KEY, '{broken');
     const app = makeApp(kv, synthPet());
-    expect(app.sync.info()).toMatchObject({ pending: 0, registered: false });
-    expect((await app.sync.sync()).status).toBe('ok');
+    expect(app.sync.info()).toMatchObject({ corrupt: 'parse', sourceId: null, pending: null });
+    expect(app.sync.recordPetted()).toBe(false);
+    expect(app.sync.syncNotes()).toBe(false);
+    const r = await app.sync.sync();
+    expect([r.status, r.detail]).toEqual(['localCorrupt', 'parse']);
+    expect(app.calls).toEqual([]); // 完全沒有連線
+    expect(kv.getItem(SYNC_KEY)).toBe('{broken'); // 原始內容（證據）保留
     expect(kv.getItem('fairypocket.save.v1')).toBe('{"keep":true}');
+    expect((await fpCall('GET', `/api/allay/state?pet=${PET}`)).status).toBe(404); // 沒有偷偷登記
   });
+
+  it('P1-1 可解析但結構異常（舊版、來源 ID、opId、序號、型別、欄位）：一律安全拒絕，待送事件原封不動', async () => {
+    const hub = await startHub();
+    hubUrl.current = hub.url;
+    const base = memoryKV();
+    const ok = makeApp(base, synthPet());
+    ok.sync.recordPetted();
+    ok.sync.recordPlayed();
+    const good = JSON.parse(base.getItem(SYNC_KEY)!);
+    expect(good.outbox.length).toBe(2);
+    const cases: [string, (d: any) => void][] = [
+      ['version', (d) => (d.v = 1)],
+      ['sourceId', (d) => (d.sourceId = 'pocket-x')],
+      ['outbox_opId', (d) => delete d.outbox[0].opId],
+      ['outbox_opId', (d) => (d.outbox[1].opId = d.outbox[0].opId)],
+      ['outbox_seq', (d) => (d.outbox[0].seq = 99)],
+      ['outbox_type', (d) => (d.outbox[0].type = 'VITALS_SYNC')],
+      ['outbox_payload', (d) => (d.outbox[0].payload = 'x')],
+      ['seq', (d) => (d.seq = -1)],
+      ['rev_epoch', (d) => (d.seenRev = 1.5)],
+      ['registered', (d) => ((d.registered = true), (d.petId = null))],
+      ['outbox', (d) => (d.outbox = null)],
+    ];
+    for (const [why, mut] of cases) {
+      const d = structuredClone(good);
+      mut(d);
+      const raw = JSON.stringify(d);
+      const kv = memoryKV();
+      kv.setItem(SYNC_KEY, raw);
+      const app = makeApp(kv, synthPet());
+      expect(app.sync.info().corrupt, why).toBe(why);
+      expect((await app.sync.sync()).status).toBe('localCorrupt');
+      expect(app.sync.recordPetted()).toBe(false);
+      expect(kv.getItem(SYNC_KEY), why).toBe(raw); // 一個位元組都沒改
+      expect(app.calls).toEqual([]);
+    }
+  });
+
+  it('P1-1 對照：還沒有同步資料時才建立新的；正常資料重開後同一個來源 ID、佇列完整', async () => {
+    const hub = await startHub();
+    hubUrl.current = hub.url;
+    const kv = memoryKV();
+    const a = makeApp(kv, synthPet());
+    expect(a.sync.info().corrupt).toBe(null);
+    a.sync.recordPetted();
+    const b = makeApp(kv, synthPet());
+    expect(b.sync.info()).toMatchObject({ corrupt: null, sourceId: a.sync.info().sourceId, pending: 1 });
+    expect((await b.sync.sync()).status).toBe('ok');
+  });
+
+  // ---------- H3-1.1 P1-2：首次登記前的事件不重複計算 ----------
+  it('P1-2 首次同步前只摸頭一次：Hub 的摸頭次數與感情只增加一次', async () => {
+    const hub = await startHub();
+    hubUrl.current = hub.url;
+    const app = makeApp(memoryKV(), synthPet(), ['登記前的記憶']);
+    app.sync.syncNotes();
+    petPet(app.pet); // App 先照原本規則改本機狀態
+    app.sync.recordPetted(); // 再記下事件
+    const r = await app.sync.sync();
+    expect([r.status, r.pending]).toEqual(['ok', 0]);
+    const s = await hubState();
+    expect([s.stats.petted, s.state.affection]).toEqual([1, 11.5]); // 10 ＋ 1.5（只算一次）
+    expect(app.pet.affection).toBe(11.5);
+    expect(s.memories.map((m: { text: string }) => m.text)).toEqual(['登記前的記憶']); // 記憶不在快照裡，仍會送出
+  });
+
+  it('P1-2 登記期間新增的動作：保留並正確送出（快照之後的動作不會被丟掉）', async () => {
+    const hub = await startHub();
+    hubUrl.current = hub.url;
+    const app = makeApp(memoryKV(), synthPet());
+    petPet(app.pet);
+    app.sync.recordPetted(); // 快照之前
+    app.net.beforeRegister = () => {
+      petPet(app.pet);
+      app.sync.recordPetted(); // 快照之後（登記請求送出途中）
+    };
+    const r = await app.sync.sync();
+    expect([r.status, r.pending]).toEqual(['ok', 0]);
+    const s = await hubState();
+    expect([s.stats.petted, s.state.affection]).toEqual([2, 13]);
+    expect(app.pet.affection).toBe(13);
+  });
+
+  it('P1-2 登記回應遺失＋App 重啟：用同一份快照重試，不會重複計算；來源 ID 與事件 ID 不變', async () => {
+    const hub = await startHub();
+    hubUrl.current = hub.url;
+    const kv = memoryKV();
+    let app = makeApp(kv, synthPet());
+    petPet(app.pet);
+    app.sync.recordPetted();
+    const before = app.sync.info();
+    app.net.dropRegisterOnce = true;
+    expect((await app.sync.sync()).status).toBe('offline');
+    expect((await hubState()).stats.petted).toBe(1); // 其實已登記
+    const pet = app.pet;
+    app = makeApp(kv, pet); // App 重啟
+    expect(app.sync.info().sourceId).toBe(before.sourceId);
+    expect(app.sync.info().outbox.map((e) => e.opId)).toEqual(before.outbox.map((e) => e.opId));
+    petPet(app.pet);
+    app.sync.recordPetted(); // 重啟後的新動作（快照之後）
+    const r = await app.sync.sync();
+    expect([r.status, r.pending]).toEqual(['ok', 0]);
+    const s = await hubState();
+    expect([s.stats.petted, s.state.affection]).toEqual([2, 13]);
+  });
+
+  // ---------- H3-1.1 P1-3：成功提交後立即保存已確認的 revision ----------
+  it('P1-3（Astra 情境）事件提交成功到 rev 2 → 後續讀取失敗 → Hub 還原成 rev 1 → 再同步：hubRollback，不採用倒退的統計', async () => {
+    let hub = await startHub();
+    hubUrl.current = hub.url;
+    const kv = memoryKV();
+    const app = makeApp(kv, synthPet());
+    expect((await app.sync.sync()).status).toBe('ok'); // 登記：rev 1
+    expect(app.sync.info().seenRev).toBe(1);
+    const snap = hub.hub.backup(`${hub.dir}-snaps`);
+    cleanups.push(() => fs.rmSync(`${hub.dir}-snaps`, { recursive: true, force: true }));
+    petPet(app.pet);
+    app.sync.recordPetted();
+    app.net.beforeEvents = async () => {
+      app.net.failReads = 99; // 送出之後的讀取全部失敗
+    };
+    const r = await app.sync.sync();
+    expect(r.status).toBe('unavailable');
+    expect(app.sync.info()).toMatchObject({ seenRev: 2, pending: 0 });
+    expect(JSON.parse(kv.getItem(SYNC_KEY)!).seenRev).toBe(2); // 已持久保存
+    app.net.failReads = 0;
+    await hub.close();
+    restore(snap, hub.dir, Date.now(), { allowRollback: true });
+    hub = await startHub(hub.dir);
+    hubUrl.current = hub.url;
+    expect((await hubState()).rev).toBe(1);
+    const again = await app.sync.sync();
+    expect(again.status).toBe('hubRollback');
+    expect(app.pet.stats.petted).toBe(1); // 沒有被倒退成 0
+    expect(app.sync.info().seenRev).toBe(2);
+  });
+
+  it('P1-3 本機寫入失敗：Hub 已提交也不算同步成功（localSaveFailed）；恢復後重送只回 DUPLICATE', async () => {
+    const hub = await startHub();
+    hubUrl.current = hub.url;
+    const inner = memoryKV();
+    let failWrites = false;
+    const kv: KV = { getItem: (k) => inner.getItem(k), setItem: (k, v) => { if (failWrites && k === SYNC_KEY) throw new Error('quota'); inner.setItem(k, v); } };
+    const app = makeApp(kv, synthPet());
+    await app.sync.sync();
+    app.sync.recordPlayed();
+    app.net.beforeEvents = async () => {
+      failWrites = true;
+    };
+    const r = await app.sync.sync();
+    expect(r.status).toBe('localSaveFailed');
+    expect((await hubState()).stats.played).toBe(1);
+    failWrites = false;
+    const again = makeApp(kv, app.pet); // 重開：本機紀錄仍是「還沒送」
+    expect(again.sync.info().pending).toBe(1);
+    expect((await again.sync.sync()).status).toBe('ok');
+    expect((await hubState()).stats.played).toBe(1);
+  });
+
+  it('P1-3 對照：正常同步後，已確認的 revision／epoch 與 Hub 一致並已存入本機', async () => {
+    const hub = await startHub();
+    hubUrl.current = hub.url;
+    const kv = memoryKV();
+    const app = makeApp(kv, synthPet());
+    app.sync.recordPetted();
+    app.sync.recordPlayed();
+    expect((await app.sync.sync()).status).toBe('ok');
+    const s = await hubState();
+    const saved = JSON.parse(kv.getItem(SYNC_KEY)!);
+    expect([saved.seenRev, saved.epoch, saved.outbox.length]).toEqual([s.rev, s.epoch, 0]);
+  });
+
 });

@@ -1,4 +1,4 @@
-// FairyPocket ↔ Fairy Hub 同步適配器（H3-1：最小、隔離；尚未接進 App 畫面）
+// FairyPocket ↔ Fairy Hub 同步適配器（H3-1.1：最小、隔離；尚未接進 App 畫面）
 //
 // 原則（與 Hub v1 契約一致）：
 // - 只送「事件」，不送整份快照（VITALS_SYNC 停用中，這裡也沒有任何送數值快照的方法）
@@ -7,7 +7,13 @@
 // - revision 衝突：重新讀取後，用「同樣的 opId」把同一批事件重送到新的版本上（本機事件都是增量或附加，可以安全地重新套用）
 // - 控制權：要送會改數值的事件時才取得；Minecraft 正在控制時「不搶」，數值事件留在佇列等待（只有主人明確按「叫回手機」才接管）
 // - 交接：從 Minecraft 手上接回控制權時，採用 Hub 的數值（Minecraft 期間的變化），之後手機繼續當生活模擬的權威
-// - 防倒退：Hub 的 revision 比上次看到的還小（例如還原了舊備份）→ 停止同步、不採用任何遠端數值、保留佇列
+// - 防倒退：Hub 的 revision 比已確認的還小（例如還原了舊備份）→ 停止同步、不採用任何遠端數值、保留佇列
+//
+// H3-1.1（Astra 驗收的三項修補）：
+// - 本機同步資料損壞或結構異常：停止同步，不建立新的來源 ID、不覆寫原始內容、不清空佇列（原始內容就是證據）
+// - 首次登記：先把「登記快照＋分界序號」存進本機；快照已包含的動作不再送，快照之後的動作照常送
+// - 每個成功回應（登記、取得控制權、送出事件、讀取）帶回的 revision／epoch，與佇列變更在同一次本機寫入保存；
+//   本機寫入失敗不算同步成功
 
 import type { PetState } from '../game/state';
 
@@ -25,9 +31,14 @@ export type Transport = (method: 'GET' | 'POST', path: string, body?: unknown) =
 export type NumericType = 'FED' | 'PETTED' | 'PLAYED';
 export type PlainType = 'RENAME' | 'MEMORY_ADD' | 'MEMORY_REMOVE' | 'DIALOGUE_ADD';
 const NUMERIC: readonly string[] = ['FED', 'PETTED', 'PLAYED'];
+const TYPES: readonly string[] = ['FED', 'PETTED', 'PLAYED', 'RENAME', 'MEMORY_ADD', 'MEMORY_REMOVE', 'DIALOGUE_ADD'];
+/** 登記快照會包含效果的動作（記憶與對話不在快照裡，登記後仍要送） */
+const IN_SNAPSHOT: readonly string[] = ['FED', 'PETTED', 'PLAYED', 'RENAME'];
 
 export interface QueuedEvent {
   opId: string;
+  /** 本機遞增序號（用來判斷是在登記快照之前還是之後） */
+  seq: number;
   type: NumericType | PlainType;
   at: number;
   payload: Record<string, unknown>;
@@ -45,7 +56,12 @@ export interface RemoteApply {
   sharedMemories?: string[];
 }
 
-export type SyncStatus = 'ok' | 'offline' | 'waitingControl' | 'hubRollback' | 'hubMissing' | 'unavailable' | 'capacity' | 'busy' | 'error';
+export type SyncStatus =
+  | 'ok' | 'offline' | 'waitingControl' | 'hubRollback' | 'hubMissing' | 'unavailable' | 'capacity' | 'busy' | 'error'
+  /** 本機同步資料損壞或結構異常：已停止，原始內容保留不動 */
+  | 'localCorrupt'
+  /** 本機寫入失敗：這次不算完成 */
+  | 'localSaveFailed';
 export interface SyncResult {
   status: SyncStatus;
   sent: number;
@@ -55,7 +71,7 @@ export interface SyncResult {
 }
 
 interface Persisted {
-  v: 1;
+  v: 2;
   sourceId: string;
   petId: string | null;
   registered: boolean;
@@ -63,13 +79,15 @@ interface Persisted {
   outbox: QueuedEvent[];
   /** 送不出去、也不能重送的事件（例如同 ID 不同內容），保留給人檢查 */
   dead: (QueuedEvent & { why: string })[];
-  /** 上次看到的 Hub 版本（只增不減，用來發現倒退） */
+  /** 已確認的最大 Hub 版本（只增不減，用來發現倒退） */
   seenRev: number;
   epoch: number;
   /** 已同步的本機記憶：文字 → memoryId */
   syncedNotes: Record<string, string>;
   /** 進行中的取得控制權操作（重送時沿用同一個 opId） */
   claimOpId: string | null;
+  /** 首次登記：送出的快照與分界序號（序號 ≤ boundarySeq 的 FED／PETTED／PLAYED／RENAME 已包含在快照裡） */
+  reg: { snapshot: PetState; boundarySeq: number } | null;
 }
 
 /** Hub 回傳的悅靈狀態（手機看到的完整內容；只列出這裡用到的欄位） */
@@ -88,6 +106,9 @@ interface HubState {
 export const SYNC_KEY = 'fairypocket.hubsync.v1';
 const BATCH = 50;
 
+/** 本機寫入失敗 */
+class LocalSaveError extends Error {}
+
 /** 文字的固定雜湊（FNV-1a，兩種起始值，共 16 個十六進位字）；同一句記憶永遠得到同一個 memoryId */
 export function noteId(text: string): string {
   const h = (seed: number) => {
@@ -105,6 +126,39 @@ function newSourceId(): string {
   const b = new Uint8Array(8);
   crypto.getRandomValues(b);
   return `pocket-${[...b].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const isInt = (v: unknown, min = 0): v is number => Number.isInteger(v) && (v as number) >= min;
+
+/** 檢查本機同步資料的結構；回傳問題描述，或 null（正常）。不嘗試修補。 */
+export function checkPersisted(v: unknown): string | null {
+  if (!isObj(v)) return 'not_object';
+  if (v.v !== 2) return 'version';
+  if (typeof v.sourceId !== 'string' || !/^pocket-[0-9a-f]{16}$/.test(v.sourceId)) return 'sourceId';
+  if (v.petId !== null && (typeof v.petId !== 'string' || !/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(v.petId))) return 'petId';
+  if (typeof v.registered !== 'boolean' || (v.registered && v.petId === null)) return 'registered';
+  if (!isInt(v.seq)) return 'seq';
+  if (!Array.isArray(v.outbox)) return 'outbox';
+  const ids = new Set<string>();
+  for (const e of v.outbox as unknown[]) {
+    if (!isObj(e)) return 'outbox_item';
+    if (typeof e.opId !== 'string' || !/^[A-Za-z0-9_.-]{8,80}$/.test(e.opId) || ids.has(e.opId)) return 'outbox_opId';
+    ids.add(e.opId);
+    if (!isInt(e.seq, 1) || (e.seq as number) > (v.seq as number)) return 'outbox_seq';
+    if (typeof e.type !== 'string' || !TYPES.includes(e.type)) return 'outbox_type';
+    if (typeof e.at !== 'number' || !Number.isFinite(e.at)) return 'outbox_at';
+    if (!isObj(e.payload)) return 'outbox_payload';
+  }
+  if (!Array.isArray(v.dead)) return 'dead';
+  if (!isInt(v.seenRev) || !isInt(v.epoch)) return 'rev_epoch';
+  if (!isObj(v.syncedNotes) || Object.values(v.syncedNotes).some((x) => typeof x !== 'string')) return 'syncedNotes';
+  if (v.claimOpId !== null && typeof v.claimOpId !== 'string') return 'claimOpId';
+  if (v.reg !== null) {
+    if (!isObj(v.reg) || !isObj(v.reg.snapshot) || typeof v.reg.snapshot.id !== 'string' || !isInt(v.reg.boundarySeq) || (v.reg.boundarySeq as number) > (v.seq as number)) return 'reg';
+    if (v.registered) return 'reg';
+  }
+  return null;
 }
 
 /** 正式連線用：帶通行碼與來源 ID 的 fetch（測試注入自己的傳輸層） */
@@ -138,99 +192,153 @@ export interface PocketSyncOptions {
 }
 
 export class PocketSync {
-  private p: Persisted;
+  /** null＝本機同步資料損壞（已停止，原始內容保留不動） */
+  private p: Persisted | null = null;
+  private corrupt: string | null = null;
   private busy = false;
-  private readonly send: Transport;
+  private readonly send: Transport | null = null;
   private readonly now: () => number;
 
   constructor(private readonly o: PocketSyncOptions) {
     this.now = o.now ?? (() => Date.now());
-    this.p = this.load();
-    this.send = o.transport(this.p.sourceId);
+    this.load();
+    if (this.p) this.send = o.transport(this.p.sourceId);
   }
 
   // ---------- 本機狀態 ----------
-  private load(): Persisted {
+  /** 尚未建立 → 建立新的；已存在但損壞或結構異常 → 停止（不覆寫、不建立新來源 ID） */
+  private load(): void {
+    let raw: string | null;
     try {
-      const v = JSON.parse(this.o.storage.getItem(SYNC_KEY) ?? 'null') as Persisted | null;
-      if (v && v.v === 1 && typeof v.sourceId === 'string' && Array.isArray(v.outbox)) return v;
+      raw = this.o.storage.getItem(SYNC_KEY);
     } catch {
-      /* 壞掉就重建（佇列遺失只會少送，不會重複） */
+      this.corrupt = 'storage_unreadable';
+      return;
     }
-    const fresh: Persisted = { v: 1, sourceId: newSourceId(), petId: null, registered: false, seq: 0, outbox: [], dead: [], seenRev: 0, epoch: 0, syncedNotes: {}, claimOpId: null };
-    this.o.storage.setItem(SYNC_KEY, JSON.stringify(fresh));
-    return fresh;
+    if (raw === null) {
+      const fresh: Persisted = { v: 2, sourceId: newSourceId(), petId: null, registered: false, seq: 0, outbox: [], dead: [], seenRev: 0, epoch: 0, syncedNotes: {}, claimOpId: null, reg: null };
+      try {
+        this.o.storage.setItem(SYNC_KEY, JSON.stringify(fresh));
+        this.p = fresh;
+      } catch {
+        this.corrupt = 'storage_unwritable';
+      }
+      return;
+    }
+    let v: unknown;
+    try {
+      v = JSON.parse(raw);
+    } catch {
+      this.corrupt = 'parse';
+      return;
+    }
+    const why = checkPersisted(v);
+    if (why) this.corrupt = why;
+    else this.p = v as Persisted;
   }
-  private save(): void {
-    this.o.storage.setItem(SYNC_KEY, JSON.stringify(this.p));
-  }
-  private nextOp(prefix: string): string {
-    this.p.seq++;
-    return `${prefix}-${this.p.sourceId.slice(-8)}-${this.p.seq}`;
-  }
-  private queue(type: QueuedEvent['type'], payload: Record<string, unknown>): QueuedEvent {
-    const e: QueuedEvent = { opId: this.nextOp('fp'), type, at: this.now(), payload };
-    this.p.outbox.push(e);
-    this.save(); // 先存進本機，才算記下這個動作
-    return e;
+
+  /** 在複本上修改，寫入本機成功後才換上（失敗丟出 LocalSaveError，記憶體也維持原狀） */
+  private commit(mut: (d: Persisted) => void): void {
+    const d = structuredClone(this.p!);
+    mut(d);
+    try {
+      this.o.storage.setItem(SYNC_KEY, JSON.stringify(d));
+    } catch {
+      throw new LocalSaveError('local save failed');
+    }
+    this.p = d;
   }
 
   /** 給 UI／測試看的狀態 */
   info() {
-    return { sourceId: this.p.sourceId, petId: this.p.petId, registered: this.p.registered, pending: this.p.outbox.length, dead: this.p.dead.length, seenRev: this.p.seenRev, epoch: this.p.epoch, outbox: this.p.outbox.map((e) => ({ ...e })) };
+    const p = this.p;
+    if (!p) return { corrupt: this.corrupt, sourceId: null, petId: null, registered: false, pending: null, dead: null, seenRev: null, epoch: null, outbox: [] as QueuedEvent[] };
+    return { corrupt: null, sourceId: p.sourceId, petId: p.petId, registered: p.registered, pending: p.outbox.length, dead: p.dead.length, seenRev: p.seenRev, epoch: p.epoch, outbox: p.outbox.map((e) => ({ ...e })) };
   }
 
-  // ---------- 記下本機動作（App 在原本的 feed／pet／play／改名之後呼叫） ----------
-  recordFed(food: string): void {
-    this.queue('FED', { food });
+  // ---------- 記下本機動作（App 在原本的 feed／pet／play／改名「之後」呼叫） ----------
+  /** 回傳 false：本機同步資料損壞或寫入失敗，這個動作沒有記進佇列 */
+  private queue(items: { type: QueuedEvent['type']; payload: (opId: string) => Record<string, unknown> }[], extra?: (d: Persisted) => void): boolean {
+    if (!this.p) return false;
+    try {
+      this.commit((d) => {
+        for (const it of items) {
+          d.seq++;
+          const opId = `fp-${d.sourceId.slice(-8)}-${d.seq}`;
+          d.outbox.push({ opId, seq: d.seq, type: it.type, at: this.now(), payload: it.payload(opId) });
+        }
+        extra?.(d);
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
-  recordPetted(): void {
-    this.queue('PETTED', {});
+  recordFed(food: string): boolean {
+    return this.queue([{ type: 'FED', payload: () => ({ food }) }]);
   }
-  recordPlayed(): void {
-    this.queue('PLAYED', {});
+  recordPetted(): boolean {
+    return this.queue([{ type: 'PETTED', payload: () => ({}) }]);
   }
-  recordRename(name: string): void {
-    this.queue('RENAME', { name });
+  recordPlayed(): boolean {
+    return this.queue([{ type: 'PLAYED', payload: () => ({}) }]);
   }
-  recordDialogue(who: 'user' | 'allay', name: string, text: string): void {
-    const opId = this.nextOp('fp');
-    this.p.outbox.push({ opId, type: 'DIALOGUE_ADD', at: this.now(), payload: { messageId: `msg-${opId}`, who, name, text: text.slice(0, 200) } });
-    this.save();
+  recordRename(name: string): boolean {
+    return this.queue([{ type: 'RENAME', payload: () => ({ name }) }]);
+  }
+  recordDialogue(who: 'user' | 'allay', name: string, text: string): boolean {
+    return this.queue([{ type: 'DIALOGUE_ADD', payload: (opId) => ({ messageId: `msg-${opId}`, who, name, text: text.slice(0, 200) }) }]);
   }
   /** 比對本機記憶與已同步的記憶，產生新增／刪除事件（同一句記憶永遠是同一個 memoryId） */
-  syncNotes(): void {
+  syncNotes(): boolean {
+    if (!this.p) return false;
     const notes = new Set(this.o.getNotes().map((n) => n.trim()).filter(Boolean));
+    const items: { type: QueuedEvent['type']; payload: () => Record<string, unknown> }[] = [];
+    const add: Record<string, string> = {};
+    const remove: string[] = [];
     for (const text of notes) if (!this.p.syncedNotes[text]) {
       const memoryId = noteId(text);
-      this.queue('MEMORY_ADD', { memoryId, text: [...text].slice(0, 60).join(''), visibility: 'private' });
-      this.p.syncedNotes[text] = memoryId;
+      items.push({ type: 'MEMORY_ADD', payload: () => ({ memoryId, text: [...text].slice(0, 60).join(''), visibility: 'private' }) });
+      add[text] = memoryId;
     }
     for (const [text, memoryId] of Object.entries(this.p.syncedNotes)) if (!notes.has(text)) {
-      this.queue('MEMORY_REMOVE', { memoryId });
-      delete this.p.syncedNotes[text];
+      items.push({ type: 'MEMORY_REMOVE', payload: () => ({ memoryId }) });
+      remove.push(text);
     }
-    this.save();
+    if (!items.length) return true;
+    return this.queue(items, (d) => {
+      Object.assign(d.syncedNotes, add);
+      for (const t of remove) delete d.syncedNotes[t];
+    });
   }
 
   // ---------- 同步 ----------
   /** 同步一次：登記 → 讀取 → （必要時取得控制權）→ 送出佇列 → 採用遠端資料 */
   async sync(opts: { takeover?: boolean } = {}): Promise<SyncResult> {
+    if (!this.p || !this.send) return { status: 'localCorrupt', sent: 0, pending: 0, detail: this.corrupt ?? undefined };
     if (this.busy) return { status: 'busy', sent: 0, pending: this.p.outbox.length };
     this.busy = true;
+    const send = this.send;
     let sent = 0;
-    const done = (status: SyncStatus, detail?: string): SyncResult => {
-      this.save();
-      return { status, sent, pending: this.p.outbox.length, rev: this.p.seenRev, detail };
-    };
+    const done = (status: SyncStatus, detail?: string): SyncResult => ({ status, sent, pending: this.p!.outbox.length, rev: this.p!.seenRev, detail });
     try {
-      const pet = this.o.getPet();
       if (!this.p.registered) {
-        const r = await this.send('POST', '/api/allay/pet/register', { petState: toPocketState(pet) });
+        // 首次登記：快照與分界序號先存進本機（重試、回應遺失、App 重啟都用同一份）
+        if (!this.p.reg) this.commit((d) => (d.reg = { snapshot: toPocketState(this.o.getPet()), boundarySeq: d.seq }));
+        const reg = this.p.reg!;
+        const r = await send('POST', '/api/allay/pet/register', { petState: reg.snapshot });
         if (r.status !== 201 && !(r.status === 409 && r.json?.error === 'EXISTS')) return done(r.status >= 500 ? 'unavailable' : 'error', `register ${r.status} ${r.json?.error ?? ''}`);
-        this.p.registered = true;
-        this.p.petId = pet.id;
-        this.save();
+        this.commit((d) => {
+          d.registered = true;
+          d.petId = reg.snapshot.id;
+          // 快照已包含的動作不再送；快照之後新增的動作（序號較大）保留
+          d.outbox = d.outbox.filter((e) => !(IN_SNAPSHOT.includes(e.type) && e.seq <= reg.boundarySeq));
+          if (r.status === 201) {
+            d.seenRev = Math.max(d.seenRev, r.json.rev);
+            d.epoch = r.json.epoch;
+          }
+          d.reg = null;
+        });
       }
       const petId = this.p.petId!;
       let st = await this.read(petId);
@@ -269,7 +377,7 @@ export class PocketSync {
           }
         } else batch = this.p.outbox;
         batch = batch.slice(0, singleMode ? 1 : BATCH);
-        const r = await this.send('POST', '/api/allay/events', {
+        const r = await send('POST', '/api/allay/events', {
           pet: petId,
           baseRevision: st.rev,
           epoch: st.epoch,
@@ -277,9 +385,13 @@ export class PocketSync {
         });
         if (r.status === 200) {
           const acked = new Set((r.json.results as { opId: string; status: string }[]).filter((x) => x.status === 'APPLIED' || x.status === 'DUPLICATE').map((x) => x.opId));
-          sent += [...acked].length;
-          this.p.outbox = this.p.outbox.filter((e) => !acked.has(e.opId));
-          this.save();
+          // 佇列確認與已確認的 revision／epoch 同一次寫入；寫入失敗 → localSaveFailed（不算完成）
+          this.commit((d) => {
+            d.outbox = d.outbox.filter((e) => !acked.has(e.opId));
+            d.seenRev = Math.max(d.seenRev, r.json.rev);
+            d.epoch = r.json.epoch;
+          });
+          sent += acked.size;
           const again = await this.read(petId);
           if (typeof again === 'string') return done(again);
           st = again;
@@ -298,9 +410,11 @@ export class PocketSync {
             singleMode = true; // 一筆一筆送，找出是哪一筆
             continue;
           }
-          this.p.dead.push({ ...batch[0], why: `${r.status} ${err ?? ''}` });
-          this.p.outbox = this.p.outbox.filter((e) => e.opId !== batch[0].opId);
-          this.save();
+          const bad = batch[0];
+          this.commit((d) => {
+            d.dead.push({ ...bad, why: `${r.status} ${err ?? ''}` });
+            d.outbox = d.outbox.filter((e) => e.opId !== bad.opId);
+          });
           continue;
         }
         if (r.status === 507) return done('capacity');
@@ -312,6 +426,7 @@ export class PocketSync {
       }
       return done(this.p.outbox.length ? 'unavailable' : 'ok');
     } catch (e) {
+      if (e instanceof LocalSaveError) return done('localSaveFailed');
       return done('offline', String((e as Error)?.message ?? e));
     } finally {
       this.busy = false;
@@ -323,25 +438,35 @@ export class PocketSync {
     return this.sync({ takeover: true });
   }
 
-  /** 讀取 Hub 的狀態；回傳狀態物件，或停止原因 */
+  /** 讀取 Hub 的狀態；回傳狀態物件，或停止原因。讀取失敗不會改動已確認的版本 */
   private async read(petId: string): Promise<HubState | SyncStatus> {
-    const r = await this.send('GET', `/api/allay/state?pet=${encodeURIComponent(petId)}`);
+    const r = await this.send!('GET', `/api/allay/state?pet=${encodeURIComponent(petId)}`);
     if (r.status === 404) return 'hubMissing';
     if (r.status !== 200) return r.status === 503 ? 'unavailable' : 'error';
     const st = r.json as HubState;
-    // 防倒退：Hub 的版本比上次看到的小 → 停止，不採用、不送出
-    if (st.rev < this.p.seenRev) return 'hubRollback';
-    this.p.seenRev = st.rev;
-    this.p.epoch = st.epoch;
+    // 防倒退：Hub 的版本比已確認的小 → 停止，不採用、不送出、保留佇列
+    if (st.rev < this.p!.seenRev) return 'hubRollback';
+    if (st.rev !== this.p!.seenRev || st.epoch !== this.p!.epoch)
+      this.commit((d) => {
+        d.seenRev = st.rev;
+        d.epoch = st.epoch;
+      });
     return st;
   }
 
   private async claim(petId: string, rev: number): Promise<'ok' | 'conflict' | SyncStatus> {
-    this.p.claimOpId ??= this.nextOp('claim');
-    this.save();
-    const r = await this.send('POST', '/api/allay/control/claim', { pet: petId, baseRevision: rev, opId: this.p.claimOpId });
+    if (!this.p!.claimOpId)
+      this.commit((d) => {
+        d.seq++;
+        d.claimOpId = `claim-${d.sourceId.slice(-8)}-${d.seq}`;
+      });
+    const r = await this.send!('POST', '/api/allay/control/claim', { pet: petId, baseRevision: rev, opId: this.p!.claimOpId });
     if (r.status === 200) {
-      this.p.claimOpId = null;
+      this.commit((d) => {
+        d.claimOpId = null;
+        d.seenRev = Math.max(d.seenRev, r.json.rev);
+        d.epoch = Math.max(d.epoch, r.json.epoch);
+      });
       return 'ok';
     }
     if (r.status === 409 && r.json?.error === 'REVISION_CONFLICT') return 'conflict';
@@ -350,9 +475,10 @@ export class PocketSync {
 
   /** 採用 Hub 的資料：佇列清空後才採用名字、感情、統計；從 Minecraft 接回控制權時也採用生活數值 */
   private adopt(st: HubState, handoverFromMc: boolean): void {
+    const p = this.p!;
     const r: RemoteApply = { rev: st.rev, sharedMemories: (st.memories ?? []).filter((m) => m.src === 'mc').map((m) => String(m.text)) };
-    const pendingRename = this.p.outbox.some((e) => e.type === 'RENAME');
-    const pendingNumeric = this.p.outbox.some((e) => NUMERIC.includes(e.type));
+    const pendingRename = p.outbox.some((e) => e.type === 'RENAME');
+    const pendingNumeric = p.outbox.some((e) => NUMERIC.includes(e.type));
     if (!pendingRename) r.name = st.profile?.name;
     if (!pendingNumeric) {
       r.affection = st.state?.affection;

@@ -1,0 +1,215 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./vite.config" without a file extension (vitest.config.ts:4:24). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v5.1.0 C:/Users/gaday/Desktop/FairyPoket/.worktrees/h31-old
+
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 改名、感情、記憶：同步後一致；App 重啟＋Hub 重啟後仍一致、不重複計算 99ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 離線：動作留在本機佇列；App 重啟後佇列還在；連上後只套用一次 25ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 回應遺失：Hub 其實已套用，重送只回 DUPLICATE，不會多算 19ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > revision 衝突：送出前 Minecraft 先改了 → 重新讀取、同樣的 opId 重送，兩邊的變化都在 40ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 控制權交接：Minecraft 控制中不搶（數值事件等待）；Minecraft 放開後接回，採用 Minecraft 期間的數值再送出 66ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 主人明確「叫回手機」：即使 Minecraft 沒放開也接管；Minecraft 舊世代的數值事件被拒 37ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 防倒退：Hub 被還原成較舊的資料 → 停止同步、不採用遠端數值、保留佇列 27ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 不送快照：適配器送出的事件只有 FED／PETTED／PLAYED／RENAME／MEMORY_*／DIALOGUE_ADD，沒有 VITALS_SYNC 15ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 記憶：刪除會同步；同一句記憶永遠同一個 ID；Minecraft 的記憶分開保存、不擠掉手機的記憶 40ms
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > 改名 Minecraft 也看得到；Minecraft 不能改名 29ms
+ × tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-1 損壞（無法解析）：停止同步、不建新來源 ID、不覆寫原始內容、不連線；動作不會假裝記下；App 存檔不受影響 10ms
+   → expected { …(8) } to match object { corrupt: 'parse', …(2) }
+(6 matching properties omitted from actual)
+ × tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-1 可解析但結構異常（舊版、來源 ID、opId、序號、型別、欄位）：一律安全拒絕，待送事件原封不動 4ms
+   → version: expected undefined to be 'version' // Object.is equality
+ × tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-1 對照：還沒有同步資料時才建立新的；正常資料重開後同一個來源 ID、佇列完整 3ms
+   → expected undefined to be null // Object.is equality
+ × tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-2 首次同步前只摸頭一次：Hub 的摸頭次數與感情只增加一次 13ms
+   → expected [ 2, 13 ] to deeply equal [ 1, 11.5 ]
+ × tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-2 登記期間新增的動作：保留並正確送出（快照之後的動作不會被丟掉） 13ms
+   → expected [ 3, 14.5 ] to deeply equal [ 2, 13 ]
+ × tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-2 登記回應遺失＋App 重啟：用同一份快照重試，不會重複計算；來源 ID 與事件 ID 不變 13ms
+   → expected [ 3, 14.5 ] to deeply equal [ 2, 13 ]
+ × tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-3（Astra 情境）事件提交成功到 rev 2 → 後續讀取失敗 → Hub 還原成 rev 1 → 再同步：hubRollback，不採用倒退的統計 15ms
+   → expected { …(8) } to match object { seenRev: 2, pending: +0 }
+(6 matching properties omitted from actual)
+ × tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-3 本機寫入失敗：Hub 已提交也不算同步成功（localSaveFailed）；恢復後重送只回 DUPLICATE 13ms
+   → quota
+ ✓ tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-3 對照：正常同步後，已確認的 revision／epoch 與 Hub 一致並已存入本機 12ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 8 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-1 損壞（無法解析）：停止同步、不建新來源 ID、不覆寫原始內容、不連線；動作不會假裝記下；App 存檔不受影響
+AssertionError: expected { …(8) } to match object { corrupt: 'parse', …(2) }
+(6 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "corrupt": "parse",
+-   "pending": null,
+-   "sourceId": null,
++   "pending": 0,
++   "sourceId": "pocket-db6c270537fd13eb",
+  }
+
+ ❯ tests/h3/pocketSync.test.ts:347:29
+    345|     kv.setItem(SYNC_KEY, '{broken');
+    346|     const app = makeApp(kv, synthPet());
+    347|     expect(app.sync.info()).toMatchObject({ corrupt: 'parse', sourceId…
+       |                             ^
+    348|     expect(app.sync.recordPetted()).toBe(false);
+    349|     expect(app.sync.syncNotes()).toBe(false);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-1 可解析但結構異常（舊版、來源 ID、opId、序號、型別、欄位）：一律安全拒絕，待送事件原封不動
+AssertionError: version: expected undefined to be 'version' // Object.is equality
+
+- Expected:
+"version"
+
++ Received:
+undefined
+
+ ❯ tests/h3/pocketSync.test.ts:387:44
+    385|       kv.setItem(SYNC_KEY, raw);
+    386|       const app = makeApp(kv, synthPet());
+    387|       expect(app.sync.info().corrupt, why).toBe(why);
+       |                                            ^
+    388|       expect((await app.sync.sync()).status).toBe('localCorrupt');
+    389|       expect(app.sync.recordPetted()).toBe(false);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-1 對照：還沒有同步資料時才建立新的；正常資料重開後同一個來源 ID、佇列完整
+AssertionError: expected undefined to be null // Object.is equality
+
+- Expected:
+null
+
++ Received:
+undefined
+
+ ❯ tests/h3/pocketSync.test.ts:400:35
+    398|     const kv = memoryKV();
+    399|     const a = makeApp(kv, synthPet());
+    400|     expect(a.sync.info().corrupt).toBe(null);
+       |                                   ^
+    401|     a.sync.recordPetted();
+    402|     const b = makeApp(kv, synthPet());
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-2 首次同步前只摸頭一次：Hub 的摸頭次數與感情只增加一次
+AssertionError: expected [ 2, 13 ] to deeply equal [ 1, 11.5 ]
+
+- Expected
++ Received
+
+  [
+-   1,
+-   11.5,
++   2,
++   13,
+  ]
+
+ ❯ tests/h3/pocketSync.test.ts:418:49
+    416|     expect([r.status, r.pending]).toEqual(['ok', 0]);
+    417|     const s = await hubState();
+    418|     expect([s.stats.petted, s.state.affection]).toEqual([1, 11.5]); //…
+       |                                                 ^
+    419|     expect(app.pet.affection).toBe(11.5);
+    420|     expect(s.memories.map((m: { text: string }) => m.text)).toEqual(['…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-2 登記期間新增的動作：保留並正確送出（快照之後的動作不會被丟掉）
+AssertionError: expected [ 3, 14.5 ] to deeply equal [ 2, 13 ]
+
+- Expected
++ Received
+
+  [
+-   2,
+-   13,
++   3,
++   14.5,
+  ]
+
+ ❯ tests/h3/pocketSync.test.ts:436:49
+    434|     expect([r.status, r.pending]).toEqual(['ok', 0]);
+    435|     const s = await hubState();
+    436|     expect([s.stats.petted, s.state.affection]).toEqual([2, 13]);
+       |                                                 ^
+    437|     expect(app.pet.affection).toBe(13);
+    438|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-2 登記回應遺失＋App 重啟：用同一份快照重試，不會重複計算；來源 ID 與事件 ID 不變
+AssertionError: expected [ 3, 14.5 ] to deeply equal [ 2, 13 ]
+
+- Expected
++ Received
+
+  [
+-   2,
+-   13,
++   3,
++   14.5,
+  ]
+
+ ❯ tests/h3/pocketSync.test.ts:460:49
+    458|     expect([r.status, r.pending]).toEqual(['ok', 0]);
+    459|     const s = await hubState();
+    460|     expect([s.stats.petted, s.state.affection]).toEqual([2, 13]);
+       |                                                 ^
+    461|   });
+    462|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-3（Astra 情境）事件提交成功到 rev 2 → 後續讀取失敗 → Hub 還原成 rev 1 → 再同步：hubRollback，不採用倒退的統計
+AssertionError: expected { …(8) } to match object { seenRev: 2, pending: +0 }
+(6 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "pending": 0,
+-   "seenRev": 2,
++   "seenRev": 1,
+  }
+
+ ❯ tests/h3/pocketSync.test.ts:480:29
+    478|     const r = await app.sync.sync();
+    479|     expect(r.status).toBe('unavailable');
+    480|     expect(app.sync.info()).toMatchObject({ seenRev: 2, pending: 0 });
+       |                             ^
+    481|     expect(JSON.parse(kv.getItem(SYNC_KEY)!).seenRev).toBe(2); // 已持久保存
+    482|     app.net.failReads = 0;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  tests/h3/pocketSync.test.ts > H3-1 Pocket 同步（隔離 Hub） > P1-3 本機寫入失敗：Hub 已提交也不算同步成功（localSaveFailed）；恢復後重送只回 DUPLICATE
+Error: quota
+ ❯ Object.setItem tests/h3/pocketSync.test.ts:499:117
+    497|     const inner = memoryKV();
+    498|     let failWrites = false;
+    499|     const kv: KV = { getItem: (k) => inner.getItem(k), setItem: (k, v)…
+       |                                                                                                                     ^
+    500|     const app = makeApp(kv, synthPet());
+    501|     await app.sync.sync();
+ ❯ PocketSync.save src/hub/pocketSync.ts:165:20
+ ❯ done src/hub/pocketSync.ts:223:12
+ ❯ PocketSync.sync src/hub/pocketSync.ts:315:14
+ ❯ tests/h3/pocketSync.test.ts:506:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  8 failed | 11 passed (19)
+   Start at  21:51:16
+   Duration  813ms (tests 74%, transform 18%, import 7%, worker 1%)
+
