@@ -32,7 +32,8 @@ import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
 import { DIRECT_EVENTS, intentName, isLifeSlot, lifeEventText, lifeRules, lifeTextVoiceOn, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
-import { listModels, look } from './brain/brain';
+import { fetchTts, listModels, look } from './brain/brain';
+import { HABITS, addLog, awayText, bumpLike, lastLifeSeen, loadLikes, loadLog, markLifeSeen, rhythmText, saveLikes, saveLog, todayLog, topLikes } from './life/rhythm';
 import { LOOK_EVERY, SAW_EVERY, SIGHT_FRESH, VISION_PROMPT, lifeVisionOn, newThings, parseVision, snapshot, type Sight } from './life/vision';
 import { pickVoice, loadTtsVoices } from './ttsVoice';
 import { Recognizer, speechSupported } from './speech';
@@ -739,6 +740,16 @@ const lifeRecent: LifeIntentName[] = [];
 let lifePending: string[] = [];
 let lifePendingDirect = false;
 let lifeFlushTimer = 0;
+/** 今天真的發生過的事、喜好（第二階段，存在手機裡） */
+const lifeLog = loadLog();
+const lifeLikes = loadLikes();
+/** 記到「今天發生的事」的事件（作息、自己決定的不記） */
+const LOGGED_EVENTS = new Set<LifeEvent>(['petted', 'tickled', 'woken', 'called', 'fed', 'favoriteFood', 'full', 'caughtBall', 'bath', 'noteBlock', 'bedTap', 'firework', 'cake', 'friend', 'wave', 'saw', 'milestone', 'renamed']);
+const SAID_LOG: Record<Lang, (t: string) => string> = {
+  zh_tw: (t) => `主人跟你說「${t}」`,
+  ja_jp: (t) => `主人が「${t}」と言った`,
+  en_us: (t) => `Your friend said "${t}"`,
+};
 
 /** 回答用錯語言時，重問一次附上的提醒 */
 const LIFE_LANG_REMIND: Record<Lang, string> = {
@@ -771,6 +782,10 @@ function lifeFromLine(kind: LineKind, food: Food | null, d: number | string): vo
 function lifeEvent(e: LifeEvent, d = ''): void {
   if (!lifeSlot) return;
   const text = lifeEventText(e, talkLang(), d);
+  if (LOGGED_EVENTS.has(e)) {
+    addLog(lifeLog, text, talkLang());
+    saveLog(lifeLog);
+  }
   if (!lifePending.includes(text)) lifePending.push(text);
   if (lifePending.length > 4) lifePending.shift();
   if (DIRECT_EVENTS.has(e)) {
@@ -905,13 +920,37 @@ function lifeVoice(): boolean {
   return lifeSlot === 'lifetext' ? lifeTextVoiceOn() : !!lifeSlot;
 }
 
-/** 生命模式的說話：暫時用裝置內建的語音（第三階段換成即時生成的自然語音）；不用悅靈語假裝成自由對話 */
-function lifeSpeak(text: string, lang: Lang): void {
+/** 即時語音暫時不能用（轉接程式還沒更新、沒金鑰、免費額度用完）：這段時間直接用裝置內建語音 */
+let ttsOffUntil = 0;
+/** 說話時暫停聽（避免聽到自己的聲音） */
+function lifeDeaf(sec: number): void {
+  talkDeafUntil = performance.now() + sec * 1000 + 500;
+  listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
+}
+/**
+ * 生命模式的說話（第三階段）：先請家裡電腦用微軟神經語音即時念（自然、有心情的語調，前面有紫水晶鈴聲），
+ * 不能用時改用裝置內建的語音；不用悅靈語假裝成自由對話。
+ */
+async function lifeSpeak(text: string, lang: Lang, feeling: Feeling = null): Promise<void> {
+  const vol = sound.level('voice');
+  lifeDeaf(Math.min(14, 0.8 + text.length * (lang === 'en_us' ? 0.07 : 0.2)));
+  if (vol <= 0) return;
+  const epoch = lifeEpoch;
+  const cfg = loadBrain();
+  if (performance.now() >= ttsOffUntil && navigator.onLine) {
+    const r = await fetchTts(cfg, text, lang, feeling);
+    if (epoch !== lifeEpoch || !lifeSlot) return;
+    if (r.ok) {
+      const buf = await sound.decodeMono(r.audio);
+      const sec = buf ? sound.playClip(buf) : 0;
+      if (sec > 0) return lifeDeaf(sec);
+    } else if (r.why !== 'net') ttsOffUntil = performance.now() + 10 * 60_000;
+  }
+  deviceSpeak(text, lang);
+}
+function deviceSpeak(text: string, lang: Lang): void {
   const s = window.speechSynthesis;
   const vol = sound.level('voice');
-  const est = Math.min(14, 0.8 + text.length * (lang === 'en_us' ? 0.07 : 0.2));
-  talkDeafUntil = performance.now() + est * 1000 + 500;
-  listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
   if (!s || vol <= 0) return;
   s.cancel();
   const u = new SpeechSynthesisUtterance(text);
@@ -932,6 +971,8 @@ function lifeSpeak(text: string, lang: Lang): void {
 /** 照 AI 的意圖讓控制器行動 */
 function lifeDo(i: LifeIntentName): void {
   lifeRecent.push(i);
+  bumpLike(lifeLikes, i);
+  saveLikes(lifeLikes);
   if (lifeRecent.length > 5) lifeRecent.shift();
   if (i === 'eat_cake') {
     // 地上有蛋糕就飛過去吃；沒有的話（AI 說錯）就在附近找找看
@@ -983,6 +1024,10 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<
         seen: lifeSeen(lang),
         vision: lifeVision(),
         sight: lifeVision() ? lifeSightText() : '',
+        rhythm: rhythmText(new Date().getHours(), HABITS[pet.personality], lang),
+        today: todayLog(lifeLog, lang),
+        likes: topLikes(lifeLikes).map((i) => intentName(i, lang)),
+        hasNotes: brainMem.notes.length > 0,
       },
       lang,
     );
@@ -1022,6 +1067,10 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<
   }
   // 記憶：主人說的話、發生的事、悅靈做的事（自己決定下一步的提示不記）
   if (how !== 'decide') remember(brainMem, 'user', text);
+  if (how === 'chat') {
+    addLog(lifeLog, SAID_LOG[lang](text.length > 24 ? `${text.slice(0, 24)}…` : text), lang);
+    saveLog(lifeLog);
+  }
   const did = [
     ...(r.intent ? [`（意圖：${intentName(r.intent, lang)}）`] : []),
     ...(r.actions.length ? [`（${GESTURE_LABEL[lang]}：${r.actions.map((g) => gestureName(g, lang)).join('、')}）`] : []),
@@ -1044,7 +1093,7 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<
   if (r.text) {
     const en = lang === 'en_us';
     hud.say(r.text, Math.max(3200, r.text.length * (en ? 70 : 230)));
-    if (lifeVoice()) lifeSpeak(r.text, lang);
+    if (lifeVoice()) void lifeSpeak(r.text, lang, r.feeling);
     lastSpoke = performance.now();
   }
   // 下一次自己決定至少隔 6 秒
@@ -1132,9 +1181,17 @@ function lifeStart(slot: LifeSlot): void {
     if (lifeSlot !== slot) return;
     if (!r.ok) return lifeFail();
     lifeNextAt = 0;
-    lifeDecide();
+    // 上次在生命模式是 30 分鐘以前：告訴 AI 過了多久（不編造這段時間的事）
+    const last = lastLifeSeen();
+    if (first && last && Date.now() - last > 30 * 60_000) lifeEvent('back', awayText(last, Date.now(), HABITS[pet.personality], talkLang()));
+    else lifeDecide();
+    markLifeSeen();
   });
 }
+// 生命模式開著時，每分鐘記一下「最後在的時間」（下次打開 App 時算離開多久）
+window.setInterval(() => {
+  if (lifeSlot && document.visibilityState === 'visible') markLifeSeen();
+}, 60_000);
 /** 第一次用動態生命模式、還沒打開「看畫面」時提示一次 */
 function visionHintOnce(): void {
   try {
@@ -1151,6 +1208,7 @@ function lifeStop(): void {
   lifeEpoch++;
   lifeSight = null;
   sensorBox.classList.remove('looking');
+  markLifeSeen();
   lifePending = [];
   lifeStandby = false;
   window.speechSynthesis?.cancel();
@@ -1165,8 +1223,12 @@ function lifeStop(): void {
 // 主人離開一陣子再回來：告訴 AI（要不要打招呼由 AI 決定）
 let lifeHiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') lifeHiddenAt = Date.now();
-  else if (lifeSlot && Date.now() - lifeHiddenAt > 10 * 60_000) lifeEvent('greet');
+  if (document.visibilityState === 'hidden') {
+    lifeHiddenAt = Date.now();
+    if (lifeSlot) markLifeSeen();
+  } else if (lifeSlot && lifeHiddenAt && Date.now() - lifeHiddenAt > 10 * 60_000) {
+    lifeEvent('back', awayText(lifeHiddenAt, Date.now(), HABITS[pet.personality], talkLang()));
+  }
 });
 
 /** 揮手感應的冷卻：AI 判斷時 12 秒、規則反應時 8 秒內不重複（以前每次感應到都揮手） */

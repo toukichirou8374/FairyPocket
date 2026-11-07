@@ -3,7 +3,7 @@
 //
 // 安全防護：
 // - 只聽 127.0.0.1：區域網路、外部網路都連不到，只有 tailscale serve（Tailscale 網路內）轉得進來。
-// - 只開放悅靈用到的兩個功能：GET /api/tags（看有哪些模型）、POST /api/chat（聊天）。
+// - 只開放悅靈用到的功能：GET /api/tags（看有哪些模型）、POST /api/chat（聊天）、POST /api/tts（生命模式的即時語音，見 tts-azure.mjs）。
 //   Ollama 的下載、刪除、建立模型等功能一律擋掉。
 // - 要有通行碼（private/ai-token.txt，第一次執行時自動產生；private/ 不會上傳）。
 // - 只接受悅靈網站（與本機開發用網址）的瀏覽器連線。
@@ -17,13 +17,14 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { cloudChat, cloudStatus, isOwner } from './cloud-ai.mjs';
+import { tts } from './tts-azure.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TOKEN_FILE = path.join(ROOT, 'private', 'ai-token.txt');
 const LISTEN = { host: '127.0.0.1', port: 11435 };
 const OLLAMA = { host: '127.0.0.1', port: 11434 };
 const ORIGINS = new Set(['https://toukichirou8374.github.io', 'http://localhost:4173', 'http://localhost:5173']);
-const ROUTES = new Set(['GET /api/tags', 'POST /api/chat', 'POST /api/cloud/chat', 'GET /api/cloud/status']);
+const ROUTES = new Set(['GET /api/tags', 'POST /api/chat', 'POST /api/cloud/chat', 'GET /api/cloud/status', 'POST /api/tts']);
 /** 雲端 AI（要花錢）：只有電腦主人本人的 Tailscale 帳號能用 */
 const CLOUD = new Set(['POST /api/cloud/chat', 'GET /api/cloud/status']);
 const MAX_BODY = 64 * 1024;
@@ -91,6 +92,33 @@ const server = http.createServer((req, res) => {
   if (!tokenOk(req.headers.authorization)) return void res.writeHead(401).end();
   if (!rateOk()) return void res.writeHead(429).end();
   if (Number(req.headers['content-length'] ?? 0) > MAX_BODY) return void res.writeHead(413).end();
+
+  // 即時語音（微軟免費額度；有通行碼的家人都能用，金鑰留在這台電腦）
+  if (route === 'POST /api/tts') {
+    let body = '';
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > 4096) return void req.destroy();
+      body += c;
+    });
+    req.on('end', async () => {
+      let parsed = null;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        return void res.writeHead(400).end();
+      }
+      const [code, out] = await tts(parsed);
+      if (Buffer.isBuffer(out)) {
+        res.writeHead(code, { 'content-type': 'audio/mpeg', 'cache-control': 'no-store' });
+        return void res.end(out);
+      }
+      res.writeHead(code, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(out));
+    });
+    return;
+  }
 
   if (CLOUD.has(route)) {
     // 連到同一個 Tailscale 網路的其他人不能用雲端 AI；電腦主人本人在外面也可以

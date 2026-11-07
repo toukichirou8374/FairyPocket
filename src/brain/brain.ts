@@ -359,6 +359,28 @@ export async function look(cfg: BrainConfig, prompt: string, jpegB64: string, ti
   }
 }
 
+export type TtsResult = { ok: true; audio: Blob } | { ok: false; why: 'off' | 'budget' | 'net' };
+
+/** 生命模式的即時語音：家裡電腦用微軟免費語音念成 mp3（金鑰在電腦上）。轉接程式太舊、沒金鑰回 off，額度用完回 budget */
+export async function fetchTts(cfg: BrainConfig, text: string, lang: Lang, feeling: Feeling = null, timeoutMs = 8000): Promise<TtsResult> {
+  if (!cfg.on || !cfg.url || !safeBrainUrl(cfg.url)) return { ok: false, why: 'off' };
+  try {
+    const r = await fetch(`${base(cfg.url)}/api/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders(cfg) },
+      body: JSON.stringify({ text, lang, feeling }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (r.status === 402) return { ok: false, why: 'budget' };
+    if (r.status === 404 || r.status === 503 || r.status === 401) return { ok: false, why: 'off' };
+    if (!r.ok) return { ok: false, why: 'net' };
+    const audio = await r.blob();
+    return audio.size ? { ok: true, audio } : { ok: false, why: 'net' };
+  } catch {
+    return { ok: false, why: 'net' };
+  }
+}
+
 // ---------- 雲端 AI（第三層：Claude Haiku 5.5，經由家裡電腦代送；只有主人本人能用） ----------
 export type CloudResult =
   | { ok: true; text: string }

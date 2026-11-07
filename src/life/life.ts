@@ -142,10 +142,42 @@ export interface LifeState {
   sight?: string;
   /** 主人有沒有同意 AI 看畫面 */
   vision?: boolean;
+  /** 作息說明（第二階段） */
+  rhythm?: string;
+  /** 今天真的發生過的事（前面有時間） */
+  today?: string[];
+  /** 最近常做的事（目前語言的名稱） */
+  likes?: string[];
+  /** 有沒有記得關於主人的事 */
+  hasNotes?: boolean;
   /** 有沒有開麥克風／鏡頭 */
   mic: boolean;
   camera: boolean;
 }
+
+const LIFE_EXTRA: Record<Lang, (s: LifeState) => string> = {
+  zh_tw: (s) =>
+    [
+      s.rhythm ?? '',
+      s.today?.length ? `今天真的發生過的事（可以提起，但不要編造其他的）：${s.today.join('；')}。` : '',
+      s.likes?.length ? `你最近常做、應該是你喜歡的事：${s.likes.join('、')}。可以照自己的喜好安排，偶爾也試試別的。` : '',
+      s.hasNotes ? '你記得的主人的事也可以影響你想做的事（例如主人喜歡恐龍，你可能會想像恐龍、想跟主人分享），但不要每次都提。' : '',
+    ].filter(Boolean).join('\n'),
+  ja_jp: (s) =>
+    [
+      s.rhythm ?? '',
+      s.today?.length ? `きょうほんとうにあったこと（話してもいいけど、ほかのことは作らないで）：${s.today.join('；')}。` : '',
+      s.likes?.length ? `さいきんよくしていること＝あなたの好きなこと：${s.likes.join('、')}。好きなようにすごしていいけど、ときどきちがうこともしてみて。` : '',
+      s.hasNotes ? 'おぼえている主人のことも、したいことに影響していいです（主人が恐竜好きなら恐竜を想像するなど）。でも毎回は言わないで。' : '',
+    ].filter(Boolean).join('\n'),
+  en_us: (s) =>
+    [
+      s.rhythm ?? '',
+      s.today?.length ? `Things that really happened today (you may mention them, but don't invent others): ${s.today.join('; ')}.` : '',
+      s.likes?.length ? `Things you've been doing a lot, probably what you like: ${s.likes.join(', ')}. Follow your likes, but try other things sometimes.` : '',
+      s.hasNotes ? "What you remember about your friend can shape what you want to do (e.g. if they love dinosaurs you might pretend to be one or want to share), but don't bring it up every time." : '',
+    ].filter(Boolean).join('\n'),
+};
 
 const LIFE_RULES: Record<Lang, (s: LifeState, menu: string) => string> = {
   zh_tw: (s, menu) => `
@@ -205,13 +237,14 @@ const MUST_TAG: Record<Lang, string> = {
 
 export function lifeRules(s: LifeState, lang: Lang): string {
   const menu = availableIntents(s).map((i) => intentName(i, lang)).join(lang === 'en_us' ? ', ' : '、');
-  return `${LIFE_RULES[lang](s, menu)}\n${MUST_TAG[lang]}\n${LANG_LAST[lang]}`;
+  const extra = LIFE_EXTRA[lang](s);
+  return `${LIFE_RULES[lang](s, menu)}${extra ? `\n${extra}` : ''}\n${MUST_TAG[lang]}\n${LANG_LAST[lang]}`;
 }
 
 // ---------- 發生的事（交給 AI 判斷要怎麼反應） ----------
 export type LifeEvent =
   | 'decide' | 'asleepCheck' | 'petted' | 'tickled' | 'woken' | 'called' | 'fed' | 'favoriteFood' | 'full'
-  | 'caughtBall' | 'bath' | 'noteBlock' | 'bedTap' | 'firework' | 'cake' | 'friend' | 'wave' | 'appear' | 'left' | 'busy' | 'saw' | 'greet' | 'milestone' | 'renamed';
+  | 'caughtBall' | 'bath' | 'noteBlock' | 'bedTap' | 'firework' | 'cake' | 'friend' | 'wave' | 'appear' | 'left' | 'busy' | 'saw' | 'back' | 'greet' | 'milestone' | 'renamed';
 
 const EVENTS: Record<LifeEvent, Record<Lang, string>> = {
   decide: {
@@ -251,6 +284,7 @@ const EVENTS: Record<LifeEvent, Record<Lang, string>> = {
     ja_jp: '（カメラをちらっと見たら：{d}。言いたいことがあれば一言、たとえば新しいものに興味を持って。言わなくてもいいです。）',
     en_us: "(You peeked at the camera and saw: {d}. Say one line if you like, e.g. curious about something new; or stay quiet.)",
   },
+  back: { zh_tw: '{d}', ja_jp: '{d}', en_us: '{d}' },
   greet: { zh_tw: '（主人回來打開了 App）', ja_jp: '（主人がもどってきてアプリをひらいた）', en_us: '(Your friend came back and opened the app)' },
   milestone: { zh_tw: '（今天是值得紀念的日子：{d}）', ja_jp: '（きょうは記念の日：{d}）', en_us: '(Today is a special day: {d})' },
   renamed: { zh_tw: '（主人幫你取了新名字：{d}）', ja_jp: '（主人が新しい名前をつけてくれた：{d}）', en_us: '(Your friend gave you a new name: {d})' },
@@ -261,7 +295,7 @@ export function lifeEventText(e: LifeEvent, lang: Lang, d = ''): string {
 }
 
 /** 主人會等回應的事（主人做了什麼）；其他（決定下一步、睡覺中）多半安靜 */
-export const DIRECT_EVENTS = new Set<LifeEvent>(['petted', 'tickled', 'woken', 'called', 'fed', 'favoriteFood', 'full', 'caughtBall', 'bath', 'bedTap', 'wave', 'greet', 'renamed']);
+export const DIRECT_EVENTS = new Set<LifeEvent>(['petted', 'tickled', 'woken', 'called', 'fed', 'favoriteFood', 'full', 'caughtBall', 'bath', 'bedTap', 'wave', 'greet', 'back', 'renamed']);
 
 // ---------- 設定：文字生命模式要不要念出 AI 的回答（預設關） ----------
 const VOICE_KEY = 'fairypocket.lifevoice.v1';
