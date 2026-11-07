@@ -335,6 +335,30 @@ export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, te
   }
 }
 
+/** 請家裡電腦的 AI 看一張截圖（只送家裡電腦，不送雲端；不帶對話記憶）。失敗回傳 null */
+export async function look(cfg: BrainConfig, prompt: string, jpegB64: string, timeoutMs = 30000): Promise<string | null> {
+  if (!cfg.on || !cfg.url || !safeBrainUrl(cfg.url) || !jpegB64) return null;
+  try {
+    const r = await fetch(`${base(cfg.url)}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders(cfg) },
+      body: JSON.stringify({
+        model: cfg.model,
+        messages: [{ role: 'user', content: prompt, images: [jpegB64] }],
+        stream: false,
+        keep_alive: '30m',
+        options: { temperature: 0.2, num_predict: 90 },
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as { message?: { content?: string } };
+    return j.message?.content ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------- 雲端 AI（第三層：Claude Haiku 5.5，經由家裡電腦代送；只有主人本人能用） ----------
 export type CloudResult =
   | { ok: true; text: string }

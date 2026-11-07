@@ -32,7 +32,8 @@ import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
 import { DIRECT_EVENTS, intentName, isLifeSlot, lifeEventText, lifeRules, lifeTextVoiceOn, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
-import { listModels } from './brain/brain';
+import { listModels, look } from './brain/brain';
+import { LOOK_EVERY, SAW_EVERY, SIGHT_FRESH, VISION_PROMPT, lifeVisionOn, newThings, parseVision, snapshot, type Sight } from './life/vision';
 import { pickVoice, loadTtsVoices } from './ttsVoice';
 import { Recognizer, speechSupported } from './speech';
 import { neuralBuffer } from './neuralVoice';
@@ -853,6 +854,52 @@ window.setInterval(() => {
   }
 }, 5000);
 
+// 動態生命模式＋主人同意「看畫面」：鏡頭前有人時，最多每 30 秒把低解析度截圖送到家裡電腦的 AI 看一下
+// （不送雲端、不存檔）。看到的描述給 AI 參考；出現新東西時讓 AI 決定要不要說一句。
+let lifeSight: (Sight & { at: number }) | null = null;
+let lifeLooking = false;
+let lifeLookAt = -Infinity;
+let lifeSawAt = -Infinity;
+let lifeLookFails = 0;
+function lifeVision(): boolean {
+  return lifeSlot === 'lifelive' && sensor.on && lifeVisionOn();
+}
+function lifeSightText(): string {
+  if (!lifeSight || performance.now() - lifeSight.at > SIGHT_FRESH * 1000) return '';
+  return lifeSight.desc || lifeSight.things.join(talkLang() === 'en_us' ? ', ' : '、');
+}
+async function lifeLook(): Promise<void> {
+  const now = performance.now();
+  if (!lifeVision() || lifeLooking || document.visibilityState !== 'visible') return;
+  if (now - lastPersonAt > 5000 || now - lifeLookAt < LOOK_EVERY * 1000 * Math.min(4, 1 + lifeLookFails)) return;
+  const cfg = loadBrain();
+  if (!cfg.on || !cfg.url || !navigator.onLine) return;
+  const img = snapshot(sensor.video, sensor.facing === 'user');
+  if (!img) return;
+  lifeLooking = true;
+  lifeLookAt = now;
+  const epoch = lifeEpoch;
+  const lang = talkLang();
+  sensorBox.classList.add('looking');
+  const raw = await look(cfg, VISION_PROMPT[lang], img);
+  sensorBox.classList.remove('looking');
+  lifeLooking = false;
+  if (epoch !== lifeEpoch || !lifeVision()) return;
+  const sight = raw ? parseVision(raw) : null;
+  if (!sight) {
+    lifeLookFails++;
+    return;
+  }
+  lifeLookFails = 0;
+  const fresh = lifeSight && performance.now() - lifeSight.at < 10 * 60_000 ? newThings(lifeSight.things, sight.things) : sight.things;
+  lifeSight = { ...sight, at: performance.now() };
+  if (fresh.length && performance.now() - lifeSawAt > SAW_EVERY * 1000 && ctrl.mode !== 'sleep') {
+    lifeSawAt = performance.now();
+    lifeEvent('saw', (sight.desc || fresh.join(lang === 'en_us' ? ', ' : '、')).replace(/[。.!！?？]+$/, ''));
+  }
+}
+window.setInterval(() => void lifeLook(), 5000);
+
 /** 文字生命模式可以關掉聲音；語音、動態生命模式一定念（全部靜音時照樣不出聲） */
 function lifeVoice(): boolean {
   return lifeSlot === 'lifetext' ? lifeTextVoiceOn() : !!lifeSlot;
@@ -934,6 +981,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<
         mic: lifeSlot === 'lifemic' || lifeSlot === 'lifelive',
         camera: lifeSlot === 'lifelive' && sensor.on,
         seen: lifeSeen(lang),
+        vision: lifeVision(),
+        sight: lifeVision() ? lifeSightText() : '',
       },
       lang,
     );
@@ -1058,7 +1107,8 @@ function lifeChipShow(): void {
   lifeChip.classList.toggle('on', !!lifeSlot);
   lifeChip.classList.toggle('standby', lifeStandby);
   const label = lifeSlot === 'lifemic' ? t('lifeMicSlot') : lifeSlot === 'lifelive' ? t('lifeLiveSlot') : t('lifeTextSlot');
-  lifeChipText.textContent = lifeStandby ? `${label}・${t('life.standbyChip')}` : label;
+  const eye = lifeSlot === 'lifelive' && lifeVisionOn() ? `・${t('life.seeing')}` : '';
+  lifeChipText.textContent = lifeStandby ? `${label}・${t('life.standbyChip')}` : `${label}${eye}`;
   lifeChipStop.textContent = t('life.stop');
 }
 
@@ -1067,6 +1117,9 @@ function lifeStart(slot: LifeSlot): void {
   const first = !lifeSlot;
   lifeSlot = slot;
   lifeEpoch++;
+  lifeSight = null;
+  lifeLookFails = 0;
+  if (slot === 'lifelive' && !lifeVisionOn()) visionHintOnce();
   lifeFails = 0;
   lifeStandby = false;
   lifePending = [];
@@ -1082,10 +1135,22 @@ function lifeStart(slot: LifeSlot): void {
     lifeDecide();
   });
 }
+/** 第一次用動態生命模式、還沒打開「看畫面」時提示一次 */
+function visionHintOnce(): void {
+  try {
+    if (localStorage.getItem('fairypocket.lifevisionhint.v1')) return;
+    localStorage.setItem('fairypocket.lifevisionhint.v1', '1');
+  } catch {
+    return;
+  }
+  window.setTimeout(() => hud.toast(t('life.visionHint')), 2500);
+}
 function lifeStop(): void {
   if (!lifeSlot) return;
   lifeSlot = null;
   lifeEpoch++;
+  lifeSight = null;
+  sensorBox.classList.remove('looking');
   lifePending = [];
   lifeStandby = false;
   window.speechSynthesis?.cancel();
@@ -1441,6 +1506,13 @@ const hud = new Hud(overlay, {
     }).open(),
   toolAllowed: (slot) => !isLifeSlot(slot) || lifeAllowed(),
   lifeAllowed,
+  lifeChanged: () => {
+    if (!lifeVisionOn()) {
+      lifeSight = null;
+      sensorBox.classList.remove('looking');
+    }
+    lifeChipShow();
+  },
   select: (slot) => {
     const prev = currentSlot;
     currentSlot = slot;
@@ -2504,4 +2576,4 @@ function frame(now: number): void {
 requestAnimationFrame(frame);
 
 // 方便自動化測試與除錯
-Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound, music, keyGame, STICKERS, stickerCanvas, babbleStats, brainDev: { answer: brainAnswer, setCloudMode: (v: boolean) => (cloudMode = v), saveBrain, loadBrain, isCloudTired }, lifeDev: { event: lifeEvent, say, state: () => ({ slot: lifeSlot, standby: lifeStandby, fails: lifeFails, busy: lifeBusy }) } } });
+Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound, music, keyGame, STICKERS, stickerCanvas, babbleStats, brainDev: { answer: brainAnswer, setCloudMode: (v: boolean) => (cloudMode = v), saveBrain, loadBrain, isCloudTired }, lifeDev: { event: lifeEvent, say, state: () => ({ slot: lifeSlot, standby: lifeStandby, fails: lifeFails, busy: lifeBusy }), look: lifeLook, sight: () => lifeSight, seenAgo: () => performance.now() - lastPersonAt, live: () => liveOn } } });

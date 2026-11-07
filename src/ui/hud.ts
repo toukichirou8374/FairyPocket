@@ -7,6 +7,7 @@ import { loadPeople, savePeople, setVoiceIdOn, voiceIdOn } from '../voiceId';
 import { setVoiceAgeOn, voiceAgeOn } from '../voiceAge';
 import { brainSettings } from './brainSettings';
 import { lifeTextVoiceOn, setLifeTextVoice } from '../life/life';
+import { lifeVisionOn, setLifeVision } from '../life/vision';
 import { foodIcon, gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, statGrid } from '../pixel';
 import { affectionLevel, BEDTIMES, FOOD_IDS, moodLevel, NAME_MAX, wakeHour, type Bedtime, PERSONALITY_COLOR, PERSONALITY_IDS, toIcons, type Food, type Personality, type PetState } from '../game/state';
 import type { AssetImages } from '../game/assets';
@@ -79,6 +80,8 @@ export interface HudActions {
   toolAllowed?(slot: Slot): boolean;
   /** 有沒有 AI 生命模式（設定頁才顯示相關設定） */
   lifeAllowed?(): boolean;
+  /** 生命模式的設定改了（更新狀態標籤） */
+  lifeChanged?(): void;
   senseTest(): void;
   call(): void;
   rename(name: string): void;
@@ -767,6 +770,20 @@ export class Hud {
         show();
       });
       el('div', 'info', box).textContent = t('life.voiceHelp');
+      // 動態生命模式讓 AI 看鏡頭畫面（預設關；截圖只送家裡電腦、不存檔）
+      const v = el('button', 'btn', box);
+      const showV = () => {
+        const on = lifeVisionOn();
+        v.textContent = `${t('life.vision')}：${t(on ? 'on' : 'off')}`;
+        v.classList.toggle('on', on);
+      };
+      showV();
+      v.addEventListener('click', () => {
+        setLifeVision(!lifeVisionOn());
+        showV();
+        this.actions.lifeChanged?.();
+      });
+      el('div', 'info', box).textContent = t('life.visionHelp');
     }
   }
 

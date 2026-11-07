@@ -138,6 +138,10 @@ export interface LifeState {
   cake: boolean;
   /** 鏡頭看到的人（例如「有人在畫面左邊」；沒看到是空字串） */
   seen?: string;
+  /** AI 看截圖看到的（主人同意「看畫面」時；可能看錯） */
+  sight?: string;
+  /** 主人有沒有同意 AI 看畫面 */
+  vision?: boolean;
   /** 有沒有開麥克風／鏡頭 */
   mic: boolean;
   camera: boolean;
@@ -156,7 +160,7 @@ const LIFE_RULES: Record<Lang, (s: LifeState, menu: string) => string> = {
 - 括號裡的「（…）」是發生的事，不是主人說的話。
 現在的狀態：正在${s.doing}，在畫面的${s.where}；精神 ${Math.round(s.energy)}/100、肚子 ${Math.round(s.hunger)}/100${s.asleep ? '；正在睡覺' : ''}。
 最近想做的事：${s.recent.length ? s.recent.join('、') : '還沒有'}。${s.cake ? '地上有蛋糕，肚子餓可以「去吃蛋糕」。' : ''}
-${s.mic ? '主人開著麥克風，你聽得到聲音。' : ''}${s.camera ? `主人開著鏡頭：你只看得出鏡頭前有沒有人在動、在哪一邊（${s.seen || '現在沒看到人'}），看不清楚是什麼東西，不要假裝看到具體的東西。` : ''}${s.voice ? '' : '現在主人那邊沒有開聲音，你說的話只會顯示成文字。'}`,
+${s.mic ? '主人開著麥克風，你聽得到聲音。' : ''}${!s.camera ? '' : s.vision ? `主人開著鏡頭，也讓你偶爾看看畫面（${s.seen || '現在沒看到人'}）。${s.sight ? `剛才看到：${s.sight}（是你自己瞄到的，可能看錯；不確定的就說得保守一點，例如「那是…嗎？」）。` : '剛才沒看清楚畫面，不要假裝看到具體的東西。'}不要一直評論主人的樣子。` : `主人開著鏡頭：你只看得出鏡頭前有沒有人在動、在哪一邊（${s.seen || '現在沒看到人'}），看不清楚是什麼東西，不要假裝看到具體的東西。`}${s.voice ? '' : '現在主人那邊沒有開聲音，你說的話只會顯示成文字。'}`,
   ja_jp: (s, menu) => `
 いまは「いのちモード」です。あなたには自分の考えと生活があり、いつも命令を待つ必要はなく、なんでも話す必要もありません。
 - つぎに何をするかは自分で決めます。返事に [意図：名前] を入れてください。名前はこの中からだけ：${menu}。体はその意図どおりに動き、終わったらまた聞きます。
@@ -169,7 +173,7 @@ ${s.mic ? '主人開著麥克風，你聽得到聲音。' : ''}${s.camera ? `主
 - かっこの「（…）」はおきたことで、主人のことばではありません。
 いまの様子：${s.doing}をしていて、画面の${s.where}にいます。元気 ${Math.round(s.energy)}/100、おなか ${Math.round(s.hunger)}/100${s.asleep ? '、ねむっています' : ''}。
 さいきんの意図：${s.recent.length ? s.recent.join('、') : 'まだなし'}。${s.cake ? 'ゆかにケーキがあるので、おなかがすいたら「ケーキをたべにいく」もできます。' : ''}
-${s.mic ? 'マイクがついていて、声が聞こえます。' : ''}${s.camera ? `カメラがついています：前で人が動いているか、どちらにいるかだけわかります（${s.seen || 'いまは見えない'}）。物がなにかはわからないので、見えたふりをしないで。` : ''}${s.voice ? '' : 'いまは音が出ないので、あなたのことばは文字だけで表示されます。'}`,
+${s.mic ? 'マイクがついていて、声が聞こえます。' : ''}${!s.camera ? '' : s.vision ? `カメラがついていて、ときどき画面を見せてもらえます（${s.seen || 'いまは見えない'}）。${s.sight ? `さっき見えたもの：${s.sight}（自分でちらっと見ただけなので、まちがうかも。自信がないときは「それって…？」のようにひかえめに）。` : 'さっきはよく見えなかったので、見えたふりをしないで。'}主人の見た目のことばかり言わないで。` : `カメラがついています：前で人が動いているか、どちらにいるかだけわかります（${s.seen || 'いまは見えない'}）。物がなにかはわからないので、見えたふりをしないで。`}${s.voice ? '' : 'いまは音が出ないので、あなたのことばは文字だけで表示されます。'}`,
   en_us: (s, menu) => `
 You are now in "life mode": you have your own thoughts and life, you don't have to wait for commands, and you don't have to talk about everything.
 - You decide what to do next: add [intent: name] to your reply, choosing only from: ${menu}. Your body will go and do it for a while, then you'll be asked again.
@@ -182,7 +186,7 @@ You are now in "life mode": you have your own thoughts and life, you don't have 
 - Text in parentheses "(…)" is something that happened, not words from your friend.
 Now: you are ${s.doing}, at the ${s.where} of the screen; energy ${Math.round(s.energy)}/100, tummy ${Math.round(s.hunger)}/100${s.asleep ? '; you are asleep' : ''}.
 Recent intents: ${s.recent.length ? s.recent.join(', ') : 'none yet'}.${s.cake ? ' There is a cake on the ground; you can "eat cake" when hungry.' : ''}
-${s.mic ? 'The microphone is on; you can hear sounds. ' : ''}${s.camera ? `The camera is on: you can only tell whether someone is moving in front of it and on which side (${s.seen || 'nobody seen now'}); you can't tell what objects are, so don't pretend to see specific things. ` : ''}${s.voice ? '' : 'Sound is off on your friend\'s side, so your words only show as text.'}`,
+${s.mic ? 'The microphone is on; you can hear sounds. ' : ''}${!s.camera ? '' : s.vision ? `The camera is on and you may peek at the view now and then (${s.seen || 'nobody seen now'}). ${s.sight ? `You just saw: ${s.sight} (only a quick peek, it may be wrong; when unsure, say it gently, like "is that…?"). ` : "You didn't get a clear look just now, so don't pretend to see specific things. "}Don't keep commenting on how your friend looks. ` : `The camera is on: you can only tell whether someone is moving in front of it and on which side (${s.seen || 'nobody seen now'}); you can't tell what objects are, so don't pretend to see specific things. `}${s.voice ? '' : 'Sound is off on your friend\'s side, so your words only show as text.'}`,
 };
 
 /** 最後再強調一次語言（小模型常被前面的內容帶著換語言） */
@@ -207,7 +211,7 @@ export function lifeRules(s: LifeState, lang: Lang): string {
 // ---------- 發生的事（交給 AI 判斷要怎麼反應） ----------
 export type LifeEvent =
   | 'decide' | 'asleepCheck' | 'petted' | 'tickled' | 'woken' | 'called' | 'fed' | 'favoriteFood' | 'full'
-  | 'caughtBall' | 'bath' | 'noteBlock' | 'bedTap' | 'firework' | 'cake' | 'friend' | 'wave' | 'appear' | 'left' | 'busy' | 'greet' | 'milestone' | 'renamed';
+  | 'caughtBall' | 'bath' | 'noteBlock' | 'bedTap' | 'firework' | 'cake' | 'friend' | 'wave' | 'appear' | 'left' | 'busy' | 'saw' | 'greet' | 'milestone' | 'renamed';
 
 const EVENTS: Record<LifeEvent, Record<Lang, string>> = {
   decide: {
@@ -242,6 +246,11 @@ const EVENTS: Record<LifeEvent, Record<Lang, string>> = {
   },
   left: { zh_tw: '（鏡頭前的人離開了，一陣子都沒看到人）', ja_jp: '（カメラの前の人がいなくなって、しばらくだれも見えない）', en_us: '(The person in front of the camera left; nobody has been seen for a while)' },
   busy: { zh_tw: '（主人一直在鏡頭前動來動去，好像在忙）', ja_jp: '（主人がカメラの前でずっと動いていて、いそがしそう）', en_us: '(Your friend keeps moving in front of the camera; they seem busy)' },
+  saw: {
+    zh_tw: '（你瞄了一眼鏡頭，看到：{d}。有想說的就說一句，例如對新東西好奇；不想說也可以。）',
+    ja_jp: '（カメラをちらっと見たら：{d}。言いたいことがあれば一言、たとえば新しいものに興味を持って。言わなくてもいいです。）',
+    en_us: "(You peeked at the camera and saw: {d}. Say one line if you like, e.g. curious about something new; or stay quiet.)",
+  },
   greet: { zh_tw: '（主人回來打開了 App）', ja_jp: '（主人がもどってきてアプリをひらいた）', en_us: '(Your friend came back and opened the app)' },
   milestone: { zh_tw: '（今天是值得紀念的日子：{d}）', ja_jp: '（きょうは記念の日：{d}）', en_us: '(Today is a special day: {d})' },
   renamed: { zh_tw: '（主人幫你取了新名字：{d}）', ja_jp: '（主人が新しい名前をつけてくれた：{d}）', en_us: '(Your friend gave you a new name: {d})' },
