@@ -72,7 +72,14 @@ export interface Hooks {
   atCake?(): void;
   /** 情境音效（拍翅、衝刺、打呼、吃東西、醒來…） */
   sfx?(e: 'flap' | 'dash' | 'snore' | 'bite' | 'burp' | 'wake' | 'startle', at: THREE.Vector3): void;
+  /** AI 生命模式：剛才的意圖做完了（請 AI 決定下一步） */
+  lifeIdle?(): void;
 }
+
+/** AI 生命模式的意圖（見 life/life.ts） */
+export type LifeIntent =
+  | 'explore' | 'explore_left' | 'explore_right' | 'explore_high' | 'explore_low'
+  | 'approach' | 'observe' | 'stay' | 'play' | 'dance' | 'rest' | 'sleep' | 'wake';
 
 const tmp = new THREE.Vector3();
 
@@ -123,6 +130,85 @@ export class AllayController {
 
   private get tr(): Traits {
     return TRAITS[this.pet.personality];
+  }
+
+  // ---------- AI 生命模式：AI 決定意圖，控制器只負責飛過去、做出來、保持安全 ----------
+  /** true＝AI 生命模式：不用原本的隨機決定、作息腳本，閒下來就通知 AI（hooks.lifeIdle） */
+  life = false;
+
+  setLife(on: boolean): void {
+    if (this.life === on) return;
+    this.life = on;
+    if (on && !this.posed && this.mode !== 'sleep') this.toIdle();
+  }
+
+  /** 照 AI 的意圖行動（固定姿勢時不做） */
+  intend(i: LifeIntent): void {
+    if (this.posed) return;
+    const b = this.world.bounds();
+    const tr = this.tr;
+    const asleep = this.mode === 'sleep';
+    if (i === 'wake') {
+      if (asleep) {
+        this.wokeAt = this.t;
+        this.setMode('waking', 1.2);
+        this.hooks.sfx?.('wake', this.pos);
+      }
+      return;
+    }
+    if (i === 'sleep') {
+      if (asleep) return;
+      if (this.world.bed?.()) return this.goBed();
+      this.anchor.set(this.pos.x, 0, this.pos.z);
+      this.clampVec(this.anchor);
+      this.setMode('sleep');
+      return;
+    }
+    // 睡著時只聽「起床」；其他意圖先不做（不會被 AI 搞到半夢半醒亂飛）
+    if (asleep) return;
+    const midY = (b.minY + 0.3 + b.maxY) / 2;
+    switch (i) {
+      case 'explore':
+        this.target.set(rand(b.minX, b.maxX) * tr.range, rand(b.minY + 0.3, b.maxY), rand(b.minZ * tr.range, b.maxZ));
+        return this.setMode('wander', 7);
+      case 'explore_left':
+        this.target.set(rand(b.minX, b.minX * 0.4), rand(b.minY + 0.3, b.maxY), rand(b.minZ * 0.6, b.maxZ * 0.6));
+        return this.setMode('wander', 7);
+      case 'explore_right':
+        this.target.set(rand(b.maxX * 0.4, b.maxX), rand(b.minY + 0.3, b.maxY), rand(b.minZ * 0.6, b.maxZ * 0.6));
+        return this.setMode('wander', 7);
+      case 'explore_high':
+        this.target.set(rand(b.minX, b.maxX) * 0.6, rand(midY, b.maxY), rand(b.minZ * 0.5, b.maxZ * 0.5));
+        return this.setMode('wander', 7);
+      case 'explore_low':
+        this.target.set(rand(b.minX, b.maxX) * 0.6, rand(b.minY + 0.3, midY), rand(b.minZ * 0.5, b.maxZ * 0.5));
+        return this.setMode('wander', 7);
+      case 'approach':
+        return this.setMode('approach', tr.stay);
+      case 'observe':
+        return this.observe();
+      case 'stay':
+        this.anchor.copy(this.pos);
+        this.clampVec(this.anchor);
+        return this.setMode('idle', rand(6, 10));
+      case 'play':
+        this.anchor.copy(this.pos);
+        this.clampVec(this.anchor);
+        return this.setMode('flourish', 2.6 / tr.tempo);
+      case 'dance':
+        this.danceAt.copy(this.pos);
+        this.clampVec(this.danceAt);
+        return this.setMode('dance', 5);
+      case 'rest':
+        this.anchor.set(this.pos.x, 0, this.pos.z);
+        this.clampVec(this.anchor);
+        return this.setMode('rest', rand(12, 20));
+    }
+  }
+
+  /** 給 AI 看的「現在在做什麼」 */
+  get doing(): Mode {
+    return this.mode;
   }
 
   setMode(m: Mode, dur = 3): void {
@@ -483,7 +569,10 @@ export class AllayController {
       case 'rest': {
         this.target.set(this.anchor.x, b.minY + 0.15 + Math.sin(this.t * 0.8) * 0.04, this.anchor.z);
         speed *= 0.4;
-        if (this.pet.energy < 12) {
+        // 生命模式：休息多久、要不要睡由 AI 決定
+        if (this.life) {
+          if (this.modeTime > this.modeDur) this.toIdle();
+        } else if (this.pet.energy < 12) {
           this.setMode('sleep');
           this.hooks.say('sleepy');
         } else if (this.modeTime > this.modeDur && this.pet.energy > 40) this.toIdle();
@@ -524,8 +613,8 @@ export class AllayController {
           if (++this.snore % 3 === 0) this.hooks.sfx?.('snore', this.pos);
         }
         // 到了起床時間（而且睡飽了）就自己醒來說早安
-        // 白天小睡至少睡 20 秒
-        if (this.pet.energy >= 100 && !this.world.night() && this.modeTime > 20) {
+        // 白天小睡至少睡 20 秒（生命模式：什麼時候起床由 AI 決定，可以賴床）
+        if (!this.life && this.pet.energy >= 100 && !this.world.night() && this.modeTime > 20) {
           this.wokeAt = this.t;
           this.setMode('waking', 1.2);
           this.hooks.sfx?.('wake', this.pos);
@@ -633,6 +722,14 @@ export class AllayController {
   }
 
   private decide(): void {
+    // 生命模式：不用隨機決定，原地輕輕飄著，請 AI 決定下一步（AI 沒回應就一直安全地待著）
+    if (this.life) {
+      this.anchor.copy(this.pos);
+      this.clampVec(this.anchor);
+      this.setMode('idle', rand(8, 12));
+      this.hooks.lifeIdle?.();
+      return;
+    }
     const tr = this.tr;
     // 作息：到了就寢時間就自己去睡（被叫醒後會再陪你 2 分鐘）
     if (this.world.night() && this.t - this.wokeAt > BEDTIME_GRACE) {

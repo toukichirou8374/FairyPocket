@@ -30,7 +30,10 @@ import { VoiceAge, voiceAgeOn, type AgeGuess } from './voiceAge';
 import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeople, voiceFeatures, voiceIdOn } from './voiceId';
 import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
-import { GESTURE_LABEL, gestureName } from './three/gestures';
+import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
+import { DIRECT_EVENTS, intentName, isLifeSlot, lifeEventText, lifeRules, lifeTextVoiceOn, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
+import { listModels } from './brain/brain';
+import { pickVoice, loadTtsVoices } from './ttsVoice';
 import { Recognizer, speechSupported } from './speech';
 import { neuralBuffer } from './neuralVoice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
@@ -58,7 +61,10 @@ stage.scene.add(model.root);
 const sound = new Sound(localStorage);
 const music = new Music(sound);
 let lastSpoke = 0;
+/** AI 生命模式（null＝沒有開）：開著時不說原生的固定台詞，發生的事交給 AI */
+let lifeSlot: LifeSlot | null = null;
 const say = (kind: LineKind, food?: Food | null, d: number | string = '') => {
+  if (lifeSlot) return lifeFromLine(kind, food ?? null, d);
   hud.say(pickLine(kind, pet.personality, pet.name, Math.random, food ? itemName(food) : '', undefined, d));
   sound.speak(pet.personality);
   lastSpoke = performance.now();
@@ -111,8 +117,10 @@ async function micOn(): Promise<void> {
       SPEECH_LANG[recLang],
       (text, final, alts) => {
         if (performance.now() < talkDeafUntil) return;
-        if (!final) ctrl.listen(true);
-        else void answerText(text, alts);
+        // 有人在說話：原本會飛過來歪頭聽（AI 生命模式由 AI 自己決定，不自動飛過來）
+        if (!final) {
+          if (!lifeSlot) ctrl.listen(true);
+        } else void answerText(text, alts);
       },
       // 語音辨識不能用（沒有權限等）：改用只聽聲音的方式
       () => {
@@ -125,6 +133,8 @@ async function micOn(): Promise<void> {
           void micOn();
           return;
         }
+        // AI 生命模式不用「只聽聲音、用悅靈語回」的原生方式：改用打字
+        if (lifeSlot) return hud.showItem(t('life.noSpeech'));
         void micListen();
       },
     );
@@ -133,6 +143,7 @@ async function micOn(): Promise<void> {
       return;
     }
   }
+  if (lifeSlot) return hud.showItem(t('life.noSpeech'));
   await micListen();
 }
 
@@ -192,6 +203,14 @@ let lastUserAt = -Infinity;
 
 async function answerText(text: string, alts: string[] = [text]): Promise<void> {
   lastUserAt = performance.now();
+  // AI 生命模式：不用規則（指令、認人問名字、關鍵字），全部交給 AI
+  if (lifeSlot) {
+    if (!text.trim()) return;
+    liveWake();
+    assistant.chat(personNow() ?? t('chat.you'), text);
+    void lifeAsk(who(text), 'chat');
+    return;
+  }
   ctrl.listen(false);
   liveWake();
   // 語言固定為設定的語言（不再因為聽到或被要求別的語言而切換）
@@ -645,6 +664,12 @@ function liveMotion(x: number, y: number): void {
   // 好一陣子沒看到人，現在有人出現：打招呼
   if (now - lastPersonAt > 30_000 && now - lastLiveGreet > 60_000 && ctrl.awake && pet.onboarded) {
     lastLiveGreet = now;
+    // AI 生命模式：只告訴 AI 有人出現了，要不要打招呼由 AI 決定
+    if (lifeSlot) {
+      lifeEvent('appear');
+      lastPersonAt = now;
+      return;
+    }
     // AI 優先：讓 AI 決定怎麼打招呼（說什麼、做什麼動作）；AI 不能用才用固定的招呼
     void aiEvent('appear').then((ok) => ok || reactTo('greet'));
   }
@@ -693,6 +718,329 @@ window.setInterval(() => {
   void brainAnswer(AUTO_TEXT[talkLang()], { autonomous: true });
 }, 5000);
 
+// ---------- AI 生命模式（AI 文字生命／AI 語音生命／AI 動態生命）----------
+// 只有「AI＋精靈控制器」：發生的事、主人說的話都交給 AI，AI 決定意圖、動作、要不要說話，
+// 控制器負責飛過去、做出來、留在畫面內。AI 連不上時悅靈安全地待著（不改用原生台詞），恢復後接著生活。
+// 主人說的話：雲端 AI（只有主人本人）→ 家裡電腦的 AI；自己決定要做什麼：只用家裡電腦的 AI（不花雲端額度）。
+let lifeBusy = false;
+/** 換模式時 +1：舊的 AI 回答回來時已經不是同一段生命模式，直接丟掉（不會搶控制權） */
+let lifeEpoch = 0;
+let lifeFails = 0;
+let lifeNextAt = 0;
+let lifeLastAsk = 0;
+let lifeStandby = false;
+let lifeStandbyToastAt = -Infinity;
+const lifeRecent: LifeIntentName[] = [];
+let lifePending: string[] = [];
+let lifePendingDirect = false;
+let lifeFlushTimer = 0;
+
+/** 原本的說話方式（選了這些就離開生命模式） */
+const SENSE_TOOLS = new Set<string>(['text', 'mic', 'live', 'aitext', 'aimic', 'ailive']);
+
+/** 這台裝置能不能用 AI 生命模式（選單顯示用；真正的權限是家裡電腦的通行碼與 Tailscale） */
+function lifeAllowed(): boolean {
+  const cfg = loadBrain();
+  return cfg.on && !!cfg.url;
+}
+
+/** 原生台詞的情境 → 交給 AI 的事（沒有對應的就不說，例如閒聊、想睡，那些由 AI 自己決定） */
+function lifeFromLine(kind: LineKind, food: Food | null, d: number | string): void {
+  const name = food ? itemName(food) : '';
+  const map: Partial<Record<string, LifeEvent>> = {
+    pet: 'petted', tickle: 'tickled', wake: 'woken', fedFood: 'fed', favorite: 'favoriteFood', fullFood: 'full',
+    play: 'caughtBall', bath: 'bath', cakeBite: 'cake', cakeDone: 'cake', duplicate: 'friend', firework: 'firework',
+  };
+  const e = map[kind] ?? (kind.startsWith('m') && /^m[A-Z]/.test(kind) ? 'milestone' : null);
+  if (e) lifeEvent(e, e === 'milestone' ? String(d) : name);
+}
+
+/** 發生的事先收集一下（1.2 秒內的合成一次），再一起交給 AI */
+function lifeEvent(e: LifeEvent, d = ''): void {
+  if (!lifeSlot) return;
+  const text = lifeEventText(e, talkLang(), d);
+  if (!lifePending.includes(text)) lifePending.push(text);
+  if (lifePending.length > 4) lifePending.shift();
+  if (DIRECT_EVENTS.has(e)) lifePendingDirect = true;
+  window.clearTimeout(lifeFlushTimer);
+  lifeFlushTimer = window.setTimeout(lifeFlush, 1200);
+}
+function lifeFlush(): void {
+  if (!lifeSlot || !lifePending.length || lifeBusy) return;
+  const text = lifePending.join(' ');
+  const direct = lifePendingDirect;
+  lifePending = [];
+  lifePendingDirect = false;
+  void lifeAsk(text, direct ? 'event' : 'decide');
+}
+
+/** 給 AI 看的「現在在做什麼、在哪裡」 */
+function lifeDoing(lang: Lang): string {
+  const m = ctrl.doing;
+  const D: Record<string, [string, string, string]> = {
+    idle: ['輕輕飄著', 'ふわふわ浮かぶ', 'floating gently'],
+    wander: ['飛來飛去', 'あちこちとぶ', 'flying around'],
+    observe: ['東張西望', 'きょろきょろ', 'looking around'],
+    approach: ['待在主人前面', '主人の前にいる', 'staying near your friend'],
+    rest: ['在地上休息', 'ゆかでやすむ', 'resting on the ground'],
+    sleep: ['睡覺', 'ねる', 'sleeping'],
+    dance: ['跳舞', 'おどる', 'dancing'],
+    flourish: ['自己繞圈圈玩', 'くるくるあそぶ', 'playing in circles'],
+    eat: ['吃東西', 'たべる', 'eating'],
+  };
+  const i = lang === 'zh_tw' ? 0 : lang === 'ja_jp' ? 1 : 2;
+  return (D[m] ?? D.idle)[i];
+}
+function lifeWhere(lang: Lang): string {
+  const b = stage.bounds();
+  const x = ctrl.pos.x / Math.max(0.1, b.maxX);
+  const h = (ctrl.pos.y - b.minY) / Math.max(0.1, b.maxY - b.minY);
+  const W: Record<Lang, [string, string, string, string, string]> = {
+    zh_tw: ['左邊', '右邊', '中間', '上面', '下面'],
+    ja_jp: ['ひだり', 'みぎ', 'まんなか', 'うえのほう', 'したのほう'],
+    en_us: ['left', 'right', 'middle', 'top', 'bottom'],
+  };
+  const w = W[lang];
+  const side = x < -0.35 ? w[0] : x > 0.35 ? w[1] : w[2];
+  const vert = h > 0.65 ? w[3] : h < 0.3 ? w[4] : '';
+  return lang === 'en_us' ? `${vert ? vert + ' ' : ''}${side}` : `${side}${vert}`;
+}
+
+/** 文字生命模式可以關掉聲音；語音、動態生命模式一定念（全部靜音時照樣不出聲） */
+function lifeVoice(): boolean {
+  return lifeSlot === 'lifetext' ? lifeTextVoiceOn() : !!lifeSlot;
+}
+
+/** 生命模式的說話：暫時用裝置內建的語音（第三階段換成即時生成的自然語音）；不用悅靈語假裝成自由對話 */
+function lifeSpeak(text: string, lang: Lang): void {
+  const s = window.speechSynthesis;
+  const vol = sound.level('voice');
+  const est = Math.min(14, 0.8 + text.length * (lang === 'en_us' ? 0.07 : 0.2));
+  talkDeafUntil = performance.now() + est * 1000 + 500;
+  listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
+  if (!s || vol <= 0) return;
+  s.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  const tag = SPEECH_LANG[lang];
+  u.lang = tag;
+  const v = pickVoice(s.getVoices(), tag, loadTtsVoices()[lang]);
+  if (v) u.voice = v;
+  u.pitch = 1.35;
+  u.rate = 1;
+  u.volume = vol;
+  u.onend = () => {
+    talkDeafUntil = Math.min(talkDeafUntil, performance.now() + 400);
+    listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
+  };
+  s.speak(u);
+}
+
+/** 照 AI 的意圖讓控制器行動 */
+function lifeDo(i: LifeIntentName): void {
+  lifeRecent.push(i);
+  if (lifeRecent.length > 5) lifeRecent.shift();
+  if (i === 'eat_cake') {
+    if (stage.cake && pet.hunger < MAX_HUNGER - 0.5) ctrl.seekCake(stage.cake.position);
+    return;
+  }
+  ctrl.intend(i);
+}
+
+/**
+ * 問 AI：chat＝主人說的話（一定要等回應，雲端優先）；event＝主人做了什麼；decide＝自己決定下一步（多半安靜）。
+ * 回傳 AI 有沒有回答。
+ */
+async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<boolean> {
+  if (!lifeSlot) return false;
+  if (lifeBusy) {
+    // 正在想：主人說的話、做的事排隊，想完再處理；自己決定下一步就不用排
+    if (how !== 'decide' && !lifePending.includes(text)) {
+      lifePending.push(text);
+      if (how === 'chat' || how === 'event') lifePendingDirect = true;
+    }
+    return false;
+  }
+  const cfg = loadBrain();
+  if (!cfg.on || !cfg.url || !navigator.onLine) {
+    lifeFail();
+    return false;
+  }
+  lifeBusy = true;
+  lifeLastAsk = performance.now();
+  const epoch = lifeEpoch;
+  const lang = talkLang();
+  if (how === 'chat') hud.say('…', 9000);
+  const system =
+    buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f), speaker: currentSpeaker(), person: personNow() }) +
+    lifeRules(
+      {
+        doing: lifeDoing(lang),
+        where: lifeWhere(lang),
+        energy: pet.energy,
+        hunger: (pet.hunger / MAX_HUNGER) * 100,
+        asleep: ctrl.mode === 'sleep',
+        recent: lifeRecent.map((i) => intentName(i, lang)),
+        voice: lifeVoice() && sound.level('voice') > 0,
+        cake: !!stage.cake,
+        mic: lifeSlot === 'lifemic' || lifeSlot === 'lifelive',
+        camera: lifeSlot === 'lifelive' && sensor.on,
+      },
+      lang,
+    );
+  let raw: string | null = null;
+  // 主人說的話：雲端 AI（只有主人本人、有每日每月上限）→ 家裡電腦的 AI
+  if (how === 'chat' && (!isCloudTired() || Date.now() >= (cloudTired?.check ?? 0))) {
+    const c = await askCloud(cfg, system, brainMem, text, lang);
+    if (c.ok) {
+      raw = c.text;
+      if (cloudTired) setCloudTired(null);
+    } else {
+      if (c.why === 'budget') setCloudTired(c.scope ?? 'day');
+      cloudNotice(c.why);
+    }
+  }
+  raw ??= await ask(cfg, system, brainMem, text, 25000, lang);
+  lifeBusy = false;
+  if (how === 'chat') hud.say('', 1);
+  // 這段時間換了模式或關掉了：舊的回答不用
+  if (!lifeSlot || epoch !== lifeEpoch) return false;
+  if (!raw) {
+    lifeFail();
+    window.setTimeout(lifeFlush, 50);
+    return false;
+  }
+  lifeOk();
+  let r = parseLifeReply(raw, lang);
+  if (r.text && mixedLanguage(r.text, lang)) r = { ...r, text: dropMixedSentences(r.text, lang) };
+  // 記憶：主人說的話、發生的事、悅靈做的事（自己決定下一步的提示不記）
+  if (how !== 'decide') remember(brainMem, 'user', text);
+  const did = [
+    ...(r.intent ? [`（意圖：${intentName(r.intent, lang)}）`] : []),
+    ...(r.actions.length ? [`（${GESTURE_LABEL[lang]}：${r.actions.map((g) => gestureName(g, lang)).join('、')}）`] : []),
+  ].join('');
+  if (r.text || did) remember(brainMem, 'allay', `${r.text}${did}`.trim());
+  if (how === 'chat') for (const n of r.notes) addNote(brainMem, n);
+  saveMemory(brainMem);
+  // 先做動作（手、頭、翅膀），做完再照意圖行動
+  if (r.actions.length) ctrl.gesture(r.actions);
+  if (r.intent) {
+    const i = r.intent;
+    const wait = r.actions.reduce((s, g) => s + GESTURE_SEC[g], 0);
+    if (wait) window.setTimeout(() => lifeSlot && epoch === lifeEpoch && lifeDo(i), wait * 1000);
+    else lifeDo(i);
+  }
+  if (r.text) {
+    const en = lang === 'en_us';
+    hud.say(r.text, Math.max(3200, r.text.length * (en ? 70 : 230)));
+    if (lifeVoice()) lifeSpeak(r.text, lang);
+    lastSpoke = performance.now();
+  }
+  // 下一次自己決定至少隔 6 秒
+  lifeNextAt = performance.now() + 6000;
+  window.setTimeout(lifeFlush, 50);
+  return true;
+}
+
+/** AI 連不上：安全待機（控制器照舊讓她安靜飄著），隔一段時間再試；告訴主人（5 分鐘內不重複） */
+function lifeFail(): void {
+  lifeFails++;
+  lifeNextAt = performance.now() + retryDelay(lifeFails) * 1000;
+  if (!lifeStandby) {
+    lifeStandby = true;
+    lifeChipShow();
+  }
+  const now = performance.now();
+  if (now - lifeStandbyToastAt > 300_000) {
+    lifeStandbyToastAt = now;
+    hud.toast(t('life.standby'));
+  }
+}
+function lifeOk(): void {
+  lifeFails = 0;
+  if (lifeStandby) {
+    lifeStandby = false;
+    lifeChipShow();
+    hud.toast(t('life.back'));
+  }
+}
+
+/** 想自己決定下一步（控制器閒下來時、或很久沒決定時） */
+function lifeDecide(): void {
+  if (!lifeSlot || lifeBusy || lifePending.length || ctrl.posed) return;
+  const now = performance.now();
+  if (now < lifeNextAt || document.visibilityState !== 'visible') return;
+  void lifeAsk(lifeEventText(ctrl.mode === 'sleep' ? 'asleepCheck' : 'decide', talkLang()), 'decide');
+}
+// 閒著太久（例如控制器在做很長的事）或在睡覺時：定期問一下
+window.setInterval(() => {
+  if (!lifeSlot || lifeBusy) return;
+  const since = performance.now() - lifeLastAsk;
+  if (ctrl.mode === 'sleep' ? since > 90_000 : ctrl.mode === 'idle' && since > 25_000) lifeDecide();
+}, 5000);
+
+// 生命模式的狀態標籤（左上）：正在生命模式／AI 休息中，旁邊是「停止」
+const lifeChip = document.createElement('div');
+lifeChip.className = 'life-chip';
+const lifeChipText = document.createElement('span');
+const lifeChipStop = document.createElement('button');
+lifeChipStop.className = 'btn small';
+lifeChip.append(lifeChipText, lifeChipStop);
+overlay.appendChild(lifeChip);
+lifeChipStop.addEventListener('click', () => {
+  playSfx('click');
+  hud.setSelected(null);
+  lifeStop();
+});
+function lifeChipShow(): void {
+  lifeChip.classList.toggle('on', !!lifeSlot);
+  lifeChip.classList.toggle('standby', lifeStandby);
+  const label = lifeSlot === 'lifemic' ? t('lifeMicSlot') : lifeSlot === 'lifelive' ? t('lifeLiveSlot') : t('lifeTextSlot');
+  lifeChipText.textContent = lifeStandby ? `${label}・${t('life.standbyChip')}` : label;
+  lifeChipStop.textContent = t('life.stop');
+}
+
+function lifeStart(slot: LifeSlot): void {
+  if (lifeSlot === slot) return;
+  const first = !lifeSlot;
+  lifeSlot = slot;
+  lifeEpoch++;
+  lifeFails = 0;
+  lifeStandby = false;
+  lifePending = [];
+  ctrl.setLife(true);
+  lifeChipShow();
+  if (first) hud.toast(t('life.on'));
+  // 先確認家裡電腦連得上（不通就安全待機）
+  const cfg = loadBrain();
+  void listModels(cfg).then((r) => {
+    if (lifeSlot !== slot) return;
+    if (!r.ok) return lifeFail();
+    lifeNextAt = 0;
+    lifeDecide();
+  });
+}
+function lifeStop(): void {
+  if (!lifeSlot) return;
+  lifeSlot = null;
+  lifeEpoch++;
+  lifePending = [];
+  lifeStandby = false;
+  window.speechSynthesis?.cancel();
+  ctrl.setLife(false);
+  lifeChipShow();
+  micOff();
+  sensorOff();
+  liveOn = false;
+  assistant.showInput(false);
+}
+
+// 主人離開一陣子再回來：告訴 AI（要不要打招呼由 AI 決定）
+let lifeHiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') lifeHiddenAt = Date.now();
+  else if (lifeSlot && Date.now() - lifeHiddenAt > 10 * 60_000) lifeEvent('greet');
+});
+
 /** 揮手感應的冷卻：AI 判斷時 12 秒、規則反應時 8 秒內不重複（以前每次感應到都揮手） */
 let lastWaveAt = -Infinity;
 
@@ -708,9 +1056,11 @@ window.addEventListener('pointerdown', liveWake);
 const cameraEvents: ArEvents = {
   wave: () => {
     const now = performance.now();
-    if (now - lastWaveAt < (brainReady() ? 12_000 : 8_000)) return;
+    if (now - lastWaveAt < (brainReady() || lifeSlot ? 12_000 : 8_000)) return;
     lastWaveAt = now;
     cheer(pet, 5);
+    // AI 生命模式：沒有固定的揮手回應，交給 AI
+    if (lifeSlot) return lifeEvent('wave');
     const rule = () => {
       ctrl.waveBack();
       say('waveBack');
@@ -850,7 +1200,9 @@ function danceToJukebox(force = false): void {
   if (!force && now - jukeDanceAt < 4000) return;
   jukeDanceAt = now;
   const top = box.position.clone().add(new THREE.Vector3(0, 0.95, 0));
-  if (!ctrl.posed) ctrl.dance(top);
+  // AI 生命模式：要不要跳舞由 AI 決定（夥伴照舊）
+  if (lifeSlot) lifeEvent('noteBlock');
+  else if (!ctrl.posed) ctrl.dance(top);
   friends.forEach((f, i) => f.ctrl.dance(top.clone().add(new THREE.Vector3(Math.cos(i * 2.1) * 0.7, 0.15 * i, Math.sin(i * 2.1) * 0.5))));
   stage.spawn('note', box.position.clone().add(new THREE.Vector3(0, 0.35, 0)), 1);
 }
@@ -917,6 +1269,7 @@ const ctrl = new AllayController(
     caught,
     atCake,
     sfx: playSfx,
+    lifeIdle: () => lifeDecide(),
   },
 );
 
@@ -1002,7 +1355,8 @@ function useNoteBlock(ray: THREE.Ray, hitBlock: boolean): void {
   const wasDancing = ctrl.dancing;
   const top = block.position.clone().add(new THREE.Vector3(0, 0.95, 0));
   if (!ctrl.dancing) cheer(pet, 4);
-  ctrl.dance(top);
+  if (lifeSlot) lifeEvent('noteBlock');
+  else ctrl.dance(top);
   friends.forEach((f, i) => f.ctrl.dance(top.clone().add(new THREE.Vector3(Math.cos(i * 2.1) * 0.7, 0.15 * i, Math.sin(i * 2.1) * 0.5))));
   pet.memory.lastDanceAt = Date.now();
   if (!wasDancing && ctrl.dancing) say('dance');
@@ -1021,27 +1375,43 @@ const hud = new Hud(overlay, {
       pauseSenses: () => hud.setSelected(null),
       speechLang: () => SPEECH_LANG[getLang()],
     }).open(),
+  toolAllowed: (slot) => !isLifeSlot(slot) || lifeAllowed(),
+  lifeAllowed,
   select: (slot) => {
+    const prev = currentSlot;
     currentSlot = slot;
+    // AI 生命模式：選了就開始；拿起食物、玩具、方塊時繼續（她照樣過自己的生活），
+    // 換成別的說話方式、從生命模式「收起」、或按「停止」才結束
+    if (isLifeSlot(slot)) {
+      if (!lifeAllowed()) {
+        hud.toast(t('life.noAi'));
+        window.setTimeout(() => hud.setSelected(null), 0);
+        return;
+      }
+      lifeStart(slot);
+    } else if (lifeSlot && (slot === null ? isLifeSlot(prev) : SENSE_TOOLS.has(slot))) lifeStop();
     // 動態模式 = 前鏡頭（看人、揮手）＋麥克風（說話）
     // AI 文字／語音／動態 = 文字／語音／動態 ＋ 雲端 AI（第三層）
     cloudMode = slot === 'aitext' || slot === 'aimic' || slot === 'ailive';
-    liveOn = slot === 'live' || slot === 'ailive';
-    lastPersonAt = performance.now();
+    const live = slot === 'live' || slot === 'ailive' || lifeSlot === 'lifelive';
+    if (live !== liveOn) lastPersonAt = performance.now();
+    liveOn = live;
     if (!liveOn) ctrl.setPerson(null);
-    // 文字：只打字；語音：麥克風；動態：鏡頭＋麥克風
-    const voice = slot === 'mic' || slot === 'aimic';
+    // 文字：只打字；語音：麥克風；動態：鏡頭＋麥克風（生命模式照它自己的種類）
+    const voice = slot === 'mic' || slot === 'aimic' || lifeSlot === 'lifemic';
     if (liveOn || voice) void micOn();
     else micOff();
     if (liveOn) void sensorOn();
     else sensorOff();
-    assistant.showInput(liveOn || voice || slot === 'text' || slot === 'aitext');
+    assistant.showInput(liveOn || voice || slot === 'text' || slot === 'aitext' || !!lifeSlot);
     if (cloudMode) hud.toast(t('cloud.on'));
     if (slot !== 'note') stage.removeNoteBlock();
   },
   call: () => {
     playSfx('bell');
-    ctrl.call();
+    // AI 生命模式：聽到鈴鐺要不要過來由 AI 決定
+    if (lifeSlot) lifeEvent('called');
+    else ctrl.call();
   },
   sfx: playSfx,
   rename: (name) => {
@@ -1775,7 +2145,8 @@ function tap(x: number, y: number): void {
     // 點到床：悅靈睡著就叫醒，醒著就去睡；點地面就把床放過去
     const hitBed = !!stage.bed && raycaster.intersectObject(stage.bed, true).length > 0;
     if (hitBed) {
-      if (ctrl.mode === 'sleep') ctrl.wake();
+      if (lifeSlot) lifeEvent('bedTap');
+      else if (ctrl.mode === 'sleep') ctrl.wake();
       else ctrl.goBed();
       return;
     }
@@ -1790,7 +2161,8 @@ function tap(x: number, y: number): void {
     if (!p) return;
     stage.launchFirework(p);
     playSfx('launch', p);
-    ctrl.watch(p.clone().add(new THREE.Vector3(0, 2.6, 0)));
+    if (lifeSlot) lifeEvent('firework');
+    else ctrl.watch(p.clone().add(new THREE.Vector3(0, 2.6, 0)));
     return;
   }
   if (sel === 'bath') {
@@ -1822,7 +2194,8 @@ function tap(x: number, y: number): void {
     celebrate(['mPetted']);
     return;
   }
-  // 點空白處：悅靈好奇地飛過去
+  // 點空白處：悅靈好奇地飛過去（AI 生命模式不自動飛過去）
+  if (lifeSlot) return;
   const dist = (ctrl.pos.z - ray.origin.z) / ray.direction.z;
   if (dist > 0) ctrl.lookAt(ray.at(dist, new THREE.Vector3()));
 }
@@ -2018,8 +2391,8 @@ function frame(now: number): void {
     }
   }
 
-  // 主動發言：每 15 秒檢查一次，距離上次發言超過 45 秒才說話
-  if (ctrl.awake && pet.onboarded) {
+  // 主動發言：每 15 秒檢查一次，距離上次發言超過 45 秒才說話（AI 生命模式由 AI 決定，不用這個）
+  if (!lifeSlot && ctrl.awake && pet.onboarded) {
     talkIn -= dt;
     if (talkIn <= 0) {
       talkIn = 15;
@@ -2049,7 +2422,7 @@ function frame(now: number): void {
 
   // 地上有蛋糕、肚子還沒飽：過一會兒就飛過去吃一片
   cakeWait -= dt;
-  if (stage.cake && cakeWait <= 0 && pet.hunger < MAX_HUNGER - 0.5 && ['idle', 'wander', 'approach', 'observe', 'curious'].includes(ctrl.mode)) {
+  if (!lifeSlot && stage.cake && cakeWait <= 0 && pet.hunger < MAX_HUNGER - 0.5 && ['idle', 'wander', 'approach', 'observe', 'curious'].includes(ctrl.mode)) {
     cakeWait = 2;
     ctrl.seekCake(stage.cake.position);
   }
@@ -2067,4 +2440,4 @@ function frame(now: number): void {
 requestAnimationFrame(frame);
 
 // 方便自動化測試與除錯
-Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound, music, keyGame, STICKERS, stickerCanvas, babbleStats, brainDev: { answer: brainAnswer, setCloudMode: (v: boolean) => (cloudMode = v), saveBrain, loadBrain, isCloudTired } } });
+Object.assign(window, { __fairy: { pet, ctrl, stage, hud, TRAITS, sound, music, keyGame, STICKERS, stickerCanvas, babbleStats, brainDev: { answer: brainAnswer, setCloudMode: (v: boolean) => (cloudMode = v), saveBrain, loadBrain, isCloudTired }, lifeDev: { event: lifeEvent, say, state: () => ({ slot: lifeSlot, standby: lifeStandby, fails: lifeFails, busy: lifeBusy }) } } });

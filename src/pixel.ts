@@ -388,3 +388,14 @@ function withSpark(base: { grid: string[]; pal: Palette }): { grid: string[]; pa
 ITEM_ICONS.bubble_ai = withSpark(ITEM_ICONS.bubble);
 ITEM_ICONS.mic_ai = withSpark(ITEM_ICONS.mic);
 ITEM_ICONS.eye_ai = withSpark(ITEM_ICONS.eye);
+
+/** AI 生命模式的圖示：原本的圖示右上角加一片綠色小葉子（有自己的生命） */
+function withLeaf(base: { grid: string[]; pal: Palette }): { grid: string[]; pal: Palette } {
+  const S = ['...LL', '..LML', '.LMML', '.LML.', 'L....'];
+  const g = base.grid.map((r) => r.padEnd(12, '.').split(''));
+  S.forEach((row, y) => [...row].forEach((c, x) => c !== '.' && (g[y][7 + x] = c)));
+  return { grid: g.map((r) => r.join('')), pal: { ...base.pal, L: '#2f7d32', M: '#8be37a' } };
+}
+ITEM_ICONS.bubble_life = withLeaf(ITEM_ICONS.bubble);
+ITEM_ICONS.mic_life = withLeaf(ITEM_ICONS.mic);
+ITEM_ICONS.eye_life = withLeaf(ITEM_ICONS.eye);

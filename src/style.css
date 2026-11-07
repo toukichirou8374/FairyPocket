@@ -103,6 +103,29 @@ html, body {
   pointer-events: none !important;
 }
 .sensor.on { display: block; }
+
+/* ---- AI 生命模式的狀態標籤（右上、設定按鈕的下面）：模式名稱＋停止 ---- */
+.life-chip {
+  display: none;
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 62px);
+  right: calc(env(safe-area-inset-right) + 12px);
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 110px);
+  padding: 4px 4px 4px 12px;
+  background: rgba(30, 90, 40, 0.82);
+  color: #fff;
+  font-size: 15px;
+  text-shadow: var(--shadow);
+  white-space: nowrap;
+  z-index: 5;
+}
+.life-chip.on { display: flex; }
+.life-chip.standby { background: rgba(80, 80, 96, 0.85); }
+.life-chip span { overflow: hidden; text-overflow: ellipsis; }
+.life-chip .btn.small { flex: 0 0 auto; margin: 0; padding: 2px 10px; min-height: 0; font-size: 15px; }
+body.ar .life-chip, .kg-on .life-chip { display: none; }
 .sensor video { width: 100%; height: 100%; object-fit: cover; }
 .sensor video.mirror { transform: scaleX(-1); }
 
