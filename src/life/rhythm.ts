@@ -7,6 +7,9 @@ import type { Lang } from '../i18n';
 import type { Personality } from '../game/state';
 import type { Intent } from './life';
 
+/** 瀏覽器的 localStorage（測試環境、私密瀏覽沒有時，讀寫會在 try 裡失敗而用預設值） */
+const browserStorage = (): Storage => globalThis.localStorage as Storage;
+
 export interface Habit {
   /** 平常起床、睡覺的時間（點） */
   wake: number;
@@ -85,7 +88,7 @@ export interface LogEntry {
 const LOG_KEY = 'fairypocket.lifelog.v1';
 const MAX_LOG = 24;
 
-export function loadLog(storage: Pick<Storage, 'getItem'> = localStorage): LogEntry[] {
+export function loadLog(storage: Pick<Storage, 'getItem'> = browserStorage()): LogEntry[] {
   try {
     const a = JSON.parse(storage.getItem(LOG_KEY) ?? '[]') as LogEntry[];
     return Array.isArray(a) ? a.filter((e) => e && typeof e.text === 'string' && typeof e.at === 'number').slice(-MAX_LOG) : [];
@@ -93,7 +96,7 @@ export function loadLog(storage: Pick<Storage, 'getItem'> = localStorage): LogEn
     return [];
   }
 }
-export function saveLog(log: LogEntry[], storage: Pick<Storage, 'setItem'> = localStorage): void {
+export function saveLog(log: LogEntry[], storage: Pick<Storage, 'setItem'> = browserStorage()): void {
   try {
     storage.setItem(LOG_KEY, JSON.stringify(log.slice(-MAX_LOG)));
   } catch {
@@ -126,7 +129,7 @@ const LIKE_KEY = 'fairypocket.lifelikes.v1';
 const NOT_LIKES = new Set<Intent>(['wake', 'sleep', 'rest', 'approach', 'stay', 'eat_cake']);
 
 export type Likes = Partial<Record<Intent, number>>;
-export function loadLikes(storage: Pick<Storage, 'getItem'> = localStorage): Likes {
+export function loadLikes(storage: Pick<Storage, 'getItem'> = browserStorage()): Likes {
   try {
     const o = JSON.parse(storage.getItem(LIKE_KEY) ?? '{}') as Likes;
     return o && typeof o === 'object' ? o : {};
@@ -134,7 +137,7 @@ export function loadLikes(storage: Pick<Storage, 'getItem'> = localStorage): Lik
     return {};
   }
 }
-export function saveLikes(l: Likes, storage: Pick<Storage, 'setItem'> = localStorage): void {
+export function saveLikes(l: Likes, storage: Pick<Storage, 'setItem'> = browserStorage()): void {
   try {
     storage.setItem(LIKE_KEY, JSON.stringify(l));
   } catch {
@@ -158,14 +161,14 @@ export function topLikes(l: Likes, n = 3): Intent[] {
 
 // ---------- 最後一次在生命模式的時間（重新打開 App 時算離開多久） ----------
 const SEEN_KEY = 'fairypocket.lifeseen.v1';
-export function lastLifeSeen(storage: Pick<Storage, 'getItem'> = localStorage): number {
+export function lastLifeSeen(storage: Pick<Storage, 'getItem'> = browserStorage()): number {
   try {
     return Number(storage.getItem(SEEN_KEY)) || 0;
   } catch {
     return 0;
   }
 }
-export function markLifeSeen(now = Date.now(), storage: Pick<Storage, 'setItem'> = localStorage): void {
+export function markLifeSeen(now = Date.now(), storage: Pick<Storage, 'setItem'> = browserStorage()): void {
   try {
     storage.setItem(SEEN_KEY, String(now));
   } catch {

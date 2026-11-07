@@ -8,6 +8,9 @@ import type { Lang } from '../i18n';
 import { parseReply, type Feeling } from '../brain/brain';
 import type { Gesture } from '../three/gestures';
 
+/** 瀏覽器的 localStorage（測試環境、私密瀏覽沒有時，讀寫會在 try 裡失敗而用預設值） */
+const browserStorage = (): Storage => globalThis.localStorage as Storage;
+
 export const LIFE_SLOTS = ['lifetext', 'lifemic', 'lifelive'] as const;
 export type LifeSlot = (typeof LIFE_SLOTS)[number];
 export const isLifeSlot = (s: string | null): s is LifeSlot => !!s && (LIFE_SLOTS as readonly string[]).includes(s);
@@ -361,14 +364,14 @@ export const DIRECT_EVENTS = new Set<LifeEvent>(['petted', 'tickled', 'woken', '
 
 // ---------- 設定：文字生命模式要不要念出 AI 的回答（預設關） ----------
 const VOICE_KEY = 'fairypocket.lifevoice.v1';
-export function lifeTextVoiceOn(storage: Pick<Storage, 'getItem'> = localStorage): boolean {
+export function lifeTextVoiceOn(storage: Pick<Storage, 'getItem'> = browserStorage()): boolean {
   try {
     return storage.getItem(VOICE_KEY) === '1';
   } catch {
     return false;
   }
 }
-export function setLifeTextVoice(on: boolean, storage: Pick<Storage, 'setItem'> = localStorage): void {
+export function setLifeTextVoice(on: boolean, storage: Pick<Storage, 'setItem'> = browserStorage()): void {
   try {
     storage.setItem(VOICE_KEY, on ? '1' : '0');
   } catch {

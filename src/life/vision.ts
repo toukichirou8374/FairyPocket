@@ -5,16 +5,19 @@
 // - 看到的描述只給 AI 參考（可能看錯），新出現的東西才讓 AI 決定要不要說一句。
 import type { Lang } from '../i18n';
 
+/** 瀏覽器的 localStorage（測試環境、私密瀏覽沒有時，讀寫會在 try 裡失敗而用預設值） */
+const browserStorage = (): Storage => globalThis.localStorage as Storage;
+
 const KEY = 'fairypocket.lifevision.v1';
 
-export function lifeVisionOn(storage: Pick<Storage, 'getItem'> = localStorage): boolean {
+export function lifeVisionOn(storage: Pick<Storage, 'getItem'> = browserStorage()): boolean {
   try {
     return storage.getItem(KEY) === '1';
   } catch {
     return false;
   }
 }
-export function setLifeVision(on: boolean, storage: Pick<Storage, 'setItem'> = localStorage): void {
+export function setLifeVision(on: boolean, storage: Pick<Storage, 'setItem'> = browserStorage()): void {
   try {
     storage.setItem(KEY, on ? '1' : '0');
   } catch {
