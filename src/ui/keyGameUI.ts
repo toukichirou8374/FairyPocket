@@ -154,6 +154,10 @@ export class KeyGameUI {
     this.speakOn = localStorage.getItem(SPEAK_KEY) !== '0';
     const m = localStorage.getItem(MODE_KEY) as KeyGameMode | null;
     if (m === 'keyboard' || m === 'gamepad' || m === 'tap' || m === 'voice' || m === 'motion') this.mode = m;
+    // 玩到一半轉手機（直拿⇄橫拿）：題目照新的方向重新擺，免得跑到畫面外或壓到悅靈
+    window.addEventListener('resize', () => {
+      if (this.layer && this.keyEl && !this.ended) this.placeInside(this.keyEl, ...this.pickSpot());
+    });
   }
 
   get active(): boolean {
@@ -613,19 +617,16 @@ export class KeyGameUI {
     if (p.name) el('div', 'kg-name', k).textContent = p.name;
     // 隨機位置，避開中間的悅靈
     // 直立的手機：放在下半部的空地；橫向：放在悅靈的左右兩側
-    let x: number;
-    let y: number;
-    if (window.innerHeight > window.innerWidth * 1.2) {
-      x = 22 + Math.random() * 56;
-      y = 66 + Math.random() * 18;
-    } else {
-      x = Math.random() < 0.5 ? 10 + Math.random() * 20 : 70 + Math.random() * 20;
-      y = 30 + Math.random() * 44;
-    }
-    this.placeInside(k, x, y);
+    this.placeInside(k, ...this.pickSpot());
     this.keyEl = k;
     this.shownAt = performance.now();
     this.nextHint = HINT_FIRST;
+  }
+
+  /** 題目的隨機位置 (x%, y%)：直立放下半部，橫向放悅靈左右兩側 */
+  private pickSpot(): [number, number] {
+    if (window.innerHeight > window.innerWidth * 1.2) return [22 + Math.random() * 56, 66 + Math.random() * 18];
+    return [Math.random() < 0.5 ? 10 + Math.random() * 20 : 70 + Math.random() * 20, 30 + Math.random() * 44];
   }
 
   /** 把題目放在 (x%, y%)，但整個題目（含名字）不能超出畫面、不能壓到上面的分數列與下面的說明 */

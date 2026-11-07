@@ -1916,9 +1916,18 @@ function resize(): void {
   // 快捷欄藏起來時（小遊戲中）不用替它留位置
   const r = hudEl.getBoundingClientRect();
   stage.resize(window.innerWidth, h, r.height ? h - r.top : 0);
+  ctrl.fitView();
+  for (const f of friends) f.ctrl.fitView();
 }
 window.addEventListener('resize', resize);
 new ResizeObserver(resize).observe(hudEl);
+// 手機轉向時（直拿⇄橫拿）iOS 的 resize 常在尺寸還沒更新前就觸發：轉完後再補幾次，讓畫面、快捷欄、泡泡都重新排
+function lateResize(): void {
+  for (const ms of [80, 250, 600]) setTimeout(() => window.dispatchEvent(new Event('resize')), ms);
+}
+window.addEventListener('orientationchange', lateResize);
+screen.orientation?.addEventListener?.('change', lateResize);
+window.visualViewport?.addEventListener('resize', resize);
 resize();
 
 function updateSky(): void {

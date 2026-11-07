@@ -648,9 +648,14 @@ export class Hud {
 
   /** 名字與泡泡跟著悅靈頭頂移動 */
   place(x: number, y: number, visible: boolean): void {
-    const tf = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
-    this.nameTag.style.transform = tf;
-    this.bubble.style.transform = `translate(${x.toFixed(1)}px, ${(y - 30).toFixed(1)}px) translate(-50%, -100%)`;
+    // 橫拿時畫面矮，名字與泡泡可能超出上緣或左右：夾在畫面內
+    const nh = this.nameTag.offsetHeight;
+    const ny = nh ? Math.max(y, nh + 2) : y;
+    this.nameTag.style.transform = `translate(${x.toFixed(1)}px, ${ny.toFixed(1)}px) translate(-50%, -100%)`;
+    const bw = this.bubble.offsetWidth, bh = this.bubble.offsetHeight, W = window.innerWidth, pad = 6;
+    const bx = bw ? Math.min(Math.max(x, bw / 2 + pad), Math.max(bw / 2 + pad, W - bw / 2 - pad)) : x;
+    const by = bh ? Math.max(y - 30, bh + pad) : y - 30;
+    this.bubble.style.transform = `translate(${bx.toFixed(1)}px, ${by.toFixed(1)}px) translate(-50%, -100%)`;
     this.nameTag.style.visibility = visible ? 'visible' : 'hidden';
   }
 

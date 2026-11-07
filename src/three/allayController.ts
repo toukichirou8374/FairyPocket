@@ -309,6 +309,10 @@ export class AllayController {
 
   // ---------- AI 選的動作（手、頭、翅膀、身體）----------
   private gest: { g: LimbGesture; t: number; dur: number } | null = null;
+  private armXs = 0;
+  private armZs = 0.4363;
+  private headXs = 0;
+  private headYs = 0;
   private gestQueue: Gesture[] = [];
   /** 最近做過的動作（給 AI 記憶用） */
   readonly gestureLog: { g: Gesture; at: number }[] = [];
@@ -693,6 +697,14 @@ export class AllayController {
     v.z = THREE.MathUtils.clamp(v.z, b.minZ, b.maxZ + 1.6);
   }
 
+  /** 畫面尺寸改變（手機轉向）後，把跑到畫面外的悅靈直接拉回可見範圍 */
+  fitView(): void {
+    if (this.posed || this.mode === 'sleep' || this.mode === 'rest') return;
+    this.clampVec(this.pos);
+    this.clampVec(this.anchor);
+    this.clampVec(this.target);
+  }
+
   private clampTarget(): void {
     if (this.mode === 'sleep' || this.mode === 'rest') return;
     // approach/called 可以飛得比遊蕩範圍更靠近鏡頭
@@ -813,10 +825,12 @@ export class AllayController {
     // 懊惱：雙手抱頭
     if (oops) { armX = THREE.MathUtils.lerp(armX, -2.5, oops); armZ = THREE.MathUtils.lerp(armZ, 0.35, oops); }
     if (this.mode === 'flip') { armX = -2.8; armZ = 0.9; }
-    m.armL.rotation.x = THREE.MathUtils.lerp(m.armL.rotation.x, armX, k(10));
-    m.armR.rotation.x = m.armL.rotation.x;
-    m.armL.rotation.z = THREE.MathUtils.lerp(m.armL.rotation.z, armZ, k(10));
-    m.armR.rotation.z = -m.armL.rotation.z;
+    // 原本動畫的手臂角度存在自己的變數（不讀模型上被 AI 動作蓋過的值，不然另一隻手會被帶著舉起來）
+    this.armXs = THREE.MathUtils.lerp(this.armXs, armX, k(10));
+    this.armZs = THREE.MathUtils.lerp(this.armZs, armZ, k(10));
+    m.armL.rotation.x = m.armR.rotation.x = this.armXs;
+    m.armL.rotation.z = this.armZs;
+    m.armR.rotation.z = -this.armZs;
     m.armL.rotation.y = 0.2793 * h;
     m.armR.rotation.y = -0.2793 * h;
     // 揮手：舉起一隻手左右搖
@@ -850,8 +864,10 @@ export class AllayController {
     if (this.mode === 'observe') { headY = this.lookDir * Math.sin(this.modeTime * this.tr.sweep) * 0.9; headX = 0.12; }
     // 懊惱：低頭、左右搖頭
     if (oops) { headX += 0.4 * oops; headY = Math.sin(this.modeTime * 13) * 0.45 * oops; }
-    m.head.rotation.x = THREE.MathUtils.lerp(m.head.rotation.x, headX, k(6));
-    m.head.rotation.y = dancing || oops ? headY : THREE.MathUtils.lerp(m.head.rotation.y, headY, k(6));
+    this.headXs = THREE.MathUtils.lerp(this.headXs, headX, k(6));
+    this.headYs = dancing || oops ? headY : THREE.MathUtils.lerp(this.headYs, headY, k(6));
+    m.head.rotation.x = this.headXs;
+    m.head.rotation.y = this.headYs;
     m.head.rotation.z = dancing ? sway * 0.524 : this.mode === 'curious' || this.mode === 'observe' ? Math.sin(this.t * 2) * 0.2 : this.mode === 'listen' ? 0.35 : this.mode === 'wave' ? Math.sin(this.modeTime * 9 + 0.8) * 0.18 * this.waveAmount() : 0; // 頭歪 30°
 
     // AI 選的動作：蓋在原本的動畫上（進退場平滑）
