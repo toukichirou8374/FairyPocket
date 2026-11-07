@@ -74,12 +74,18 @@ export interface Hooks {
   sfx?(e: 'flap' | 'dash' | 'snore' | 'bite' | 'burp' | 'wake' | 'startle', at: THREE.Vector3): void;
   /** AI 生命模式：剛才的意圖做完了（請 AI 決定下一步） */
   lifeIdle?(): void;
+  /** 哼歌時輕輕叫一聲（悅靈原本的叫聲） */
+  hum?(): void;
 }
 
 /** AI 生命模式的意圖（見 life/life.ts） */
 export type LifeIntent =
   | 'explore' | 'explore_left' | 'explore_right' | 'explore_high' | 'explore_low'
-  | 'approach' | 'observe' | 'stay' | 'daydream' | 'play' | 'dance' | 'rest' | 'sleep' | 'wake';
+  | 'approach' | 'observe' | 'stay' | 'daydream' | 'play' | 'dance' | 'rest' | 'sleep' | 'wake'
+  | 'sing' | 'stretch' | 'search' | 'peek' | 'groom' | 'patrol';
+
+/** AI 說的心情：讓動作與外觀跟著變（開心蹦蹦跳、難過垂頭、想睡慢慢拍翅膀…） */
+export type Feeling = 'happy' | 'sad' | 'surprised' | 'shy' | 'sleepy';
 
 const tmp = new THREE.Vector3();
 
@@ -246,7 +252,80 @@ export class AllayController {
         this.anchor.set(this.pos.x, 0, this.pos.z);
         this.clampVec(this.anchor);
         return this.setMode('rest', rand(12, 20));
+      case 'sing':
+        // 哼歌：停在原地輕輕搖頭晃腦、冒音符、偶爾叫一聲
+        this.anchor.copy(this.pos);
+        this.clampVec(this.anchor);
+        this.setMode('idle', rand(6, 9));
+        this.act = 'sing';
+        return;
+      case 'stretch':
+        // 伸懶腰：雙手舉高、張開翅膀拍一拍
+        return this.gesture(['hands_up', 'flap']);
+      case 'groom':
+        // 整理翅膀：轉頭看左右翅膀、慢慢拍
+        this.anchor.copy(this.pos);
+        this.clampVec(this.anchor);
+        this.setMode('idle', rand(5, 7));
+        this.act = 'groom';
+        return;
+      case 'search':
+        // 在地上找東西（原版悅靈會撿東西）：先飛到低處，再低頭東看西看
+        this.target.set(rand(b.minX, b.maxX) * 0.8, b.minY + 0.15, rand(b.minZ * 0.6, b.maxZ * 0.6));
+        this.setMode('wander', 7);
+        this.after = 'search';
+        return;
+      case 'peek':
+        // 躲起來偷看：飛到畫面邊邊的低處，歪頭偷看主人
+        this.target.set((Math.random() < 0.5 ? -1 : 1) * b.maxX * 0.92, b.minY + 0.35, b.minZ * 0.8);
+        this.setMode('wander', 7);
+        this.after = 'peek';
+        return;
+      case 'patrol':
+        // 繞一大圈巡邏（慢慢飛，不是亂衝）
+        this.anchor.set(this.pos.x * 0.5, midY, (b.minZ + b.maxZ) * 0.25);
+        this.clampVec(this.anchor);
+        this.setMode('flourish', 9);
+        this.act = 'patrol';
+        return;
     }
+  }
+
+  /** 生命模式的小活動（哼歌、整理翅膀、找東西、偷看、巡邏）；換動作時清掉 */
+  private act: 'sing' | 'groom' | 'search' | 'peek' | 'patrol' | null = null;
+  /** 飛到目的地之後要做的事 */
+  private after: 'search' | 'peek' | null = null;
+  private actFx = 0;
+  /** 生命模式閒著時慢慢飄移的目標（不會一直停在同一點，也不會過動） */
+  private readonly driftTo = new THREE.Vector3();
+  private driftIn = 0;
+
+  // ---------- 心情：AI 說的心情讓動作和外觀跟著變 ----------
+  private feeling: Feeling | null = null;
+  private feelLeft = 0;
+  private feelW = 0;
+  private shownFeeling: Feeling | null = null;
+  /** AI 回答的心情（null＝慢慢回到平常）；持續幾秒 */
+  setFeeling(f: Feeling | null, sec = 14): void {
+    this.feeling = f;
+    this.feelLeft = f ? sec : 0;
+    if (f === 'surprised') {
+      this.hooks.particle('sparkle', this.headTop(tmp), 6);
+      this.vel.y += 1.2;
+    }
+  }
+  /** 現在表現的心情與強度（AI 的心情優先；生命模式沒有時，照肚子、精神、心情數值淡淡地表現） */
+  private feelNow(): { f: Feeling | null; w: number } {
+    if (this.feeling && this.feelLeft > 0) return { f: this.feeling, w: 1 };
+    if (this.life && this.mode !== 'sleep') {
+      if (this.pet.energy < 25) return { f: 'sleepy', w: 0.6 };
+      if (this.pet.mood < 30) return { f: 'sad', w: 0.5 };
+      if (this.pet.mood > 80) return { f: 'happy', w: 0.35 };
+    }
+    return { f: null, w: 0 };
+  }
+  private feelOf(f: Feeling): number {
+    return this.shownFeeling === f ? this.feelW : 0;
   }
 
   /** 給 AI 看的「現在在做什麼」 */
@@ -267,6 +346,9 @@ export class AllayController {
     this.modeDur = dur;
     this.pet.asleep = m === 'sleep';
     this.dreaming = false;
+    this.act = null;
+    if (m !== 'wander') this.after = null;
+    if (m === 'idle') this.driftIn = 0;
   }
 
   get awake(): boolean {
@@ -567,9 +649,21 @@ export class AllayController {
     }
     const b = this.world.bounds();
     let speed = tr.speed;
+    this.updateFeeling(dt);
+    this.updateAct(dt);
 
     switch (this.mode) {
       case 'idle': {
+        // 生命模式自己閒著：慢慢飄來飄去（每 6～12 秒換個方向，範圍不大、速度很慢）
+        if (this.life && !this.act && !this.dreaming && !this.gest && !this.attending) {
+          this.driftIn -= dt;
+          if (this.driftIn <= 0) {
+            this.driftIn = rand(6, 12);
+            this.driftTo.set(this.anchor.x + rand(-0.9, 0.9), this.anchor.y + rand(-0.3, 0.3), this.anchor.z + rand(-0.5, 0.5));
+            this.clampVec(this.driftTo);
+          }
+          this.anchor.lerp(this.driftTo, 1 - Math.exp(-0.25 * dt));
+        }
         this.target.set(
           this.anchor.x + Math.sin(this.t * 0.7) * 0.15,
           this.anchor.y + Math.sin(this.t * 1.1) * 0.1,
@@ -597,8 +691,10 @@ export class AllayController {
       case 'flourish': {
         // 繞一圈小小的 8 字飛舞
         const a = (this.modeTime / this.modeDur) * Math.PI * 2;
-        this.target.set(this.anchor.x + Math.sin(a) * 0.55, this.anchor.y + Math.sin(a * 2) * 0.18, this.anchor.z + (1 - Math.cos(a)) * 0.3);
-        speed *= 1.6;
+        // 巡邏：繞大一點的圈、飛慢一點
+        const r = this.act === 'patrol' ? 2.2 : 1;
+        this.target.set(this.anchor.x + Math.sin(a) * 0.55 * r, this.anchor.y + Math.sin(a * 2) * 0.18, this.anchor.z + (1 - Math.cos(a)) * 0.3 * r);
+        speed *= this.act === 'patrol' ? 1.1 : 1.6;
         if (this.modeTime > this.modeDur) this.toIdle();
         break;
       }
@@ -735,9 +831,58 @@ export class AllayController {
     }
 
     if (this.mode !== 'play') this.clampTarget();
+    // 心情：開心飛快一點，難過、想睡慢吞吞
+    speed *= 1 + 0.15 * this.feelOf('happy') - 0.3 * this.feelOf('sad') - 0.4 * this.feelOf('sleepy') - 0.1 * this.feelOf('shy');
     this.move(dt, speed);
     this.animate(dt);
     this.aura(dt);
+  }
+
+  /** 心情的強度慢慢變化，並冒出代表心情的粒子 */
+  private updateFeeling(dt: number): void {
+    if (this.feelLeft > 0) this.feelLeft -= dt;
+    const { f, w } = this.feelNow();
+    if (f !== this.shownFeeling) {
+      // 先淡出原本的心情，再換成新的
+      this.feelW = Math.max(0, this.feelW - dt * 1.5);
+      if (this.feelW <= 0.02) this.shownFeeling = f;
+    } else this.feelW += (w - this.feelW) * (1 - Math.exp(-2 * dt));
+    if (!this.shownFeeling || this.feelW < 0.3 || this.mode === 'sleep') return;
+    this.actFx -= dt;
+    if (this.actFx > 0) return;
+    const head = this.headTop(tmp);
+    switch (this.shownFeeling) {
+      case 'happy':
+        this.actFx = rand(2, 3.5);
+        this.hooks.particle(Math.random() < 0.5 ? 'note' : 'heart', head, 1);
+        break;
+      case 'shy':
+        this.actFx = rand(3.5, 5);
+        this.hooks.particle('heart', head, 1);
+        break;
+      case 'sleepy':
+        this.actFx = rand(2.5, 4);
+        this.hooks.particle('zzz', head, 1);
+        break;
+      default:
+        this.actFx = 3;
+    }
+  }
+
+  /** 生命模式的小活動：哼歌冒音符、找東西時偶爾閃一下 */
+  private actIn = 0;
+  private updateAct(dt: number): void {
+    if (!this.act) return;
+    this.actIn -= dt;
+    if (this.actIn > 0) return;
+    if (this.act === 'sing') {
+      this.actIn = 0.8;
+      this.hooks.particle('note', this.headTop(tmp), 1);
+      if (Math.random() < 0.4) this.hooks.hum?.();
+    } else if (this.act === 'search') {
+      this.actIn = rand(1.2, 2.2);
+      this.hooks.particle('sparkle', tmp.copy(this.pos).add(new THREE.Vector3(rand(-0.3, 0.3), -0.35, rand(-0.2, 0.3))), 3);
+    } else this.actIn = 1;
   }
 
   private auraIn = Math.random() * AURA_EVERY;
@@ -760,8 +905,23 @@ export class AllayController {
   }
 
   private toIdle(): void {
+    const after = this.after;
     this.anchor.copy(this.pos);
     this.clampVec(this.anchor);
+    if (after === 'search') {
+      // 到了：低頭東看西看找東西
+      this.lookDir = Math.random() < 0.5 ? 1 : -1;
+      this.setMode('observe', rand(4, 6));
+      this.act = 'search';
+      return;
+    }
+    if (after === 'peek') {
+      // 到了：躲在邊邊歪頭偷看主人
+      this.setMode('idle', rand(5, 7));
+      this.act = 'peek';
+      this.attend(this.modeDur);
+      return;
+    }
     this.setMode('idle', rand(2.5, 6));
   }
 
@@ -951,9 +1111,13 @@ export class AllayController {
     if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'called' || this.mode === 'flourish' || this.mode === 'flip') flapRate += 4;
     if (this.mode === 'oops') flapRate *= 0.5;
     if (!sleeping) flapRate *= this.tr.tempo * (moodLevel(this.pet.mood) === 0 ? 0.85 : 1);
+    // 心情：開心拍得快、難過和想睡拍得慢；整理翅膀時慢慢拍
+    flapRate *= 1 + 0.45 * this.feelOf('happy') - 0.35 * this.feelOf('sad') - 0.5 * this.feelOf('sleepy');
+    if (this.act === 'groom') flapRate *= 0.45;
     this.flapPhase += flapRate * dt;
     const amp = sleeping ? 0.03 : this.mode === 'rest' ? 0.25 : Math.PI * 0.15;
-    const open = sleeping ? 0.12 : Math.PI / 4 - mv * 0.3;
+    // 難過、想睡時翅膀垂下來、收小一點
+    const open = sleeping ? 0.12 : (Math.PI / 4 - mv * 0.3) * (1 - 0.35 * this.feelOf('sad') - 0.3 * this.feelOf('sleepy'));
     this.wingSpread = THREE.MathUtils.lerp(this.wingSpread, open - Math.cos(this.flapPhase) * amp, k(20));
     this.wingTilt = THREE.MathUtils.lerp(this.wingTilt, sleeping ? 0.1 : 0.4363 * still, k(6));
     m.setWings(this.wingSpread, this.wingTilt);
@@ -1021,6 +1185,74 @@ export class AllayController {
     m.head.rotation.y = this.headYs;
     m.head.rotation.z = dancing ? sway * 0.524 : this.mode === 'curious' || this.mode === 'observe' ? Math.sin(this.t * 2) * 0.2 : this.mode === 'listen' ? 0.35 : this.mode === 'wave' ? Math.sin(this.modeTime * 9 + 0.8) * 0.18 * this.waveAmount() : 0; // 頭歪 30°
 
+    // 心情與小活動：蓋在原本的動畫上（強度 0～1，慢慢進出）
+    const busy = sleeping || lying || dancing || !!oops || this.mode === 'eat' || this.mode === 'wave' || this.mode === 'flip';
+    let feelEyes: 'open' | 'closed' | 'happy' | null = null;
+    if (!busy) {
+      const L = THREE.MathUtils.lerp;
+      const hp = this.feelOf('happy');
+      if (hp) {
+        // 開心：蹦蹦跳、身體左右輕擺
+        m.root.position.y += Math.abs(Math.sin(this.t * 5)) * 0.07 * hp;
+        m.tilt.rotation.z += Math.sin(this.t * 5) * 0.05 * hp;
+        if (hp > 0.5) feelEyes = 'happy';
+      }
+      const sd = this.feelOf('sad');
+      if (sd) {
+        // 難過：往下沉、垂頭、手垂下來
+        m.root.position.y -= 0.15 * sd;
+        m.head.rotation.x += 0.35 * sd;
+        m.armL.rotation.z = L(m.armL.rotation.z, 0.1, sd);
+        m.armR.rotation.z = L(m.armR.rotation.z, -0.1, sd);
+        m.armL.rotation.x = m.armR.rotation.x = L(m.armL.rotation.x, 0.15, sd);
+      }
+      const sp = this.feelOf('surprised');
+      if (sp) {
+        // 驚訝：身體往後仰、雙手張開
+        m.tilt.rotation.x -= 0.25 * sp;
+        m.armL.rotation.x = m.armR.rotation.x = L(m.armL.rotation.x, -1.2, sp);
+        m.armL.rotation.z = L(m.armL.rotation.z, 0.9, sp);
+        m.armR.rotation.z = L(m.armR.rotation.z, -0.9, sp);
+      }
+      const sh = this.feelOf('shy');
+      if (sh) {
+        // 害羞：低頭、把臉轉開一點、雙手在胸前、扭扭身體
+        m.head.rotation.x += 0.3 * sh;
+        m.head.rotation.y += 0.5 * sh;
+        m.armL.rotation.x = m.armR.rotation.x = L(m.armL.rotation.x, -1.0, sh);
+        m.armL.rotation.z = L(m.armL.rotation.z, 0.05, sh);
+        m.armR.rotation.z = L(m.armR.rotation.z, -0.05, sh);
+        m.tilt.rotation.z += Math.sin(this.t * 2) * 0.06 * sh;
+        if (sh > 0.5) feelEyes = Math.sin(this.t * 1.3) > 0.4 ? 'closed' : 'happy';
+      }
+      const sl = this.feelOf('sleepy');
+      if (sl) {
+        // 想睡：打瞌睡點頭、慢慢往下沉、眼睛常常閉起來
+        m.head.rotation.x += (0.2 + Math.max(0, Math.sin(this.t * 1.5)) * 0.2) * sl;
+        m.root.position.y -= 0.08 * sl;
+        if (sl > 0.5 && Math.sin(this.t * 0.8) > 0.2) feelEyes = 'closed';
+      }
+      // 小活動
+      if (this.act === 'sing') {
+        m.head.rotation.z = Math.sin(this.t * 3) * 0.25;
+        m.tilt.rotation.z += Math.sin(this.t * 3) * 0.05;
+        feelEyes = 'happy';
+      } else if (this.act === 'groom') {
+        // 輪流轉頭看左右翅膀
+        const side = Math.sin(this.modeTime * 1.6) > 0 ? 1 : -1;
+        m.head.rotation.y = L(m.head.rotation.y, side * 1.1, 0.8);
+        m.head.rotation.x = L(m.head.rotation.x, 0.3, 0.8);
+        if (Math.sin(this.modeTime * 3.1) > 0.6) feelEyes = 'closed';
+      } else if (this.act === 'search') {
+        // 低頭看地上
+        m.head.rotation.x = L(m.head.rotation.x, 0.65, 0.9);
+      } else if (this.act === 'peek') {
+        // 歪頭偷看
+        m.head.rotation.z = 0.4;
+        m.tilt.rotation.z += 0.12;
+      }
+    }
+
     // AI 選的動作：蓋在原本的動畫上（進退場平滑）
     const ge = this.gest ? applyLimbGesture(m, this.gest.g, this.gest.t, envelope(this.gest.t, this.gest.dur)) : null;
 
@@ -1032,6 +1264,7 @@ export class AllayController {
     }
     if (sleeping || this.mode === 'rest' && this.modeTime > 4 || oops > 0.3) m.setEyes('closed');
     else if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'eat' || this.mode === 'wave' || this.mode === 'bath' || this.mode === 'flip' || dancing) m.setEyes('happy');
+    else if (feelEyes) m.setEyes(feelEyes);
     else if (this.blinkIn < 0) {
       m.setEyes('closed');
       if (this.blinkIn < -0.13) this.blinkIn = rand(2, 5);

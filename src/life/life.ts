@@ -16,14 +16,15 @@ export const isLifeSlot = (s: string | null): s is LifeSlot => !!s && (LIFE_SLOT
 export const INTENTS = [
   'explore', 'explore_left', 'explore_right', 'explore_high', 'explore_low',
   'approach', 'observe', 'stay', 'daydream', 'play', 'dance', 'rest', 'sleep', 'wake', 'eat_cake',
+  'sing', 'stretch', 'search', 'peek', 'groom', 'patrol',
 ] as const;
 export type Intent = (typeof INTENTS)[number];
 
 /** 給 AI 看的意圖清單（與 INTENTS 同順序） */
 export const INTENT_MENU: Record<Lang, string[]> = {
-  zh_tw: ['四處探索', '去左邊看看', '去右邊看看', '飛高一點', '飛低一點', '靠近主人', '停下來觀察', '待在原地', '發呆', '自己玩', '跳舞', '休息', '睡覺', '起床', '去吃蛋糕'],
-  ja_jp: ['たんけん', 'ひだりへいく', 'みぎへいく', 'たかくとぶ', 'ひくくとぶ', 'ちかづく', 'かんさつ', 'そのまま', 'ぼんやりする', 'ひとりあそび', 'おどる', 'やすむ', 'ねる', 'おきる', 'ケーキをたべにいく'],
-  en_us: ['explore', 'go left', 'go right', 'fly higher', 'fly lower', 'come closer', 'observe', 'stay', 'daydream', 'play alone', 'dance', 'rest', 'sleep', 'wake up', 'eat cake'],
+  zh_tw: ['四處探索', '去左邊看看', '去右邊看看', '飛高一點', '飛低一點', '靠近主人', '停下來觀察', '待在原地', '發呆', '自己玩', '跳舞', '休息', '睡覺', '起床', '去吃蛋糕', '哼歌', '伸懶腰', '在地上找東西', '躲起來偷看', '整理翅膀', '繞一圈巡邏'],
+  ja_jp: ['たんけん', 'ひだりへいく', 'みぎへいく', 'たかくとぶ', 'ひくくとぶ', 'ちかづく', 'かんさつ', 'そのまま', 'ぼんやりする', 'ひとりあそび', 'おどる', 'やすむ', 'ねる', 'おきる', 'ケーキをたべにいく', 'はなうた', 'のびをする', 'ものをさがす', 'かくれてのぞく', 'はねのておいれ', 'ぐるっとパトロール'],
+  en_us: ['explore', 'go left', 'go right', 'fly higher', 'fly lower', 'come closer', 'observe', 'stay', 'daydream', 'play alone', 'dance', 'rest', 'sleep', 'wake up', 'eat cake', 'hum a song', 'stretch', 'search the ground', 'hide and peek', 'groom wings', 'patrol around'],
 };
 
 export function intentFrom(name: string): Intent | null {
@@ -84,9 +85,38 @@ export function parseLifeReply(raw: string, lang: Lang): LifeReply {
   });
   // 對話紀錄裡「（意圖：…）」的寫法被 AI 學去寫在回答裡時也拿掉
   s = s.replace(/[（(]\s*(?:意圖|意図|いと|intent)\s*[:：][^）)]*[）)]/gi, '');
+  // 沒有括號的「意圖：休息」也認得、拿掉
+  s = s.replace(/(?:意圖|意図|intent)\s*[:：]\s*([^\s。！？!?.、,，]+)/gi, (_, n: string) => {
+    intent ??= intentFrom(n);
+    return '';
+  });
   const r = parseReply(s, lang);
   const text = r.text.replace(LEFTOVER_TAG, '').replace(/\s{2,}/g, ' ').trim();
+  // AI 說了要做什麼、卻忘了寫標籤：從這句話裡找意圖的名稱（有「不、沒、別…」就不猜）
+  intent ??= intentInText(text, lang);
   return { ...r, text: quiet ? '' : text, intent, quiet };
+}
+
+const NEGATION = /不|沒|别|別|ない|ません|\bnot\b|n't|\bno\b/i;
+/** 句子裡提到的意圖（最長的名稱優先） */
+export function intentInText(text: string, lang: Lang): Intent | null {
+  if (!text || NEGATION.test(text)) return null;
+  const t = text.toLowerCase();
+  let best: Intent | null = null;
+  let len = 0;
+  INTENT_MENU[lang].forEach((name, i) => {
+    if (name.length > len && name.length >= 2 && t.includes(name.toLowerCase())) {
+      best = INTENTS[i];
+      len = name.length;
+    }
+  });
+  return best;
+}
+
+/** 現在做得到的意圖（例如地上沒有蛋糕就不能「去吃蛋糕」；睡著時只能繼續睡或起床） */
+export function availableIntents(s: { cake: boolean; asleep: boolean }): Intent[] {
+  if (s.asleep) return ['sleep', 'wake'];
+  return INTENTS.filter((i) => i !== 'wake' && (i !== 'eat_cake' || s.cake));
 }
 
 // ---------- 給 AI 的生命模式規則（接在原本的悅靈設定後面） ----------
@@ -106,6 +136,8 @@ export interface LifeState {
   voice: boolean;
   /** 地上有沒有蛋糕 */
   cake: boolean;
+  /** 鏡頭看到的人（例如「有人在畫面左邊」；沒看到是空字串） */
+  seen?: string;
   /** 有沒有開麥克風／鏡頭 */
   mic: boolean;
   camera: boolean;
@@ -124,7 +156,7 @@ const LIFE_RULES: Record<Lang, (s: LifeState, menu: string) => string> = {
 - 括號裡的「（…）」是發生的事，不是主人說的話。
 現在的狀態：正在${s.doing}，在畫面的${s.where}；精神 ${Math.round(s.energy)}/100、肚子 ${Math.round(s.hunger)}/100${s.asleep ? '；正在睡覺' : ''}。
 最近想做的事：${s.recent.length ? s.recent.join('、') : '還沒有'}。${s.cake ? '地上有蛋糕，肚子餓可以「去吃蛋糕」。' : ''}
-${s.mic ? '主人開著麥克風，你聽得到聲音。' : ''}${s.camera ? '主人開著鏡頭，你看得到鏡頭前有沒有人在動。' : ''}${s.voice ? '' : '現在主人那邊沒有開聲音，你說的話只會顯示成文字。'}`,
+${s.mic ? '主人開著麥克風，你聽得到聲音。' : ''}${s.camera ? `主人開著鏡頭：你只看得出鏡頭前有沒有人在動、在哪一邊（${s.seen || '現在沒看到人'}），看不清楚是什麼東西，不要假裝看到具體的東西。` : ''}${s.voice ? '' : '現在主人那邊沒有開聲音，你說的話只會顯示成文字。'}`,
   ja_jp: (s, menu) => `
 いまは「いのちモード」です。あなたには自分の考えと生活があり、いつも命令を待つ必要はなく、なんでも話す必要もありません。
 - つぎに何をするかは自分で決めます。返事に [意図：名前] を入れてください。名前はこの中からだけ：${menu}。体はその意図どおりに動き、終わったらまた聞きます。
@@ -137,7 +169,7 @@ ${s.mic ? '主人開著麥克風，你聽得到聲音。' : ''}${s.camera ? '主
 - かっこの「（…）」はおきたことで、主人のことばではありません。
 いまの様子：${s.doing}をしていて、画面の${s.where}にいます。元気 ${Math.round(s.energy)}/100、おなか ${Math.round(s.hunger)}/100${s.asleep ? '、ねむっています' : ''}。
 さいきんの意図：${s.recent.length ? s.recent.join('、') : 'まだなし'}。${s.cake ? 'ゆかにケーキがあるので、おなかがすいたら「ケーキをたべにいく」もできます。' : ''}
-${s.mic ? 'マイクがついていて、声が聞こえます。' : ''}${s.camera ? 'カメラがついていて、前で人が動いているかわかります。' : ''}${s.voice ? '' : 'いまは音が出ないので、あなたのことばは文字だけで表示されます。'}`,
+${s.mic ? 'マイクがついていて、声が聞こえます。' : ''}${s.camera ? `カメラがついています：前で人が動いているか、どちらにいるかだけわかります（${s.seen || 'いまは見えない'}）。物がなにかはわからないので、見えたふりをしないで。` : ''}${s.voice ? '' : 'いまは音が出ないので、あなたのことばは文字だけで表示されます。'}`,
   en_us: (s, menu) => `
 You are now in "life mode": you have your own thoughts and life, you don't have to wait for commands, and you don't have to talk about everything.
 - You decide what to do next: add [intent: name] to your reply, choosing only from: ${menu}. Your body will go and do it for a while, then you'll be asked again.
@@ -150,7 +182,7 @@ You are now in "life mode": you have your own thoughts and life, you don't have 
 - Text in parentheses "(…)" is something that happened, not words from your friend.
 Now: you are ${s.doing}, at the ${s.where} of the screen; energy ${Math.round(s.energy)}/100, tummy ${Math.round(s.hunger)}/100${s.asleep ? '; you are asleep' : ''}.
 Recent intents: ${s.recent.length ? s.recent.join(', ') : 'none yet'}.${s.cake ? ' There is a cake on the ground; you can "eat cake" when hungry.' : ''}
-${s.mic ? 'The microphone is on; you can hear sounds. ' : ''}${s.camera ? 'The camera is on; you can tell if someone is moving in front of it. ' : ''}${s.voice ? '' : 'Sound is off on your friend\'s side, so your words only show as text.'}`,
+${s.mic ? 'The microphone is on; you can hear sounds. ' : ''}${s.camera ? `The camera is on: you can only tell whether someone is moving in front of it and on which side (${s.seen || 'nobody seen now'}); you can't tell what objects are, so don't pretend to see specific things. ` : ''}${s.voice ? '' : 'Sound is off on your friend\'s side, so your words only show as text.'}`,
 };
 
 /** 最後再強調一次語言（小模型常被前面的內容帶著換語言） */
@@ -160,14 +192,22 @@ const LANG_LAST: Record<Lang, string> = {
   en_us: 'Most important: always speak only in English, never Chinese or Japanese. Write tags only inside square brackets.',
 };
 
+/** 一定要寫意圖標籤（只在句子裡說「我要去…」身體不會動） */
+const MUST_TAG: Record<Lang, string> = {
+  zh_tw: '注意：你的身體只看標籤行動。想做什麼一定要寫成 [意圖：名稱]，只在句子裡說「我要去…」身體不會動；清單裡沒有的事做不到，就不要說要去做。',
+  ja_jp: '注意：体はタグだけを見て動きます。したいことは必ず [意図：名前] と書いてください。文の中で「〜しにいく」と言うだけでは動きません。リストにないことはできないので、するとは言わないで。',
+  en_us: 'Note: your body only moves by tags. Always write what you will do as [intent: name]; just saying "I\'ll go…" in a sentence won\'t move you. Things not in the list can\'t be done, so don\'t say you\'ll do them.',
+};
+
 export function lifeRules(s: LifeState, lang: Lang): string {
-  return `${LIFE_RULES[lang](s, INTENT_MENU[lang].join(lang === 'en_us' ? ', ' : '、'))}\n${LANG_LAST[lang]}`;
+  const menu = availableIntents(s).map((i) => intentName(i, lang)).join(lang === 'en_us' ? ', ' : '、');
+  return `${LIFE_RULES[lang](s, menu)}\n${MUST_TAG[lang]}\n${LANG_LAST[lang]}`;
 }
 
 // ---------- 發生的事（交給 AI 判斷要怎麼反應） ----------
 export type LifeEvent =
   | 'decide' | 'asleepCheck' | 'petted' | 'tickled' | 'woken' | 'called' | 'fed' | 'favoriteFood' | 'full'
-  | 'caughtBall' | 'bath' | 'noteBlock' | 'bedTap' | 'firework' | 'cake' | 'friend' | 'wave' | 'appear' | 'greet' | 'milestone' | 'renamed';
+  | 'caughtBall' | 'bath' | 'noteBlock' | 'bedTap' | 'firework' | 'cake' | 'friend' | 'wave' | 'appear' | 'left' | 'busy' | 'greet' | 'milestone' | 'renamed';
 
 const EVENTS: Record<LifeEvent, Record<Lang, string>> = {
   decide: {
@@ -200,6 +240,8 @@ const EVENTS: Record<LifeEvent, Record<Lang, string>> = {
     ja_jp: '（しばらくだれも見えなかったけど、いまカメラの前に人があらわれた）',
     en_us: '(Nobody was there for a while; now someone appeared in front of the camera)',
   },
+  left: { zh_tw: '（鏡頭前的人離開了，一陣子都沒看到人）', ja_jp: '（カメラの前の人がいなくなって、しばらくだれも見えない）', en_us: '(The person in front of the camera left; nobody has been seen for a while)' },
+  busy: { zh_tw: '（主人一直在鏡頭前動來動去，好像在忙）', ja_jp: '（主人がカメラの前でずっと動いていて、いそがしそう）', en_us: '(Your friend keeps moving in front of the camera; they seem busy)' },
   greet: { zh_tw: '（主人回來打開了 App）', ja_jp: '（主人がもどってきてアプリをひらいた）', en_us: '(Your friend came back and opened the app)' },
   milestone: { zh_tw: '（今天是值得紀念的日子：{d}）', ja_jp: '（きょうは記念の日：{d}）', en_us: '(Today is a special day: {d})' },
   renamed: { zh_tw: '（主人幫你取了新名字：{d}）', ja_jp: '（主人が新しい名前をつけてくれた：{d}）', en_us: '(Your friend gave you a new name: {d})' },

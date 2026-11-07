@@ -113,7 +113,7 @@ html, body {
   align-items: center;
   gap: 8px;
   max-width: calc(100vw - 110px);
-  padding: 4px 4px 4px 12px;
+  padding: 3px 3px 3px 10px;
   background: rgba(30, 90, 40, 0.82);
   color: #fff;
   font-size: 15px;
@@ -124,7 +124,7 @@ html, body {
 .life-chip.on { display: flex; }
 .life-chip.standby { background: rgba(80, 80, 96, 0.85); }
 .life-chip span { overflow: hidden; text-overflow: ellipsis; }
-.life-chip .btn.small { flex: 0 0 auto; margin: 0; padding: 2px 10px; min-height: 0; font-size: 15px; }
+.life-chip .btn.small { flex: 0 0 auto; width: auto; margin: 0; padding: 0 8px; min-height: 0; height: 24px; line-height: 22px; font-size: 13px; border-width: 1px; box-shadow: none; }
 body.ar .life-chip, .kg-on .life-chip { display: none; }
 .sensor video { width: 100%; height: 100%; object-fit: cover; }
 .sensor video.mirror { transform: scaleX(-1); }

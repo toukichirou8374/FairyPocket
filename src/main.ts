@@ -474,6 +474,8 @@ async function brainAnswer(text: string, opts: BrainOpts = {}): Promise<boolean>
     }, Math.max(3600, line.length * (lang === 'en_us' ? 70 : 230)));
   } else {
     assistSay(r.text, tired ? 'sleepy' : r.feeling ? FEELING_MOOD[r.feeling] : 'happy');
+    // AI 說的心情也表現在之後一陣子的動作和外觀上
+    if (r.feeling) ctrl.setFeeling(tired ? 'sleepy' : r.feeling);
     if (tired) tiredLook();
     // AI 選的動作接在說話的同時做（蓋過心情預設的動作）
     else if (r.actions.length) ctrl.gesture(r.actions);
@@ -818,6 +820,39 @@ function lifeWhere(lang: Lang): string {
   return lang === 'en_us' ? `${vert ? vert + ' ' : ''}${side}` : `${side}${vert}`;
 }
 
+/** 鏡頭看到的人在哪一邊（給 AI 看；只知道位置，不知道是什麼東西） */
+function lifeSeen(lang: Lang): string {
+  if (!(lifeSlot === 'lifelive' && sensor.on && performance.now() - lastPersonAt < 5000)) return '';
+  const side = personX < -0.3 ? 0 : personX > 0.3 ? 1 : 2;
+  const W: Record<Lang, [string, string, string]> = {
+    zh_tw: ['有人在畫面左邊', '有人在畫面右邊', '有人在畫面正前方'],
+    ja_jp: ['画面のひだりに人がいる', '画面のみぎに人がいる', '画面のまんまえに人がいる'],
+    en_us: ['someone on the left', 'someone on the right', 'someone right in front'],
+  };
+  return W[lang][side];
+}
+// 動態生命模式：人離開一陣子、或一直在鏡頭前忙時，告訴 AI（要不要說話由 AI 決定）
+let lifeSawPerson = false;
+let lifeBusySince = 0;
+window.setInterval(() => {
+  if (lifeSlot !== 'lifelive' || !sensor.on) {
+    lifeSawPerson = false;
+    return;
+  }
+  const now = performance.now();
+  const present = now - lastPersonAt < 5000;
+  if (present && !lifeSawPerson) {
+    lifeSawPerson = true;
+    lifeBusySince = now;
+  } else if (!present && lifeSawPerson && now - lastPersonAt > 60_000) {
+    lifeSawPerson = false;
+    lifeEvent('left');
+  } else if (present && now - lifeBusySince > 180_000) {
+    lifeBusySince = now;
+    lifeEvent('busy');
+  }
+}, 5000);
+
 /** 文字生命模式可以關掉聲音；語音、動態生命模式一定念（全部靜音時照樣不出聲） */
 function lifeVoice(): boolean {
   return lifeSlot === 'lifetext' ? lifeTextVoiceOn() : !!lifeSlot;
@@ -852,7 +887,9 @@ function lifeDo(i: LifeIntentName): void {
   lifeRecent.push(i);
   if (lifeRecent.length > 5) lifeRecent.shift();
   if (i === 'eat_cake') {
+    // 地上有蛋糕就飛過去吃；沒有的話（AI 說錯）就在附近找找看
     if (stage.cake && pet.hunger < MAX_HUNGER - 0.5) ctrl.seekCake(stage.cake.position);
+    else ctrl.intend('search');
     return;
   }
   ctrl.intend(i);
@@ -896,6 +933,7 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<
         cake: !!stage.cake,
         mic: lifeSlot === 'lifemic' || lifeSlot === 'lifelive',
         camera: lifeSlot === 'lifelive' && sensor.on,
+        seen: lifeSeen(lang),
       },
       lang,
     );
@@ -942,6 +980,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<
   if (r.text || did) remember(brainMem, 'allay', `${r.text}${did}`.trim());
   if (how === 'chat') for (const n of r.notes) addNote(brainMem, n);
   saveMemory(brainMem);
+  // 心情表現在動作和外觀上
+  if (r.feeling) ctrl.setFeeling(r.feeling);
   // 回應主人時看著主人（自己決定下一步時照自己的視線）
   if (how !== 'decide') ctrl.attend(r.text ? 8 : 4);
   // 先做動作（手、頭、翅膀），做完再照意圖行動
@@ -1293,6 +1333,7 @@ const ctrl = new AllayController(
     atCake,
     sfx: playSfx,
     lifeIdle: () => lifeDecide(),
+    hum: () => sound.speak(pet.personality),
   },
 );
 

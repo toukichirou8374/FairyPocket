@@ -157,3 +157,97 @@ describe('AI 生命模式：實機回報的問題', () => {
     expect(Math.abs(wrap(model.root.rotation.y))).toBeLessThan(0.4);
   });
 });
+
+describe('AI 生命模式：第二輪回報（說要去做卻沒做、心情、更多活動）', () => {
+  it('只說「我要去吃蛋糕」沒寫標籤也會去做；有否定詞就不猜', async () => {
+    const { intentInText, availableIntents } = await import('./life');
+    expect(parseLifeReply('肚子餓了，我要去吃蛋糕！', 'zh_tw').intent).toBe('eat_cake');
+    expect(parseLifeReply('我不想跳舞', 'zh_tw').intent).toBeNull();
+    expect(parseLifeReply('意圖：休息 嗯…', 'zh_tw')).toMatchObject({ intent: 'rest', text: '嗯…' });
+    expect(intentInText('ちょっとはなうたをうたおう', 'ja_jp')).toBe('sing');
+    // 沒有蛋糕就不給 AI 選「去吃蛋糕」；睡著時只能睡或起床
+    expect(availableIntents({ cake: false, asleep: false })).not.toContain('eat_cake');
+    expect(availableIntents({ cake: true, asleep: false })).toContain('eat_cake');
+    expect(availableIntents({ cake: true, asleep: true })).toEqual(['sleep', 'wake']);
+    expect(lifeRules(state, 'zh_tw')).not.toContain('去吃蛋糕');
+    expect(lifeRules(state, 'zh_tw')).toContain('身體只看標籤行動');
+  });
+
+  const setup = () => {
+    const camera = new THREE.PerspectiveCamera(42, 0.5, 0.1, 100);
+    camera.position.set(0, 1.6, 5.4);
+    const o = () => new THREE.Object3D();
+    const eyes: string[] = [];
+    const parts: string[] = [];
+    const model = { root: o(), tilt: o(), head: o(), body: o(), armL: o(), armR: o(), wingL: o(), wingR: o(), setEyes: (e: string) => eyes.push(e), setWings: () => {} } as unknown as AllayModel;
+    let hums = 0;
+    const c = new AllayController(model, { camera, bounds: () => ({ minX: -1.5, maxX: 1.5, minY: 0.45, maxY: 2, minZ: -1.6, maxZ: 1 }), night: () => false }, createPet(Date.now()), {
+      say: () => {},
+      particle: (k) => parts.push(k),
+      caught: () => {},
+      hum: () => hums++,
+    });
+    c.setLife(true);
+    return { c, model, eyes, parts, hums: () => hums };
+  };
+
+  it('心情會表現出來：開心冒音符愛心、想睡冒 zzz 而且常閉眼、難過往下沉', () => {
+    const h = setup();
+    h.c.setFeeling('happy');
+    for (let i = 0; i < 160; i++) h.c.update(0.05);
+    expect(h.parts.filter((p) => p === 'note' || p === 'heart').length).toBeGreaterThan(0);
+    const s = setup();
+    s.c.setFeeling('sleepy');
+    for (let i = 0; i < 200; i++) s.c.update(0.05);
+    expect(s.parts).toContain('zzz');
+    expect(s.eyes.filter((e) => e === 'closed').length).toBeGreaterThan(40);
+    const base = setup();
+    const sad = setup();
+    sad.c.setFeeling('sad');
+    for (let i = 0; i < 100; i++) {
+      base.c.update(0.05);
+      sad.c.update(0.05);
+    }
+    expect(sad.model.head.rotation.x).toBeGreaterThan(base.model.head.rotation.x + 0.2);
+  });
+
+  it('新的活動：哼歌、找東西（先飛到低處再低頭找）、偷看（到邊邊後看著主人）', () => {
+    const h = setup();
+    h.c.intend('sing');
+    for (let i = 0; i < 120; i++) h.c.update(0.05);
+    expect(h.parts).toContain('note');
+    expect(h.hums()).toBeGreaterThan(0);
+    const s = setup();
+    s.c.intend('search');
+    expect(s.c.mode).toBe('wander');
+    let searched = false;
+    for (let i = 0; i < 200 && !searched; i++) {
+      s.c.update(0.05);
+      searched = s.c.mode === 'observe';
+    }
+    expect(searched).toBe(true);
+    expect(s.c.pos.y).toBeLessThan(1);
+    const p = setup();
+    p.c.intend('peek');
+    let peeking = false;
+    for (let i = 0; i < 200 && !peeking; i++) {
+      p.c.update(0.05);
+      peeking = p.c.mode === 'idle';
+    }
+    expect(peeking).toBe(true);
+    expect(Math.abs(p.c.pos.x)).toBeGreaterThan(0.8);
+  });
+
+  it('閒著時慢慢飄來飄去，但不會過動', () => {
+    const h = setup();
+    h.c.intend('stay');
+    const start = h.c.pos.clone();
+    let maxSpeed = 0;
+    for (let i = 0; i < 300; i++) {
+      h.c.update(0.05);
+      maxSpeed = Math.max(maxSpeed, h.c.vel.length());
+    }
+    expect(h.c.pos.distanceTo(start)).toBeGreaterThan(0.1);
+    expect(maxSpeed).toBeLessThan(1.2);
+  });
+});
