@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { INTENT_MENU, INTENTS, intentFrom, intentName, isLifeSlot, lifeEventText, lifeRules, parseLifeReply, retryDelay, type LifeState } from './life';
 import type { AllayModel } from '../three/allayModel';
@@ -201,14 +201,20 @@ describe('AI 生命模式：第二輪回報（說要去做卻沒做、心情、�
     for (let i = 0; i < 200; i++) s.c.update(0.05);
     expect(s.parts).toContain('zzz');
     expect(s.eyes.filter((e) => e === 'closed').length).toBeGreaterThan(40);
-    const base = setup();
-    const sad = setup();
-    sad.c.setFeeling('sad');
-    for (let i = 0; i < 100; i++) {
-      base.c.update(0.05);
-      sad.c.update(0.05);
+    // 閒著時的小動作是隨機的：固定亂數，比較時才不會剛好碰到「低頭」
+    const rnd = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    try {
+      const base = setup();
+      const sad = setup();
+      sad.c.setFeeling('sad');
+      for (let i = 0; i < 100; i++) {
+        base.c.update(0.05);
+        sad.c.update(0.05);
+      }
+      expect(sad.model.head.rotation.x).toBeGreaterThan(base.model.head.rotation.x + 0.2);
+    } finally {
+      rnd.mockRestore();
     }
-    expect(sad.model.head.rotation.x).toBeGreaterThan(base.model.head.rotation.x + 0.2);
   });
 
   it('新的活動：哼歌、找東西（先飛到低處再低頭找）、偷看（到邊邊後看著主人）', () => {
