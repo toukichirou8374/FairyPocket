@@ -30,8 +30,12 @@ function ctor(): RecCtor | null {
 
 export const speechSupported = (): boolean => !!ctor();
 
+/** 中途結果停住多久就當作說完（毫秒） */
+export const SETTLE_MS = 1300;
+
 export class Recognizer {
   private rec: Rec | null = null;
+  private settleTimer = 0;
   private running = false;
   /** 沒有權限或發生無法恢復的錯誤 */
   failed: string | null = null;
@@ -47,12 +51,34 @@ export class Recognizer {
     rec.interimResults = true;
     // 小朋友的發音不一定標準：多拿幾個可能的結果來比對
     rec.maxAlternatives = 5;
+    // 有些瀏覽器（特別是 iPhone 的 Safari）連續辨識時常常一直不給「說完了」：
+    // 中途結果停住 SETTLE_MS 沒有變化，就當作說完了（之後如果又收到同一句的完成結果，不重複回答）
+    let pending: { text: string; alts: string[] } | null = null;
+    let settled = '';
+    const settle = (): void => {
+      this.settleTimer = 0;
+      if (!pending || this.rec !== rec) return;
+      const p = pending;
+      pending = null;
+      settled = p.text.trim();
+      onText(p.text, true, p.alts);
+    };
     rec.onresult = (e) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
         const alts: string[] = [];
         for (let k = 0; k < r.length; k++) if (r[k]?.transcript) alts.push(r[k].transcript);
-        onText(r[0].transcript, r.isFinal, alts);
+        window.clearTimeout(this.settleTimer);
+        if (r.isFinal) {
+          pending = null;
+          const same = settled && r[0].transcript.trim() === settled;
+          settled = '';
+          if (!same) onText(r[0].transcript, true, alts);
+        } else {
+          pending = { text: r[0].transcript, alts };
+          this.settleTimer = window.setTimeout(settle, SETTLE_MS);
+          onText(r[0].transcript, false, alts);
+        }
       }
     };
     rec.onerror = (e) => {
@@ -85,6 +111,8 @@ export class Recognizer {
   }
 
   stop(): void {
+    window.clearTimeout(this.settleTimer);
+    this.settleTimer = 0;
     this.running = false;
     const r = this.rec;
     this.rec = null;

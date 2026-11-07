@@ -756,7 +756,7 @@ describe('assistant', () => {
 describe('ai brain', () => {
   it('解析 AI 的回答：心情、要記住的事、多餘的符號', () => {
     const r = parseReply('[難過] 怎麼了？我陪你喔！😊\n[記住：主人的狗叫小白]');
-    expect(r).toEqual({ text: '怎麼了？我陪你喔！', feeling: 'sad', notes: ['主人的狗叫小白'] });
+    expect(r).toEqual({ text: '怎麼了？我陪你喔！', feeling: 'sad', notes: ['主人的狗叫小白'], actions: [] });
     expect(parseReply('**わー**すごい！เยอะเยอะだね', 'ja_jp').text).toBe('わーすごい！だね');
     expect(parseReply('[不是心情] 你好').text).toBe('[不是心情] 你好');
     expect(parseReply('沒關係 poquito 我陪你 OK 嗎', 'zh_tw').text).toBe('沒關係我陪你 OK 嗎');
@@ -904,5 +904,45 @@ describe('mixed language', () => {
     expect(mixedLanguage('I like pizza!', 'en_us')).toBe(false);
     expect(mixedLanguage('I like 披薩!', 'en_us')).toBe(true);
     expect(dropMixedSentences('わーい！這個很好吃嗎？またあそぼうね！', 'ja_jp')).toBe('わーい！またあそぼうね！');
+  });
+});
+
+describe('AI 優先：動作標籤與對話視窗', () => {
+  it('解析動作標籤：三種語言、最多 2 個、不認得的忽略、不念出來', async () => {
+    const r = parseReply('[害羞] 好啦…你看我嘛 [動作：遮臉] [動作：點頭、舉右手]');
+    expect(r.text).toBe('好啦…你看我嘛');
+    expect(r.feeling).toBe('shy');
+    expect(r.actions).toEqual(['cover_face', 'nod']);
+    expect(parseReply('いいよ！[動作：右手を上げる]', 'ja_jp').actions).toEqual(['raise_right']);
+    expect(parseReply('Sure! [action: wave left]', 'en_us').actions).toEqual(['wave_left']);
+    // 白名單以外（例如「傳送」「拿劍」）一律忽略
+    const bad = parseReply('好喔 [動作：傳送到主人家] [動作：拿劍]');
+    expect(bad.actions).toEqual([]);
+    expect(bad.text).toBe('好喔');
+    // 對話紀錄裡（動作：…）的寫法被學去時也拿掉
+    expect(parseReply('嗯嗯（動作：點頭）').text).toBe('嗯嗯');
+  });
+
+  it('動作名稱：每個動作都有三種語言的名稱，而且名稱能解析回同一個動作', async () => {
+    const { LIMB_GESTURES, MOVE_GESTURES, gestureFrom, gestureName } = await import('../three/gestures');
+    for (const g of [...LIMB_GESTURES, ...MOVE_GESTURES])
+      for (const lang of ['zh_tw', 'ja_jp', 'en_us'] as const) expect(gestureFrom(gestureName(g, lang))).toBe(g);
+  });
+
+  it('系統提示：告訴 AI 可以用的動作、要接著前面的話題', () => {
+    const pet = createPet();
+    pet.name = '小悅';
+    pet.personality = 'playful';
+    const sys = buildSystem(pet, { turns: [], notes: [] }, 'zh_tw', { hour: 10, asleep: false, foodName: (f) => f, speaker: null, person: null });
+    expect(sys).toContain('[動作：名稱]');
+    expect(sys).toContain('舉右手');
+    expect(sys).toContain('接著前面的話題');
+  });
+
+  it('對話視窗：只把 2 小時內的對話給 AI（太舊的不會接錯話題）', async () => {
+    const { recentTurns, CHAT_WINDOW_MS } = await import('../brain/brain');
+    const now = 10_000_000;
+    const m = { turns: [{ who: 'user' as const, text: '昨天的話', at: now - CHAT_WINDOW_MS - 1 }, { who: 'user' as const, text: '剛剛的話', at: now - 60_000 }], notes: [] };
+    expect(recentTurns(m, now).map((t) => t.text)).toEqual(['剛剛的話']);
   });
 });

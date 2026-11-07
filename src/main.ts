@@ -28,9 +28,9 @@ import { Assistant, type Mood } from './assist/assistant';
 import { SenseTest } from './ui/senseTest';
 import { VoiceAge, voiceAgeOn, type AgeGuess } from './voiceAge';
 import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeople, voiceFeatures, voiceIdOn } from './voiceId';
-import { langHello, voiceIdLine } from './assist/assistant';
-import { askedLang, textLang } from './game/langDetect';
+import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
+import { GESTURE_LABEL, gestureName } from './three/gestures';
 import { Recognizer, speechSupported } from './speech';
 import { neuralBuffer } from './neuralVoice';
 import { BIOME_STYLE, biomeTextures, loadBiome, saveBiome, type Biome } from './three/biome';
@@ -91,42 +91,22 @@ function currentSpeaker(): AgeGuess {
   return performance.now() - speaker.at < 180_000 ? speaker.guess : null;
 }
 
-// ---------- 多語言：以設定的語言為主；聽到別的語言（或被要求）就暫時用那個語言聊天，1 分鐘沒人說話就回到原本的語言 ----------
-const FLEX_MS = 60_000;
-let flex: { lang: Lang; until: number } | null = null;
-/** 語音辨識目前用的語言 */
-let recLang: Lang = getLang();
+// ---------- 語言：只聽、只說設定中的語言 ----------
+// 以前會「聽到別的語言就暫時換過去」，結果常常講中文卻回日文、換語言時重新啟動辨識也容易漏聽；
+// 現在固定用設定的語言（要換語言請到設定改）。
+/** 語音辨識用的語言 */
+const recLang: Lang = getLang();
 
-/** 現在聊天用的語言（悅靈自己主動說話時一律用設定的語言） */
+/** 聊天用的語言＝設定的語言 */
 function talkLang(): Lang {
-  return flex && performance.now() < flex.until ? flex.lang : getLang();
+  return getLang();
 }
-function startFlex(lang: Lang): void {
-  if (lang === getLang()) return endFlex();
-  flex = { lang, until: performance.now() + FLEX_MS };
-  if (talkOn && recLang !== lang) restartRec(lang);
-}
-function endFlex(): void {
-  flex = null;
-  if (talkOn && recLang !== getLang()) restartRec(getLang());
-}
-/** 換語音辨識的語言（例如要用日文聊天時，改聽日文） */
-function restartRec(lang: Lang): void {
-  recLang = lang;
-  talkRec.stop();
-  talkOn = false;
-  void micOn();
-}
-window.setInterval(() => {
-  if (flex && performance.now() >= flex.until) endFlex();
-}, 5000);
 
 async function micOn(): Promise<void> {
   sound.unlock();
   const ctx = sound.context;
   if (!ctx || listener.on || talkOn) return;
   if (speechSupported()) {
-    if (!flex) recLang = getLang();
     talkOn = talkRec.start(
       SPEECH_LANG[recLang],
       (text, final, alts) => {
@@ -214,19 +194,7 @@ async function answerText(text: string, alts: string[] = [text]): Promise<void> 
   lastUserAt = performance.now();
   ctrl.listen(false);
   liveWake();
-  // 被要求換語言（「說日文」「英語で話して」）：暫時換過去，悅靈用那個語言回一句
-  const asked = askedLang(text);
-  if (asked && asked !== talkLang()) {
-    assistant.chat(personNow() ?? t('chat.you'), text);
-    startFlex(asked);
-    assistSay(langHello(talkLang()), 'happy');
-    return;
-  }
-  // 用別的語言說話（打字的日文、英文，或辨識出來的外語）：暫時用那個語言聊天
-  const said = textLang(text, getLang());
-  if (said !== getLang()) startFlex(said);
-  else if (flex && said === flex.lang) flex.until = performance.now() + FLEX_MS;
-  else if (flex && recLang === getLang()) endFlex();
+  // 語言固定為設定的語言（不再因為聽到或被要求別的語言而切換）
   const lang = talkLang();
   const tries = alts.length ? alts : [text];
   // 聽聲音高低猜是大人還是小朋友（AI 大腦會依照這個調整說話方式）
@@ -247,14 +215,13 @@ async function answerText(text: string, alts: string[] = [text]): Promise<void> 
       return;
     }
   }
-  // 比較長的話（在說一件事、心情）先給 AI 大腦，回答才會貼心；短短的招呼用規則（快、有做好的語音）
-  if (isLongTalk(text, lang) && (await brainAnswer(text))) return;
+  // AI 優先：AI 可以用的時候，所有的話都先交給 AI 判斷意思與動作
+  // （AI 互動模式：雲端 AI → 本機 AI；互動模式：本機 AI），AI 不能用或失敗時才用關鍵字規則
+  if (text.trim() && brainReady() && (await brainAnswer(text))) return;
   let intent: Intent | null = null;
   for (const a of tries) if ((intent = detectIntent(a, lang))) break;
   if (!intent) {
     if (!text.trim()) return;
-    // 規則聽不懂：問家裡電腦的 AI（帶著悅靈的個性和回憶）；連不上就用原本的方式
-    if (await brainAnswer(text)) return;
     await answer(new Float32Array(Math.round(text.length * 2400)), 24000, true);
     return;
   }
@@ -334,12 +301,6 @@ let brainBusy = false;
 
 const FEELING_MOOD: Record<Exclude<Feeling, null>, Mood> = { happy: 'happy', sad: 'sad', surprised: 'surprised', shy: 'shy', sleepy: 'sleepy' };
 
-/** 是不是一段比較長的話（中日文 7 個字以上、英文 5 個字以上） */
-function isLongTalk(text: string, lang: Lang): boolean {
-  const s = text.replace(/[\s\p{P}\p{S}]/gu, '');
-  return lang === 'en_us' ? text.trim().split(/\s+/).length >= 5 : s.length >= 7;
-}
-
 /** 雲端 AI 不能用時告訴主人一次（同一種原因 10 分鐘內不重複） */
 const cloudNoticeAt: Record<string, number> = {};
 function cloudNotice(why: 'budget' | 'nokey' | 'denied' | 'refusal' | 'net'): void {
@@ -399,19 +360,39 @@ function tiredLook(): void {
   window.setTimeout(() => stage.spawn('zzz', ctrl.headTop(new THREE.Vector3()), 2), 2200);
 }
 
-async function brainAnswer(text: string): Promise<boolean> {
+/** 家裡電腦的 AI 有設定、現在沒在想別的事 */
+function brainReady(): boolean {
+  const cfg = loadBrain();
+  return cfg.on && !!cfg.url && !brainBusy;
+}
+
+interface BrainOpts {
+  /** 不是主人說的話，而是發生的事（例如「主人對你揮手」）：記在對話裡時用括號 */
+  event?: boolean;
+  /** 一般模式的自主行動：只用家裡電腦的 AI（不用雲端額度）、不顯示「想一想」、可以只做動作不說話 */
+  autonomous?: boolean;
+}
+
+/**
+ * 問 AI 怎麼回應（AI 優先）：AI 互動模式＝雲端 AI → 本機 AI；互動模式與一般模式＝本機 AI。
+ * AI 回答的動作標籤（[動作：舉右手]…）由悅靈的手、頭、翅膀、身體做出來，也會記在對話裡（AI 記得自己做過什麼）。
+ * 回傳 false＝AI 沒有回答（呼叫的地方改用規則）。
+ */
+async function brainAnswer(text: string, opts: BrainOpts = {}): Promise<boolean> {
   const cfg = loadBrain();
   if (!cfg.on || !cfg.url || brainBusy) return false;
   brainBusy = true;
-  // 想一想的樣子
-  ctrl.setMode('curious', 8);
-  hud.say('…', 9000);
-  listener.pausedUntil = talkDeafUntil = performance.now() + 9000;
+  // 想一想的樣子（自主行動時不顯示）
+  if (!opts.autonomous) {
+    ctrl.setMode('curious', 8);
+    hud.say('…', 9000);
+    listener.pausedUntil = talkDeafUntil = performance.now() + 9000;
+  }
   const lang = talkLang();
   const system = buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f), speaker: currentSpeaker(), person: personNow() });
   // AI 模式（第三層）：先問雲端 AI；不能用（沒金鑰、額度用完、不是本人、連不上）就退回家裡電腦的 AI
   // 額度用完了：不再去問雲端（每 30 分鐘再試一次）
-  let useCloud = cloudMode && (!isCloudTired() || Date.now() >= (cloudTired?.check ?? 0));
+  let useCloud = !opts.autonomous && cloudMode && (!isCloudTired() || Date.now() >= (cloudTired?.check ?? 0));
   let justTired = null as 'day' | 'month' | null;
   const once = async (): Promise<string | null> => {
     if (useCloud) {
@@ -439,14 +420,25 @@ async function brainAnswer(text: string): Promise<boolean> {
     if (mixedLanguage(r.text, lang)) r = { ...r, text: dropMixedSentences(r.text, lang) };
   }
   brainBusy = false;
-  if (!r?.text) {
-    listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil = 0;
+  // 自主行動可以只做動作不說話；一般對話一定要有回答
+  if (!r || (!r.text && !(opts.autonomous && r.actions.length))) {
+    if (!opts.autonomous) {
+      listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil = 0;
+      hud.say('', 1);
+    }
     return false;
   }
-  remember(brainMem, 'user', who(text));
-  remember(brainMem, 'allay', r.text);
+  // 自主行動的提示不記進對話（只記悅靈自己做了什麼）；事件用括號記
+  if (!opts.autonomous) remember(brainMem, 'user', opts.event ? text : who(text));
+  const did = r.actions.length ? `（${GESTURE_LABEL[lang]}：${r.actions.map((g) => gestureName(g, lang)).join('、')}）` : '';
+  remember(brainMem, 'allay', `${r.text}${did}`.trim());
   for (const n of r.notes) addNote(brainMem, n);
   saveMemory(brainMem);
+  if (!r.text) {
+    // 只做動作
+    ctrl.gesture(r.actions);
+    return true;
+  }
   const tired = cloudMode && isCloudTired();
   if (justTired) {
     // 剛用完額度：先喊累，再用家裡電腦的 AI 回答
@@ -462,6 +454,8 @@ async function brainAnswer(text: string): Promise<boolean> {
   } else {
     assistSay(r.text, tired ? 'sleepy' : r.feeling ? FEELING_MOOD[r.feeling] : 'happy');
     if (tired) tiredLook();
+    // AI 選的動作接在說話的同時做（蓋過心情預設的動作）
+    else if (r.actions.length) ctrl.gesture(r.actions);
   }
   return true;
 }
@@ -651,10 +645,56 @@ function liveMotion(x: number, y: number): void {
   // 好一陣子沒看到人，現在有人出現：打招呼
   if (now - lastPersonAt > 30_000 && now - lastLiveGreet > 60_000 && ctrl.awake && pet.onboarded) {
     lastLiveGreet = now;
-    reactTo('greet');
+    // AI 優先：讓 AI 決定怎麼打招呼（說什麼、做什麼動作）；AI 不能用才用固定的招呼
+    void aiEvent('appear').then((ok) => ok || reactTo('greet'));
   }
   lastPersonAt = now;
 }
+
+/** 鏡頭看到的事交給 AI 判斷要怎麼反應（說話、動作或兩者） */
+const EVENT_TEXT: Record<'wave' | 'appear', Record<Lang, string>> = {
+  wave: {
+    zh_tw: '（主人在鏡頭前對你揮手）',
+    ja_jp: '（主人がカメラの前であなたに手を振っている）',
+    en_us: '(Your friend is waving at you in front of the camera)',
+  },
+  appear: {
+    zh_tw: '（好一陣子沒看到主人，現在主人出現在鏡頭前了）',
+    ja_jp: '（しばらく見えなかった主人が、いまカメラの前にあらわれた）',
+    en_us: '(Your friend just showed up in front of the camera after a while)',
+  },
+};
+async function aiEvent(kind: keyof typeof EVENT_TEXT): Promise<boolean> {
+  if (!brainReady()) return false;
+  return brainAnswer(EVENT_TEXT[kind][talkLang()], { event: true });
+}
+// ---------- 一般模式的自主行動（本機 AI ＞ 腳本）----------
+// 有網路、家裡電腦的 AI 可以用時，每 1～2 分鐘讓 AI 依個性、心情、時間和剛剛的事自己決定做什麼（多半只做動作）；
+// AI 不能用時照舊由腳本（allayController.decide）決定。只用本機 AI（不用雲端額度）。
+/** 快捷欄目前選的工具（null＝一般模式） */
+let currentSlot: string | null = null;
+const AUTO_TEXT: Record<Lang, string> = {
+  zh_tw: '（現在沒有人跟你說話，你在手機裡自由活動。依照你的個性、心情、現在的時間和剛才的事，自己決定做一個動作；大多時候只做動作、不說話，要說話的話只說一句很短的自言自語。不要每次都做一樣的動作。）',
+  ja_jp: '（いまはだれも話しかけていないので、スマホの中で自由にすごしています。性格、気分、時間、さっきのことから、自分でひとつ動作を決めてください。たいていは動作だけで話さず、話すならみじかいひとりごとをひとことだけ。毎回同じ動作はしないで。）',
+  en_us: "(Nobody is talking to you; you are playing freely inside the phone. Based on your personality, mood, the time and what just happened, choose one action yourself. Usually just act without talking; if you talk, say only one very short line to yourself. Don't repeat the same action every time.)",
+};
+const AUTO_MODES = new Set(['idle', 'wander', 'observe', 'approach', 'flourish']);
+let nextAutoAt = performance.now() + 45_000;
+window.setInterval(() => {
+  const now = performance.now();
+  if (now < nextAutoAt) return;
+  nextAutoAt = now + 60_000 + Math.random() * 60_000;
+  if (document.visibilityState !== 'visible' || !navigator.onLine) return;
+  // 只在一般模式：沒有選工具、沒有開相機、沒有固定姿勢（運動場）、沒有打開設定或其他畫面
+  if (currentSlot !== null || arCam.on || ctrl.posed || ctrl.gesturing || !pet.onboarded || pet.asleep || !ctrl.awake) return;
+  if (document.querySelector('.modal-back, .sb-panel, .kg-top')) return;
+  if (now - lastUserAt < 20_000 || now - lastSpoke < 15_000 || !AUTO_MODES.has(ctrl.mode)) return;
+  if (!brainReady()) return;
+  void brainAnswer(AUTO_TEXT[talkLang()], { autonomous: true });
+}, 5000);
+
+/** 揮手感應的冷卻：AI 判斷時 12 秒、規則反應時 8 秒內不重複（以前每次感應到都揮手） */
+let lastWaveAt = -Infinity;
 
 /** 動態模式的鏡頭休息中：點畫面或說話就再打開 */
 function liveWake(): void {
@@ -667,10 +707,17 @@ window.addEventListener('pointerdown', liveWake);
 
 const cameraEvents: ArEvents = {
   wave: () => {
-    ctrl.waveBack();
-    say('waveBack');
-    stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), 3);
+    const now = performance.now();
+    if (now - lastWaveAt < (brainReady() ? 12_000 : 8_000)) return;
+    lastWaveAt = now;
     cheer(pet, 5);
+    const rule = () => {
+      ctrl.waveBack();
+      say('waveBack');
+      stage.spawn('heart', ctrl.headTop(new THREE.Vector3()), 3);
+    };
+    // AI 優先：AI 決定要揮手、點頭、害羞遮臉還是說句話
+    void aiEvent('wave').then((ok) => ok || rule());
   },
   // 畫面裡有人在動：悅靈好奇地往那邊看（不要太頻繁）
   motion: (x, y) => {
@@ -975,6 +1022,7 @@ const hud = new Hud(overlay, {
       speechLang: () => SPEECH_LANG[getLang()],
     }).open(),
   select: (slot) => {
+    currentSlot = slot;
     // 動態模式 = 前鏡頭（看人、揮手）＋麥克風（說話）
     // AI 文字／語音／動態 = 文字／語音／動態 ＋ 雲端 AI（第三層）
     cloudMode = slot === 'aitext' || slot === 'aimic' || slot === 'ailive';

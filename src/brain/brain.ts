@@ -6,6 +6,7 @@
 import { getSecret, putSecret } from '../secureStore';
 import type { Lang } from '../i18n';
 import { FOODS, type Food, type PetState } from '../game/state';
+import { GESTURE_MENU, gestureFrom, type Gesture } from '../three/gestures';
 
 const CFG_KEY = 'fairypocket.brain.v1';
 const MEM_KEY = 'fairypocket.brain.mem.v1';
@@ -89,6 +90,12 @@ export function saveMemory(m: BrainMemory): void {
 export function remember(m: BrainMemory, who: Turn['who'], text: string, now = Date.now()): void {
   m.turns.push({ who, text: text.slice(0, 200), at: now });
   if (m.turns.length > MAX_TURNS) m.turns.splice(0, m.turns.length - MAX_TURNS);
+}
+
+/** 這次聊天的對話（2 小時內的）：太久以前的不放進來，AI 才不會接錯話題（記住的事另外放在設定裡） */
+export const CHAT_WINDOW_MS = 2 * 3600_000;
+export function recentTurns(m: BrainMemory, now = Date.now()): Turn[] {
+  return m.turns.filter((t) => now - t.at <= CHAT_WINDOW_MS);
 }
 
 /** 加一件記住的事（重複的不加） */
@@ -195,7 +202,9 @@ ${facts.join('\n')}${notes}
 - 你的身體在手機裡，不能真的去外面或拿東西，但可以陪聊天、一起想像。
 - 記得「你記得關於主人的事」和前面的對話，被問到時要答出來。
 - 只有當主人說了關於「主人自己」值得長期記住的事（主人的喜好、家人或寵物的名字、生日、學校的事、最近發生的重要事情），才在回答的最後一行加上「[記住：誰……]」，知道是誰說的就寫名字（例如「[記住：小明喜歡恐龍]」），不知道就寫主人（例如「[記住：主人的狗叫小白]」）。一般知識、你自己說的話都不要記。已經記得的不要重複。這一行不會念出來。
-- 可以在回答最前面加一個心情標籤：[開心] [難過] [驚訝] [害羞] [想睡]，選一個最合適的；安慰主人時用 [難過]。`;
+- 可以在回答最前面加一個心情標籤：[開心] [難過] [驚訝] [害羞] [想睡]，選一個最合適的；安慰主人時用 [難過]。
+- 你可以用身體表達（手、頭、翅膀、整個身體）：在回答最後加上 [動作：名稱]，最多 2 個、會依序做出來，名稱只能從這些選：${GESTURE_MENU[lang]}。主人要你模仿動作（例如「舉右手」「拍拍手」）就照做；害羞時可以遮臉，同意時點頭、不同意時搖頭，打招呼可以揮手。不需要動作就不要加，也不要每次都揮手。動作標籤不會念出來；對話紀錄裡「（動作：…）」是你之前做過的動作。
+- 對話紀錄是你和主人剛剛聊的內容：接著前面的話題回答，不要每次都重新打招呼。`;
 }
 
 // ---------- 解析 AI 的回答 ----------
@@ -207,9 +216,20 @@ const FEEL: Record<string, Feeling> = {
   嬉しい: 'happy', 悲しい: 'sad', 驚き: 'surprised', 恥ずかしい: 'shy', 眠い: 'sleepy',
 };
 
-export function parseReply(raw: string, lang: Lang = 'en_us'): { text: string; feeling: Feeling; notes: string[] } {
+export function parseReply(raw: string, lang: Lang = 'en_us'): { text: string; feeling: Feeling; notes: string[]; actions: Gesture[] } {
   let text = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
   const notes: string[] = [];
+  // 動作標籤（[動作：舉右手]、[動作：點頭]…）：只收白名單裡的動作，最多 2 個
+  const actions: Gesture[] = [];
+  text = text.replace(/[[［【]\s*(?:動作|动作|アクション|どうさ|しぐさ|action)\s*[:：]\s*([^\]］】\n]+)[\]］】]/gi, (_, n: string) => {
+    for (const part of n.split(/[、,，/]/)) {
+      const g = gestureFrom(part);
+      if (g && actions.length < 2) actions.push(g);
+    }
+    return '';
+  });
+  // 對話紀錄裡「（動作：…）」的寫法被 AI 學去寫在回答裡時也拿掉
+  text = text.replace(/[（(]\s*(?:動作|アクション|action)\s*[:：][^）)]*[）)]/gi, '');
   text = text.replace(/[[［【]\s*(?:記住|记住|覚えて|remember)\s*[:：]\s*([^\]］】\n]+)[\]］】]/gi, (_, n: string) => {
     notes.push(n.trim());
     return '';
@@ -235,7 +255,7 @@ export function parseReply(raw: string, lang: Lang = 'en_us'): { text: string; f
     .trim();
   // 中文、日文的回答裡混進來的外文單字（例如 poquito、tummy）拿掉；OK、AI 這種很短的大寫縮寫留著
   if (lang !== 'en_us') text = text.replace(/\s*\b(?![A-Z]{1,3}\b)[A-Za-zÀ-ÿ']{3,}\b\s*/g, '').replace(/\s{2,}/g, ' ').trim();
-  return { text, feeling, notes };
+  return { text, feeling, notes, actions };
 }
 
 // ---------- 連線 ----------
@@ -292,7 +312,7 @@ export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, te
   if (!cfg.on || !cfg.url || !safeBrainUrl(cfg.url)) return null;
   const messages = [
     { role: 'system', content: system },
-    ...mem.turns.map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: t.text })),
+    ...recentTurns(mem).map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: t.text })),
     // 前面的對話可能是別的語言：最後再提醒一次這次要用哪個語言回答
     ...(lang ? [{ role: 'system', content: LANG_RULE[lang] }] : []),
     { role: 'user', content: text },
@@ -320,7 +340,7 @@ export type CloudResult =
 /** 問雲端 AI（金鑰在家裡電腦，手機只送對話） */
 export async function askCloud(cfg: BrainConfig, system: string, mem: BrainMemory, text: string, lang: Lang, timeoutMs = 35000): Promise<CloudResult> {
   if (!cfg.on || !cfg.url || !safeBrainUrl(cfg.url)) return { ok: false, why: 'net' };
-  const messages = [...mem.turns.map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: t.text })), { role: 'user', content: text }];
+  const messages = [...recentTurns(mem).map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: t.text })), { role: 'user', content: text }];
   try {
     const r = await fetch(`${base(cfg.url)}/api/cloud/chat`, {
       method: 'POST',

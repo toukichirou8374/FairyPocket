@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import type { AllayModel } from './allayModel';
 import type { LineKind } from '../game/dialogue';
 import { moodLevel, PERSONALITY_COLOR, type Personality, type PetState } from '../game/state';
+import { applyLimbGesture, envelope, GESTURE_SEC, isLimb, type Gesture, type LimbGesture } from './gestures';
 
 /** 性格粒子：每 2 秒在身邊冒出代表色粉塵；每 6 秒檢查一次，偶爾灑出一圈稀疏的粉塵 */
 const AURA_EVERY = 2;
@@ -306,6 +307,73 @@ export class AllayController {
   }
   private readonly watchAt = new THREE.Vector3();
 
+  // ---------- AI 選的動作（手、頭、翅膀、身體）----------
+  private gest: { g: LimbGesture; t: number; dur: number } | null = null;
+  private gestQueue: Gesture[] = [];
+  /** 最近做過的動作（給 AI 記憶用） */
+  readonly gestureLog: { g: Gesture; at: number }[] = [];
+
+  /** 依序做 AI 選的動作；固定姿勢（AR 攝影棚）時不做 */
+  gesture(list: Gesture[]): void {
+    if (this.posed || !list.length) return;
+    this.gestQueue = list.slice(0, 3);
+    this.gest = null;
+    this.nextGesture();
+  }
+
+  get gesturing(): boolean {
+    return !!this.gest;
+  }
+
+  private nextGesture(): void {
+    const g = this.gestQueue.shift();
+    if (!g) return;
+    this.wake();
+    this.gestureLog.push({ g, at: Date.now() });
+    if (this.gestureLog.length > 12) this.gestureLog.shift();
+    const dur = GESTURE_SEC[g];
+    if (isLimb(g)) {
+      // 停在原地、面向主人做動作
+      this.anchor.copy(this.pos);
+      this.setMode('idle', dur);
+      this.gest = { g, t: 0, dur };
+      return;
+    }
+    const next = () => window.setTimeout(() => this.nextGesture(), dur * 1000);
+    switch (g) {
+      case 'spin':
+        this.setMode('happy', dur);
+        break;
+      case 'flip':
+        this.setMode('flip', dur);
+        break;
+      case 'dance':
+        this.setMode('dance', dur);
+        break;
+      case 'come':
+        this.setMode('approach', dur);
+        break;
+      case 'back':
+        this.setMode('startled', dur);
+        break;
+      case 'rest':
+        this.setMode('rest', dur);
+        break;
+      case 'happy':
+        this.setMode('happy', dur);
+        this.hooks.particle('note', this.headTop(tmp), 2);
+        break;
+      case 'sad':
+        this.setMode('oops', dur);
+        break;
+      case 'look_around':
+        this.anchor.copy(this.pos);
+        this.setMode('observe', dur);
+        break;
+    }
+    if (this.gestQueue.length) next();
+  }
+
   /** 有人對著前鏡頭揮手：飛到面前揮手回應 */
   waveBack(): void {
     if (this.mode === 'eat' || this.mode === 'wave') return;
@@ -336,6 +404,14 @@ export class AllayController {
   update(dt: number): void {
     this.t += dt;
     this.modeTime += dt;
+    if (this.gest) {
+      this.gest.t += dt;
+      // 被別的事打斷（睡覺、吃東西、玩、固定姿勢）或做完了
+      if (this.gest.t >= this.gest.dur || this.posed || this.mode === 'sleep' || this.mode === 'eat' || this.mode === 'play') {
+        this.gest = null;
+        if (!this.posed) this.nextGesture();
+      }
+    }
     const tr = this.tr;
     this.tt += dt * tr.tempo;
     if (this.posed) {
@@ -640,7 +716,7 @@ export class AllayController {
 
     // 轉向：移動時面向前進方向，否則面向玩家
     let wantYaw: number;
-    const facePlayer = this.mode === 'startled' || this.mode === 'sleep' || this.mode === 'rest' || this.mode === 'eat' || this.mode === 'wave';
+    const facePlayer = this.mode === 'startled' || this.mode === 'sleep' || this.mode === 'rest' || this.mode === 'eat' || this.mode === 'wave' || !!this.gest;
     const lying = this.lying;
     if (lying) wantYaw = this.world.bedYaw?.() ?? 0;
     else if (this.posed) {
@@ -778,8 +854,15 @@ export class AllayController {
     m.head.rotation.y = dancing || oops ? headY : THREE.MathUtils.lerp(m.head.rotation.y, headY, k(6));
     m.head.rotation.z = dancing ? sway * 0.524 : this.mode === 'curious' || this.mode === 'observe' ? Math.sin(this.t * 2) * 0.2 : this.mode === 'listen' ? 0.35 : this.mode === 'wave' ? Math.sin(this.modeTime * 9 + 0.8) * 0.18 * this.waveAmount() : 0; // 頭歪 30°
 
+    // AI 選的動作：蓋在原本的動畫上（進退場平滑）
+    const ge = this.gest ? applyLimbGesture(m, this.gest.g, this.gest.t, envelope(this.gest.t, this.gest.dur)) : null;
+
     // 眼睛：眨眼 / 睡覺 / 開心
     this.blinkIn -= dt;
+    if (ge?.eyes) {
+      m.setEyes(ge.eyes);
+      return;
+    }
     if (sleeping || this.mode === 'rest' && this.modeTime > 4 || oops > 0.3) m.setEyes('closed');
     else if (this.mode === 'happy' || this.mode === 'tickled' || this.mode === 'eat' || this.mode === 'wave' || this.mode === 'bath' || this.mode === 'flip' || dancing) m.setEyes('happy');
     else if (this.blinkIn < 0) {
