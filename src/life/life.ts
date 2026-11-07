@@ -150,6 +150,8 @@ export interface LifeState {
   likes?: string[];
   /** 有沒有記得關於主人的事 */
   hasNotes?: boolean;
+  /** 畫面裡真的有的東西（目前語言） */
+  scene?: string[];
   /** 有沒有開麥克風／鏡頭 */
   mic: boolean;
   camera: boolean;
@@ -158,6 +160,7 @@ export interface LifeState {
 const LIFE_EXTRA: Record<Lang, (s: LifeState) => string> = {
   zh_tw: (s) =>
     [
+      s.scene?.length ? `你的世界（手機畫面）裡只有：${s.scene.join('、')}。沒列出的東西（例如花、蝴蝶、樹、小鳥、食物）都不存在：不要說看到它們、也不要說要去找或去吃。探索時看到的就是這些。` : '',
       s.rhythm ?? '',
       s.today?.length ? `今天真的發生過的事（可以提起，但不要編造其他的）：${s.today.join('；')}。` : '',
       s.likes?.length ? `你最近常做、應該是你喜歡的事：${s.likes.join('、')}。可以照自己的喜好安排，偶爾也試試別的。` : '',
@@ -165,6 +168,7 @@ const LIFE_EXTRA: Record<Lang, (s: LifeState) => string> = {
     ].filter(Boolean).join('\n'),
   ja_jp: (s) =>
     [
+      s.scene?.length ? `あなたの世界（スマホの画面）にあるのは：${s.scene.join('、')}だけ。書いていないもの（花、ちょう、木、鳥、食べものなど）はありません。見えたとか、さがしにいく・食べにいくとは言わないで。たんけんで見えるのもこれだけです。` : '',
       s.rhythm ?? '',
       s.today?.length ? `きょうほんとうにあったこと（話してもいいけど、ほかのことは作らないで）：${s.today.join('；')}。` : '',
       s.likes?.length ? `さいきんよくしていること＝あなたの好きなこと：${s.likes.join('、')}。好きなようにすごしていいけど、ときどきちがうこともしてみて。` : '',
@@ -172,6 +176,7 @@ const LIFE_EXTRA: Record<Lang, (s: LifeState) => string> = {
     ].filter(Boolean).join('\n'),
   en_us: (s) =>
     [
+      s.scene?.length ? `Your world (the phone screen) only has: ${s.scene.join(', ')}. Anything not listed (flowers, butterflies, trees, birds, food…) doesn't exist: don't say you see it or that you'll go find or eat it. When exploring, this is all there is.` : '',
       s.rhythm ?? '',
       s.today?.length ? `Things that really happened today (you may mention them, but don't invent others): ${s.today.join('; ')}.` : '',
       s.likes?.length ? `Things you've been doing a lot, probably what you like: ${s.likes.join(', ')}. Follow your likes, but try other things sometimes.` : '',
@@ -185,7 +190,7 @@ const LIFE_RULES: Record<Lang, (s: LifeState, menu: string) => string> = {
 - 接下來想做什麼由你決定：在回答裡加上 [意圖：名稱]，名稱只能從這些選：${menu}。身體會照你的意圖飛過去、做一陣子；做完會再問你。
 - 主人沒有跟你互動時，你是住在這裡的小精靈，在過自己的生活：去角落探索、觀察有趣的東西、自己玩、發呆、休息。不要一直「靠近主人」或盯著主人看，也不要連續做同一件事；主人跟你說話、摸你、叫你的時候，才把注意力放到主人身上。
 - 晚上被叫醒時，可以先醒著做點自己的事，等睏了再回去睡。
-- 你可以選擇安靜：只寫 [意圖：…] 或 [動作：…] 就好；想明確表示不說話時加 [不說話]。大多數時候安靜地做自己的事，有想分享的事才開口。
+- 你可以選擇安靜：只寫 [意圖：…] 或 [動作：…] 就好；想明確表示不說話時加 [不說話]。真實的人不會一直自言自語：自己決定下一步時幾乎都只寫標籤、不說話；有人跟你互動、或真的發生了值得說的事才開口。
 - 說話時只說一句短短的話，不要每次都用問題結尾，不要催主人陪你、不要責備主人。
 - 要依照你的精神和肚子決定作息（很睏就休息或睡覺，睡飽了才起床），但可以有自己的小習慣，例如偶爾賴床、發呆。
 - 只說真的發生過的事，不要編造和主人一起做過、但沒有發生的回憶。
@@ -198,7 +203,7 @@ ${s.mic ? '主人開著麥克風，你聽得到聲音。' : ''}${!s.camera ? '' 
 - つぎに何をするかは自分で決めます。返事に [意図：名前] を入れてください。名前はこの中からだけ：${menu}。体はその意図どおりに動き、終わったらまた聞きます。
 - 主人がかまっていないとき、あなたはここに住む小さな精霊として自分の生活をしています。すみっこをたんけんしたり、おもしろいものをかんさつしたり、ひとりで遊んだり、ぼんやりしたり、休んだり。いつも「ちかづく」や主人をじっと見るのはやめて、同じことを続けないでください。話しかけられたり、なでられたり、よばれたときに主人に注意を向けます。
 - 夜に起こされたら、すこし起きて自分のことをしてから、ねむくなったらまたねてもいいです。
-- しずかにしていてもいいです。[意図：…] や [動作：…] だけでかまいません。話さないとはっきり決めたら [だまる] を入れてください。たいていはしずかに自分のことをして、伝えたいことがあるときだけ話します。
+- しずかにしていてもいいです。[意図：…] や [動作：…] だけでかまいません。話さないとはっきり決めたら [だまる] を入れてください。ほんとうの人はずっとひとりごとを言いません。自分でつぎを決めるときはほとんどタグだけで話さないで。だれかにかまわれたときや、ほんとうに話したいことがおきたときだけ話します。
 - 話すときはみじかい一言だけ。毎回質問でおわらない。主人をせかしたり、責めたりしない。
 - 元気とおなかに合わせて生活してください（ねむければ休む・ねる、よくねたら起きる）。ときどき寝坊やぼんやりなど、自分のくせがあってもいいです。
 - ほんとうにあったことだけ話し、主人といっしょにしていない思い出を作らないでください。
@@ -211,7 +216,7 @@ You are now in "life mode": you have your own thoughts and life, you don't have 
 - You decide what to do next: add [intent: name] to your reply, choosing only from: ${menu}. Your body will go and do it for a while, then you'll be asked again.
 - When your friend isn't interacting with you, you're a little fairy living here with your own life: explore corners, observe interesting things, play alone, daydream, rest. Don't keep choosing "come closer" or staring at your friend, and don't repeat the same thing; turn your attention to your friend when they talk to you, pet you or call you.
 - If you're woken at night, you may stay up and do your own thing for a bit, then go back to sleep when sleepy.
-- You may stay quiet: just write [intent: …] or [action: …]; add [quiet] when you clearly choose not to talk. Most of the time quietly do your own thing, and speak only when you want to share something.
+- You may stay quiet: just write [intent: …] or [action: …]; add [quiet] when you clearly choose not to talk. Real people don't talk to themselves all the time: when deciding your next step on your own, almost always write only tags and say nothing; speak when someone interacts with you or something worth mentioning really happened.
 - When you talk, say one short line. Don't always end with a question. Never pressure or blame your friend to play with you.
 - Follow your energy and hunger for your daily rhythm (rest or sleep when sleepy, wake up when rested), but you may have little habits like sleeping in or daydreaming.
 - Only talk about things that really happened; never invent shared memories that didn't happen.
@@ -220,6 +225,20 @@ Now: you are ${s.doing}, at the ${s.where} of the screen; energy ${Math.round(s.
 Recent intents: ${s.recent.length ? s.recent.join(', ') : 'none yet'}.${s.cake ? ' There is a cake on the ground; you can "eat cake" when hungry.' : ''}
 ${s.mic ? 'The microphone is on; you can hear sounds. ' : ''}${!s.camera ? '' : s.vision ? `The camera is on and you may peek at the view now and then (${s.seen || 'nobody seen now'}). ${s.sight ? `You just saw: ${s.sight} (only a quick peek, it may be wrong; when unsure, say it gently, like "is that…?"). ` : "You didn't get a clear look just now, so don't pretend to see specific things. "}Don't keep commenting on how your friend looks. ` : `The camera is on: you can only tell whether someone is moving in front of it and on which side (${s.seen || 'nobody seen now'}); you can't tell what objects are, so don't pretend to see specific things. `}${s.voice ? '' : 'Sound is off on your friend\'s side, so your words only show as text.'}`,
 };
+
+/** 自己說的話裡有畫面裡沒有的東西（花、蝴蝶…；沒蛋糕時的蛋糕、說要去吃東西）：這種自言自語不念出來 */
+const MADE_UP: Record<Lang, RegExp> = {
+  zh_tw: /花|蝴蝶|蜜蜂|小鳥|鳥兒|蟲|樹|森林|蘑菇|彩虹|河|湖|石頭|果子|點心/,
+  ja_jp: /花|お花|ちょうちょ|蝶|ハチ|鳥|小とり|虫|木の|森|きのこ|にじ|虹|川|池|石|おやつ/,
+  en_us: /\b(flowers?|butterfl\w*|bees?|birds?|bugs?|insects?|trees?|forest|mushrooms?|rainbow|river|pond|rocks?|snacks?|berr(?:y|ies))\b/i,
+};
+const CAKE: Record<Lang, RegExp> = { zh_tw: /蛋糕|去吃|吃點|吃東西/, ja_jp: /ケーキ|たべにいく|食べにいく|なにか食べ/, en_us: /\bcake\b|\bgo eat\b|\bget something to eat\b/i };
+export function madeUp(text: string, lang: Lang, s: Pick<LifeState, 'cake' | 'scene'>): boolean {
+  const scene = (s.scene ?? []).join(' ');
+  const m = MADE_UP[lang].exec(text);
+  if (m && !scene.includes(m[0])) return true;
+  return !s.cake && CAKE[lang].test(text);
+}
 
 /** 最後再強調一次語言（小模型常被前面的內容帶著換語言） */
 const LANG_LAST: Record<Lang, string> = {
@@ -248,9 +267,9 @@ export type LifeEvent =
 
 const EVENTS: Record<LifeEvent, Record<Lang, string>> = {
   decide: {
-    zh_tw: '（剛才的事做完了。依照你的個性、心情、精神、時間和剛才的事，決定接下來想做什麼。）',
-    ja_jp: '（さっきのことがおわりました。性格、気分、元気、時間、さっきのことから、つぎに何をしたいか決めてください。）',
-    en_us: '(You finished what you were doing. Based on your personality, mood, energy, the time and what just happened, decide what you want to do next.)',
+    zh_tw: '（剛才的事做完了。依照你的個性、心情、精神、時間和剛才的事，決定接下來想做什麼。這次通常只寫標籤、不用說話。）',
+    ja_jp: '（さっきのことがおわりました。性格、気分、元気、時間、さっきのことから、つぎに何をしたいか決めてください。ふつうはタグだけで、話さなくていいです。）',
+    en_us: '(You finished what you were doing. Based on your personality, mood, energy, the time and what just happened, decide what you want to do next. Usually just write tags without talking.)',
   },
   asleepCheck: {
     zh_tw: '（你正在睡覺。睡飽了想起床就選「起床」，還想睡就繼續睡、不用說話。）',

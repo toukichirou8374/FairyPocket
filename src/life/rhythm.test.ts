@@ -63,3 +63,30 @@ describe('生活節奏（第二階段）', () => {
     expect(lifeRules(state, 'zh_tw')).not.toContain('今天真的發生過的事');
   });
 });
+
+import { madeUp } from './life';
+
+describe('不自言自語、不說架空的事', () => {
+  const scene = ['草地', '星空'];
+  it('說到畫面裡沒有的東西就算編的', () => {
+    expect(madeUp('右邊有好漂亮的花！', 'zh_tw', { cake: false, scene })).toBe(true);
+    expect(madeUp('我要去吃蛋糕了', 'zh_tw', { cake: false, scene })).toBe(true);
+    expect(madeUp('我要去吃蛋糕了', 'zh_tw', { cake: true, scene: [...scene, '蛋糕'] })).toBe(false);
+    expect(madeUp('草地軟軟的好舒服', 'zh_tw', { cake: false, scene })).toBe(false);
+    expect(madeUp('I found a butterfly!', 'en_us', { cake: false, scene: ['grass'] })).toBe(true);
+    expect(madeUp('ちょうちょがいる！', 'ja_jp', { cake: false, scene: ['くさはら'] })).toBe(true);
+  });
+  it('規則：只有列出的東西存在、自己決定時幾乎不說話', () => {
+    const s = lifeRules({ ...state, scene: ['草地', '天空', '你的床'] }, 'zh_tw');
+    expect(s).toContain('你的世界（手機畫面）裡只有：草地、天空、你的床');
+    expect(s).toContain('不會一直自言自語');
+    expect(lifeEventText('decide', 'zh_tw')).toContain('不用說話');
+  });
+});
+
+describe('編造判斷不誤判平常的話', () => {
+  it('はなす、ひとり、ちょうど 不算', () => {
+    expect(madeUp('ひとりでちょうどいい感じ。はなしたいな', 'ja_jp', { cake: false, scene: ['くさはら'] })).toBe(false);
+    expect(madeUp('I feel the breeze', 'en_us', { cake: false, scene: ['grass'] })).toBe(false);
+  });
+});

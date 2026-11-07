@@ -31,7 +31,7 @@ import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeopl
 import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
-import { DIRECT_EVENTS, intentName, isLifeSlot, lifeEventText, lifeRules, lifeTextVoiceOn, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
+import { DIRECT_EVENTS, intentName, isLifeSlot, lifeEventText, lifeRules, lifeTextVoiceOn, madeUp, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
 import { fetchTts, listModels, look } from './brain/brain';
 import { HABITS, addLog, awayText, bumpLike, lastLifeSeen, loadLikes, loadLog, markLifeSeen, rhythmText, saveLikes, saveLog, todayLog, topLikes } from './life/rhythm';
 import { LOOK_EVERY, SAW_EVERY, SIGHT_FRESH, VISION_PROMPT, lifeVisionOn, newThings, parseVision, snapshot, type Sight } from './life/vision';
@@ -740,6 +740,27 @@ const lifeRecent: LifeIntentName[] = [];
 let lifePending: string[] = [];
 let lifePendingDirect = false;
 let lifeFlushTimer = 0;
+/** 上次自己開口（不是回應主人）的時間：真實的人不會一直自言自語 */
+let lifeSelfTalkAt = -Infinity;
+/** 自己決定下一步時最少隔幾分鐘才說一句；看到、聽到什麼（不是主人直接互動）最少隔 1 分鐘 */
+const SELF_TALK_GAP = { decide: 8 * 60_000, notice: 60_000 };
+
+/** 畫面裡真的有的東西（給 AI 看，避免她說看到花、要去吃不存在的東西） */
+function lifeScene(lang: Lang): string[] {
+  const N: Record<string, [string, string, string]> = {
+    grass: ['草地', 'くさはら', 'grass'],
+    sky: ['天空', '空', 'sky'],
+    stars: ['星空', '星空', 'starry sky'],
+    bed: ['你的床', 'あなたのベッド', 'your bed'],
+    cake: ['蛋糕', 'ケーキ', 'cake'],
+    note: ['音符盒', '音ブロック', 'note block'],
+    jukebox: ['唱片機', 'ジュークボックス', 'jukebox'],
+    ball: ['主人丟的球', '主人がなげたボール', 'the ball your friend threw'],
+  };
+  const i = lang === 'zh_tw' ? 0 : lang === 'ja_jp' ? 1 : 2;
+  const keys = ['grass', night ? 'stars' : 'sky', ...(stage.bed ? ['bed'] : []), ...(stage.cake ? ['cake'] : []), ...(stage.noteBlock ? ['note'] : []), ...(stage.jukebox ? ['jukebox'] : []), ...(stage.ball ? ['ball'] : [])];
+  return keys.map((k) => N[k][i]);
+}
 /** 今天真的發生過的事、喜好（第二階段，存在手機裡） */
 const lifeLog = loadLog();
 const lifeLikes = loadLikes();
@@ -801,7 +822,7 @@ function lifeFlush(): void {
   const direct = lifePendingDirect;
   lifePending = [];
   lifePendingDirect = false;
-  void lifeAsk(text, direct ? 'event' : 'decide');
+  void lifeAsk(text, direct ? 'event' : 'notice');
 }
 
 /** 給 AI 看的「現在在做什麼、在哪裡」 */
@@ -987,7 +1008,7 @@ function lifeDo(i: LifeIntentName): void {
  * 問 AI：chat＝主人說的話（一定要等回應，雲端優先）；event＝主人做了什麼；decide＝自己決定下一步（多半安靜）。
  * 回傳 AI 有沒有回答。
  */
-async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<boolean> {
+async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'): Promise<boolean> {
   if (!lifeSlot) return false;
   if (lifeBusy) {
     // 正在想：主人說的話、做的事排隊，想完再處理；自己決定下一步就不用排
@@ -1019,6 +1040,7 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<
         recent: lifeRecent.map((i) => intentName(i, lang)),
         voice: lifeVoice() && sound.level('voice') > 0,
         cake: !!stage.cake,
+        scene: lifeScene(lang),
         mic: lifeSlot === 'lifemic' || lifeSlot === 'lifelive',
         camera: lifeSlot === 'lifelive' && sensor.on,
         seen: lifeSeen(lang),
@@ -1065,6 +1087,12 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<
     if (r2 && (!r2.text || !mixedLanguage(r2.text, lang))) r = { ...r2, intent: r2.intent ?? r.intent, actions: r2.actions.length ? r2.actions : r.actions };
     if (r.text && mixedLanguage(r.text, lang)) r = { ...r, text: dropMixedSentences(r.text, lang) };
   }
+  // 自言自語（自己決定、或只是看到聽到什麼）：隔太近不說；說到畫面裡沒有的東西（花、沒有的蛋糕…）也不說
+  if (r.text && (how === 'decide' || how === 'notice')) {
+    const now = performance.now();
+    if (now - lifeSelfTalkAt < SELF_TALK_GAP[how] || madeUp(r.text, lang, { cake: !!stage.cake, scene: lifeScene(lang) })) r = { ...r, text: '' };
+    else lifeSelfTalkAt = now;
+  }
   // 記憶：主人說的話、發生的事、悅靈做的事（自己決定下一步的提示不記）
   if (how !== 'decide') remember(brainMem, 'user', text);
   if (how === 'chat') {
@@ -1081,7 +1109,7 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<
   // 心情表現在動作和外觀上
   if (r.feeling) ctrl.setFeeling(r.feeling);
   // 回應主人時看著主人（自己決定下一步時照自己的視線）
-  if (how !== 'decide') ctrl.attend(r.text ? 8 : 4);
+  if (how === 'chat' || how === 'event') ctrl.attend(r.text ? 8 : 4);
   // 先做動作（手、頭、翅膀），做完再照意圖行動
   if (r.actions.length) ctrl.gesture(r.actions);
   if (r.intent) {
