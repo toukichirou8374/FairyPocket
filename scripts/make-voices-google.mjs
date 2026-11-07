@@ -6,6 +6,7 @@
 //   node scripts/make-voices-google.mjs            接著做（中文 → 日文 → 英文）
 //   node scripts/make-voices-google.mjs --status   只看進度
 //   node scripts/make-voices-google.mjs --max 2    這次最多請求 2 次（測試用）
+//   node scripts/make-voices-google.mjs --lang zh_tw   只做繁體中文（日文、英文沿用 Azure 語音）
 
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -232,8 +233,13 @@ let made = 0;
 /** 送給 Google 念的文字（英文字母念法改成字母本身） */
 const spoken = (j) => (j.lang === 'en_us' && letterOf[j.text] ? `${letterOf[j.text]}.` : j.text);
 
+// --lang zh_tw（可用逗號列多個）：只做指定語言；不加就照舊三種語言都做
+const langIdx = process.argv.indexOf('--lang');
+const onlyLangs = langIdx > 0 ? process.argv[langIdx + 1].split(',').filter((l) => LANGS.includes(l)) : LANGS;
+if (langIdx > 0) console.log(`只做：${onlyLangs.join('、') || '（沒有符合的語言）'}`);
+
 try {
-  for (const lang of LANGS) {
+  for (const lang of onlyLangs) {
     // 分批：每批最多 MAX_LINES 句、MAX_CHARS 字
     const queue = [];
     let cur = [];
