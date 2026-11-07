@@ -9,7 +9,8 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 // 程式只能從自己的網站載入；只能連到天氣（Open-Meteo）、維基百科、自己的 Tailscale 電腦（AI 大腦）與本機。
 const CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  // 'wasm-unsafe-eval'：只允許 WebAssembly（Safari 不能直接播 .ogg，要用內建的 Vorbis 解碼器），不允許一般 JS eval
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "media-src 'self' data: blob:",
