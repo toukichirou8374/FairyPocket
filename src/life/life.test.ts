@@ -108,3 +108,52 @@ describe('AI 生命模式：精靈控制器', () => {
     expect(idle()).toBe(0);
   });
 });
+
+describe('AI 生命模式：實機回報的問題', () => {
+  it('各種寫法的心情、意圖標籤都不會念出來', () => {
+    const cases = [
+      '[心情：開心] 今天好舒服。[意圖：去右邊看看]',
+      '【心情 開心】今天好舒服。【意圖 去右邊看看】',
+      '[意図：みぎへいく] 今天好舒服。',
+      '今天好舒服。(intent: go right)',
+      '［意圖：去右邊看看］今天好舒服。［思考中］',
+    ];
+    for (const c of cases) {
+      const r = parseLifeReply(c, 'zh_tw');
+      expect(r.text).toBe('今天好舒服。');
+      expect(r.intent).toBe('explore_right');
+    }
+    expect(parseLifeReply('[心情：開心] 好耶', 'zh_tw').feeling).toBe('happy');
+  });
+
+  it('中文設定卻回日文會被發現；別的語言的舊對話不給 AI 看', async () => {
+    const { mixedLanguage, recentTurns } = await import('../brain/brain');
+    expect(mixedLanguage('きょうはいい天気だね', 'zh_tw')).toBe(true);
+    expect(mixedLanguage('今天天氣真好', 'zh_tw')).toBe(false);
+    const now = Date.now();
+    const mem = { notes: [], turns: [{ who: 'allay' as const, text: 'こんにちは', at: now }, { who: 'user' as const, text: '你好', at: now }] };
+    expect(recentTurns(mem, now, 'zh_tw').map((t) => t.text)).toEqual(['你好']);
+    expect(lifeRules(state, 'zh_tw')).toContain('絕對不要用日文');
+  });
+
+  it('發呆、自己過生活時不會一直盯著畫面；主人互動時才看主人', () => {
+    const camera = new THREE.PerspectiveCamera(42, 0.5, 0.1, 100);
+    camera.position.set(0, 1.6, 5.4);
+    const o = () => new THREE.Object3D();
+    const model = { root: o(), tilt: o(), head: o(), body: o(), armL: o(), armR: o(), wingL: o(), wingR: o(), setEyes: () => {}, setWings: () => {} } as unknown as AllayModel;
+    const c = new AllayController(model, { camera, bounds: () => ({ minX: -1.5, maxX: 1.5, minY: 0.45, maxY: 2, minZ: -1.6, maxZ: 1 }), night: () => false }, createPet(Date.now()), { say: () => {}, particle: () => {}, caught: () => {} });
+    const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+    c.setLife(true);
+    c.intend('daydream');
+    let away = 0;
+    for (let i = 0; i < 600; i++) {
+      c.update(0.05);
+      // 模型的 y 旋轉：0 附近＝面向畫面
+      if (Math.abs(wrap(model.root.rotation.y)) > 0.6) away++;
+    }
+    expect(away).toBeGreaterThan(200);
+    c.attend(10);
+    for (let i = 0; i < 60; i++) c.update(0.05);
+    expect(Math.abs(wrap(model.root.rotation.y))).toBeLessThan(0.4);
+  });
+});

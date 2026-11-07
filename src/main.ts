@@ -208,6 +208,8 @@ async function answerText(text: string, alts: string[] = [text]): Promise<void> 
     if (!text.trim()) return;
     liveWake();
     assistant.chat(personNow() ?? t('chat.you'), text);
+    // 主人跟她說話：先轉過來看著主人
+    ctrl.attend(10);
     void lifeAsk(who(text), 'chat');
     return;
   }
@@ -735,6 +737,13 @@ let lifePending: string[] = [];
 let lifePendingDirect = false;
 let lifeFlushTimer = 0;
 
+/** 回答用錯語言時，重問一次附上的提醒 */
+const LIFE_LANG_REMIND: Record<Lang, string> = {
+  zh_tw: '（請只用台灣的繁體中文回答，不要用日文或英文。）',
+  ja_jp: '（日本語だけで答えてください。中国語や英語はつかわないで。）',
+  en_us: '(Please answer only in English, no Chinese or Japanese.)',
+};
+
 /** 原本的說話方式（選了這些就離開生命模式） */
 const SENSE_TOOLS = new Set<string>(['text', 'mic', 'live', 'aitext', 'aimic', 'ailive']);
 
@@ -761,7 +770,10 @@ function lifeEvent(e: LifeEvent, d = ''): void {
   const text = lifeEventText(e, talkLang(), d);
   if (!lifePending.includes(text)) lifePending.push(text);
   if (lifePending.length > 4) lifePending.shift();
-  if (DIRECT_EVENTS.has(e)) lifePendingDirect = true;
+  if (DIRECT_EVENTS.has(e)) {
+    lifePendingDirect = true;
+    ctrl.attend(5);
+  }
   window.clearTimeout(lifeFlushTimer);
   lifeFlushTimer = window.setTimeout(lifeFlush, 1200);
 }
@@ -911,7 +923,16 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<
   }
   lifeOk();
   let r = parseLifeReply(raw, lang);
-  if (r.text && mixedLanguage(r.text, lang)) r = { ...r, text: dropMixedSentences(r.text, lang) };
+  // 用了別的語言（例如設定中文卻回日文）：再請家裡電腦的 AI 用設定的語言回答一次；還是不對就只留對的句子
+  if (r.text && mixedLanguage(r.text, lang)) {
+    lifeBusy = true;
+    const again = await ask(cfg, system, brainMem, `${text}\n${LIFE_LANG_REMIND[lang]}`, 25000, lang);
+    lifeBusy = false;
+    if (!lifeSlot || epoch !== lifeEpoch) return false;
+    const r2 = again ? parseLifeReply(again, lang) : null;
+    if (r2 && (!r2.text || !mixedLanguage(r2.text, lang))) r = { ...r2, intent: r2.intent ?? r.intent, actions: r2.actions.length ? r2.actions : r.actions };
+    if (r.text && mixedLanguage(r.text, lang)) r = { ...r, text: dropMixedSentences(r.text, lang) };
+  }
   // 記憶：主人說的話、發生的事、悅靈做的事（自己決定下一步的提示不記）
   if (how !== 'decide') remember(brainMem, 'user', text);
   const did = [
@@ -921,6 +942,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'decide'): Promise<
   if (r.text || did) remember(brainMem, 'allay', `${r.text}${did}`.trim());
   if (how === 'chat') for (const n of r.notes) addNote(brainMem, n);
   saveMemory(brainMem);
+  // 回應主人時看著主人（自己決定下一步時照自己的視線）
+  if (how !== 'decide') ctrl.attend(r.text ? 8 : 4);
   // 先做動作（手、頭、翅膀），做完再照意圖行動
   if (r.actions.length) ctrl.gesture(r.actions);
   if (r.intent) {

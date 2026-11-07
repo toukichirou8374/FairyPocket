@@ -79,7 +79,7 @@ export interface Hooks {
 /** AI 生命模式的意圖（見 life/life.ts） */
 export type LifeIntent =
   | 'explore' | 'explore_left' | 'explore_right' | 'explore_high' | 'explore_low'
-  | 'approach' | 'observe' | 'stay' | 'play' | 'dance' | 'rest' | 'sleep' | 'wake';
+  | 'approach' | 'observe' | 'stay' | 'daydream' | 'play' | 'dance' | 'rest' | 'sleep' | 'wake';
 
 const tmp = new THREE.Vector3();
 
@@ -139,8 +139,43 @@ export class AllayController {
   setLife(on: boolean): void {
     if (this.life === on) return;
     this.life = on;
+    this.gazeIn = 0;
     if (on && !this.posed && this.mode !== 'sleep') this.toIdle();
   }
+
+  /** 生命模式：自己看的方向（不會一直盯著畫面）；attendUntil 之前看著主人（主人跟她互動、她在跟主人說話） */
+  private gazeYaw = 0;
+  private gazeIn = 0;
+  private gazeUp = 0;
+  private attendUntil = -Infinity;
+  /** 生命模式：接下來幾秒把注意力放在主人身上（面向畫面） */
+  attend(sec: number): void {
+    this.attendUntil = this.t + sec;
+  }
+  private updateGaze(dt: number): void {
+    this.gazeIn -= dt;
+    if (this.gazeIn > 0) return;
+    const dreamy = this.mode === 'idle' && this.dreaming;
+    this.gazeIn = dreamy ? rand(6, 11) : rand(3.5, 8);
+    const cam = this.world.camera.position;
+    const toCam = Math.atan2(cam.x - this.pos.x, cam.z - this.pos.z);
+    // 偶爾瞄一下主人，大多時候看自己有興趣的方向（側面、遠處、上面）
+    if (!dreamy && Math.random() < 0.2) {
+      this.gazeYaw = toCam;
+      this.gazeUp = 0;
+    } else {
+      this.gazeYaw = toCam + (Math.random() < 0.5 ? -1 : 1) * rand(0.8, 2.6);
+      this.gazeUp = dreamy ? rand(0.25, 0.45) : Math.random() < 0.3 ? rand(0.15, 0.35) : 0;
+    }
+  }
+  /** 生命模式現在要不要看著主人 */
+  private get attending(): boolean {
+    return this.t < this.attendUntil || this.mode === 'approach' || this.mode === 'called' || this.mode === 'listen' || this.mode === 'wave';
+  }
+  /** 發呆中（生命模式的 daydream） */
+  private dreaming = false;
+  /** 這一幀是不是在看自己的方向（頭的角度也跟著） */
+  private selfGaze = false;
 
   /** 照 AI 的意圖行動（固定姿勢時不做） */
   intend(i: LifeIntent): void {
@@ -191,6 +226,14 @@ export class AllayController {
         this.anchor.copy(this.pos);
         this.clampVec(this.anchor);
         return this.setMode('idle', rand(6, 10));
+      case 'daydream':
+        // 發呆：停在原地，慢慢望向遠方或天空
+        this.anchor.copy(this.pos);
+        this.clampVec(this.anchor);
+        this.setMode('idle', rand(12, 20));
+        this.dreaming = true;
+        this.gazeIn = 0;
+        return;
       case 'play':
         this.anchor.copy(this.pos);
         this.clampVec(this.anchor);
@@ -223,6 +266,7 @@ export class AllayController {
     this.modeTime = 0;
     this.modeDur = dur;
     this.pet.asleep = m === 'sleep';
+    this.dreaming = false;
   }
 
   get awake(): boolean {
@@ -827,12 +871,17 @@ export class AllayController {
     let wantYaw: number;
     const facePlayer = this.mode === 'startled' || this.mode === 'sleep' || this.mode === 'rest' || this.mode === 'eat' || this.mode === 'wave' || !!this.gest;
     const lying = this.lying;
+    this.selfGaze = false;
     if (lying) wantYaw = this.world.bedYaw?.() ?? 0;
     else if (this.posed) {
       const cam = this.world.camera.position;
       wantYaw = Math.atan2(cam.x - this.pos.x, cam.z - this.pos.z) + this.poseYaw;
     } else if (hspeed > 0.25 && !facePlayer) wantYaw = Math.atan2(this.vel.x, this.vel.z);
-    else {
+    else if ((this.selfGaze = this.life && !facePlayer && !this.attending && !this.person && (this.mode === 'idle' || this.mode === 'observe' || this.mode === 'flourish'))) {
+      // 生命模式自己過生活：看自己有興趣的方向，不會一直盯著畫面
+      this.updateGaze(dt);
+      wantYaw = this.gazeYaw;
+    } else {
       // 平常面向畫面；動態模式看到人時，身體轉向那個人
       const cam = this.person ?? this.world.camera.position;
       wantYaw = Math.atan2(cam.x - this.pos.x, cam.z - this.pos.z);
@@ -959,6 +1008,11 @@ export class AllayController {
     }
     // 觀察：左右慢慢（或快速）張望，微微低頭
     if (this.mode === 'observe') { headY = this.lookDir * Math.sin(this.modeTime * this.tr.sweep) * 0.9; headX = 0.12; }
+    // 生命模式自己看東西時：不看主人的高度，照自己的視線（偶爾抬頭看天空、發呆時慢慢晃）
+    if (this.life && this.selfGaze && this.mode !== 'observe') {
+      headX = -this.gazeUp + 0.05;
+      if (this.dreaming) headY = Math.sin(this.t * 0.4) * 0.25;
+    }
     // 懊惱：低頭、左右搖頭
     if (oops) { headX += 0.4 * oops; headY = Math.sin(this.modeTime * 13) * 0.45 * oops; }
     this.headXs = THREE.MathUtils.lerp(this.headXs, headX, k(6));

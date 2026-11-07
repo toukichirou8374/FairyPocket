@@ -94,8 +94,9 @@ export function remember(m: BrainMemory, who: Turn['who'], text: string, now = D
 
 /** 這次聊天的對話（2 小時內的）：太久以前的不放進來，AI 才不會接錯話題（記住的事另外放在設定裡） */
 export const CHAT_WINDOW_MS = 2 * 3600_000;
-export function recentTurns(m: BrainMemory, now = Date.now()): Turn[] {
-  return m.turns.filter((t) => now - t.at <= CHAT_WINDOW_MS);
+export function recentTurns(m: BrainMemory, now = Date.now(), lang?: Lang): Turn[] {
+  // 別的語言的舊對話不給 AI 看（不然小模型會被帶著用那個語言回答）
+  return m.turns.filter((t) => now - t.at <= CHAT_WINDOW_MS && (!lang || !mixedLanguage(t.text, lang)));
 }
 
 /** 加一件記住的事（重複的不加） */
@@ -142,6 +143,8 @@ const ZH_ONLY = /[們这這嗎吗呢沒没說说麼么哪裏裡个個啊吧咱�
 
 /** 這個回答是不是混了別的語言（日文裡有中文、英文裡有中日文） */
 export function mixedLanguage(text: string, lang: Lang): boolean {
+  // 中文設定卻用日文回答（有平假名、片假名）
+  if (lang === 'zh_tw') return /[぀-ヿ]/.test(text);
   if (lang === 'ja_jp') return ZH_ONLY.test(text) || (!/[\u3040-\u30ff]/.test(text) && /\p{Script=Han}{4,}/u.test(text));
   if (lang === 'en_us') return /[\u3040-\u30ff\p{Script=Han}]/u.test(text);
   return false;
@@ -312,7 +315,7 @@ export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, te
   if (!cfg.on || !cfg.url || !safeBrainUrl(cfg.url)) return null;
   const messages = [
     { role: 'system', content: system },
-    ...recentTurns(mem).map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: t.text })),
+    ...recentTurns(mem, Date.now(), lang).map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: t.text })),
     // 前面的對話可能是別的語言：最後再提醒一次這次要用哪個語言回答
     ...(lang ? [{ role: 'system', content: LANG_RULE[lang] }] : []),
     { role: 'user', content: text },
@@ -340,7 +343,7 @@ export type CloudResult =
 /** 問雲端 AI（金鑰在家裡電腦，手機只送對話） */
 export async function askCloud(cfg: BrainConfig, system: string, mem: BrainMemory, text: string, lang: Lang, timeoutMs = 35000): Promise<CloudResult> {
   if (!cfg.on || !cfg.url || !safeBrainUrl(cfg.url)) return { ok: false, why: 'net' };
-  const messages = [...recentTurns(mem).map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: t.text })), { role: 'user', content: text }];
+  const messages = [...recentTurns(mem, Date.now(), lang).map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: t.text })), { role: 'user', content: text }];
   try {
     const r = await fetch(`${base(cfg.url)}/api/cloud/chat`, {
       method: 'POST',

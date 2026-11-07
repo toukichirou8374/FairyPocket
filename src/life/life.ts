@@ -15,15 +15,15 @@ export const isLifeSlot = (s: string | null): s is LifeSlot => !!s && (LIFE_SLOT
 // ---------- 意圖：AI 決定「接下來想做什麼」，控制器負責怎麼飛過去、做多久 ----------
 export const INTENTS = [
   'explore', 'explore_left', 'explore_right', 'explore_high', 'explore_low',
-  'approach', 'observe', 'stay', 'play', 'dance', 'rest', 'sleep', 'wake', 'eat_cake',
+  'approach', 'observe', 'stay', 'daydream', 'play', 'dance', 'rest', 'sleep', 'wake', 'eat_cake',
 ] as const;
 export type Intent = (typeof INTENTS)[number];
 
 /** 給 AI 看的意圖清單（與 INTENTS 同順序） */
 export const INTENT_MENU: Record<Lang, string[]> = {
-  zh_tw: ['四處探索', '去左邊看看', '去右邊看看', '飛高一點', '飛低一點', '靠近主人', '停下來觀察', '待在原地', '自己玩', '跳舞', '休息', '睡覺', '起床', '去吃蛋糕'],
-  ja_jp: ['たんけん', 'ひだりへいく', 'みぎへいく', 'たかくとぶ', 'ひくくとぶ', 'ちかづく', 'かんさつ', 'そのまま', 'ひとりあそび', 'おどる', 'やすむ', 'ねる', 'おきる', 'ケーキをたべにいく'],
-  en_us: ['explore', 'go left', 'go right', 'fly higher', 'fly lower', 'come closer', 'observe', 'stay', 'play alone', 'dance', 'rest', 'sleep', 'wake up', 'eat cake'],
+  zh_tw: ['四處探索', '去左邊看看', '去右邊看看', '飛高一點', '飛低一點', '靠近主人', '停下來觀察', '待在原地', '發呆', '自己玩', '跳舞', '休息', '睡覺', '起床', '去吃蛋糕'],
+  ja_jp: ['たんけん', 'ひだりへいく', 'みぎへいく', 'たかくとぶ', 'ひくくとぶ', 'ちかづく', 'かんさつ', 'そのまま', 'ぼんやりする', 'ひとりあそび', 'おどる', 'やすむ', 'ねる', 'おきる', 'ケーキをたべにいく'],
+  en_us: ['explore', 'go left', 'go right', 'fly higher', 'fly lower', 'come closer', 'observe', 'stay', 'daydream', 'play alone', 'dance', 'rest', 'sleep', 'wake up', 'eat cake'],
 };
 
 export function intentFrom(name: string): Intent | null {
@@ -41,9 +41,21 @@ export function intentName(i: Intent, lang: Lang): string {
 }
 
 /** 意圖標籤的字（三種語言都認） */
-const INTENT_TAG = /[[［【]\s*(?:意圖|意图|いと|つもり|intent)\s*[:：]\s*([^\]］】\n]+)[\]］】]/gi;
+// 小模型的寫法很多種：[意圖：休息]、[意圖 休息]、【意図：やすむ】、(intent: rest)…都要認得，而且不能念出來
+const INTENT_TAG = /[[［【〔(（]\s*(?:意圖|意图|意図|いと|つもり|intent)\s*[:：]?\s*([^\]］】〕)）\n]+)[\]］】〕)）]/gi;
+/** 心情標籤的另一種寫法：[心情：開心]、[気分：うれしい]、[mood: happy] → 換成 [開心] 交給原本的解析 */
+const MOOD_TAG = /[[［【〔(（]\s*(?:心情|情緒|気分|きぶん|感情|feeling|mood|emotion)\s*[:：]?\s*([^\]］】〕)）\n]+)[\]］】〕)）]/gi;
+const MOOD_WORDS: Record<string, string> = {
+  開心: '開心', 高興: '開心', 快樂: '開心', うれしい: '開心', 嬉しい: '開心', たのしい: '開心', happy: '開心', glad: '開心',
+  難過: '難過', 傷心: '難過', かなしい: '難過', 悲しい: '難過', sad: '難過',
+  驚訝: '驚訝', 驚き: '驚訝', びっくり: '驚訝', surprised: '驚訝',
+  害羞: '害羞', はずかしい: '害羞', 恥ずかしい: '害羞', shy: '害羞',
+  想睡: '想睡', 睏: '想睡', ねむい: '想睡', 眠い: '想睡', sleepy: '想睡',
+};
+/** 解析完還剩下的方括號標籤（AI 自己發明的 [動作中]、【思考】…）：一律不念出來 */
+const LEFTOVER_TAG = /[[［【〔][^\]］】〕\n]{0,24}[\]］】〕]/g;
 /** 「不說話」標籤：AI 選擇安靜 */
-const QUIET_TAG = /[[［【]\s*(?:不說話|不说话|安靜|だまる|しずか|silent|quiet)\s*[\]］】]/gi;
+const QUIET_TAG = /[[［【〔]\s*(?:不說話|不说话|安靜|だまる|しずか|silent|quiet)\s*[\]］】〕]/gi;
 
 export interface LifeReply {
   text: string;
@@ -62,14 +74,19 @@ export function parseLifeReply(raw: string, lang: Lang): LifeReply {
     intent ??= intentFrom(n.split(/[、,，/]/)[0]);
     return '';
   });
+  s = s.replace(MOOD_TAG, (_, n: string) => {
+    const w = MOOD_WORDS[n.trim().toLowerCase()];
+    return w ? `[${w}]` : '';
+  });
   s = s.replace(QUIET_TAG, () => {
     quiet = true;
     return '';
   });
   // 對話紀錄裡「（意圖：…）」的寫法被 AI 學去寫在回答裡時也拿掉
-  s = s.replace(/[（(]\s*(?:意圖|いと|intent)\s*[:：][^）)]*[）)]/gi, '');
+  s = s.replace(/[（(]\s*(?:意圖|意図|いと|intent)\s*[:：][^）)]*[）)]/gi, '');
   const r = parseReply(s, lang);
-  return { ...r, text: quiet ? '' : r.text, intent, quiet };
+  const text = r.text.replace(LEFTOVER_TAG, '').replace(/\s{2,}/g, ' ').trim();
+  return { ...r, text: quiet ? '' : text, intent, quiet };
 }
 
 // ---------- 給 AI 的生命模式規則（接在原本的悅靈設定後面） ----------
@@ -98,6 +115,8 @@ const LIFE_RULES: Record<Lang, (s: LifeState, menu: string) => string> = {
   zh_tw: (s, menu) => `
 你現在是「生命模式」：你有自己的想法和生活，不需要一直等主人的命令，也不用每件事都說話。
 - 接下來想做什麼由你決定：在回答裡加上 [意圖：名稱]，名稱只能從這些選：${menu}。身體會照你的意圖飛過去、做一陣子；做完會再問你。
+- 主人沒有跟你互動時，你是住在這裡的小精靈，在過自己的生活：去角落探索、觀察有趣的東西、自己玩、發呆、休息。不要一直「靠近主人」或盯著主人看，也不要連續做同一件事；主人跟你說話、摸你、叫你的時候，才把注意力放到主人身上。
+- 晚上被叫醒時，可以先醒著做點自己的事，等睏了再回去睡。
 - 你可以選擇安靜：只寫 [意圖：…] 或 [動作：…] 就好；想明確表示不說話時加 [不說話]。大多數時候安靜地做自己的事，有想分享的事才開口。
 - 說話時只說一句短短的話，不要每次都用問題結尾，不要催主人陪你、不要責備主人。
 - 要依照你的精神和肚子決定作息（很睏就休息或睡覺，睡飽了才起床），但可以有自己的小習慣，例如偶爾賴床、發呆。
@@ -109,6 +128,8 @@ ${s.mic ? '主人開著麥克風，你聽得到聲音。' : ''}${s.camera ? '主
   ja_jp: (s, menu) => `
 いまは「いのちモード」です。あなたには自分の考えと生活があり、いつも命令を待つ必要はなく、なんでも話す必要もありません。
 - つぎに何をするかは自分で決めます。返事に [意図：名前] を入れてください。名前はこの中からだけ：${menu}。体はその意図どおりに動き、終わったらまた聞きます。
+- 主人がかまっていないとき、あなたはここに住む小さな精霊として自分の生活をしています。すみっこをたんけんしたり、おもしろいものをかんさつしたり、ひとりで遊んだり、ぼんやりしたり、休んだり。いつも「ちかづく」や主人をじっと見るのはやめて、同じことを続けないでください。話しかけられたり、なでられたり、よばれたときに主人に注意を向けます。
+- 夜に起こされたら、すこし起きて自分のことをしてから、ねむくなったらまたねてもいいです。
 - しずかにしていてもいいです。[意図：…] や [動作：…] だけでかまいません。話さないとはっきり決めたら [だまる] を入れてください。たいていはしずかに自分のことをして、伝えたいことがあるときだけ話します。
 - 話すときはみじかい一言だけ。毎回質問でおわらない。主人をせかしたり、責めたりしない。
 - 元気とおなかに合わせて生活してください（ねむければ休む・ねる、よくねたら起きる）。ときどき寝坊やぼんやりなど、自分のくせがあってもいいです。
@@ -120,6 +141,8 @@ ${s.mic ? 'マイクがついていて、声が聞こえます。' : ''}${s.came
   en_us: (s, menu) => `
 You are now in "life mode": you have your own thoughts and life, you don't have to wait for commands, and you don't have to talk about everything.
 - You decide what to do next: add [intent: name] to your reply, choosing only from: ${menu}. Your body will go and do it for a while, then you'll be asked again.
+- When your friend isn't interacting with you, you're a little fairy living here with your own life: explore corners, observe interesting things, play alone, daydream, rest. Don't keep choosing "come closer" or staring at your friend, and don't repeat the same thing; turn your attention to your friend when they talk to you, pet you or call you.
+- If you're woken at night, you may stay up and do your own thing for a bit, then go back to sleep when sleepy.
 - You may stay quiet: just write [intent: …] or [action: …]; add [quiet] when you clearly choose not to talk. Most of the time quietly do your own thing, and speak only when you want to share something.
 - When you talk, say one short line. Don't always end with a question. Never pressure or blame your friend to play with you.
 - Follow your energy and hunger for your daily rhythm (rest or sleep when sleepy, wake up when rested), but you may have little habits like sleeping in or daydreaming.
@@ -130,8 +153,15 @@ Recent intents: ${s.recent.length ? s.recent.join(', ') : 'none yet'}.${s.cake ?
 ${s.mic ? 'The microphone is on; you can hear sounds. ' : ''}${s.camera ? 'The camera is on; you can tell if someone is moving in front of it. ' : ''}${s.voice ? '' : 'Sound is off on your friend\'s side, so your words only show as text.'}`,
 };
 
+/** 最後再強調一次語言（小模型常被前面的內容帶著換語言） */
+const LANG_LAST: Record<Lang, string> = {
+  zh_tw: '最重要：說話一律只用台灣的繁體中文，絕對不要用日文或英文。標籤只寫在方括號裡，不要把標籤的名稱念出來。',
+  ja_jp: 'いちばん大事：話すことばは必ず日本語だけ。中国語や英語はつかわないでください。タグは角かっこの中だけに書いてください。',
+  en_us: 'Most important: always speak only in English, never Chinese or Japanese. Write tags only inside square brackets.',
+};
+
 export function lifeRules(s: LifeState, lang: Lang): string {
-  return LIFE_RULES[lang](s, INTENT_MENU[lang].join(lang === 'en_us' ? ', ' : '、'));
+  return `${LIFE_RULES[lang](s, INTENT_MENU[lang].join(lang === 'en_us' ? ', ' : '、'))}\n${LANG_LAST[lang]}`;
 }
 
 // ---------- 發生的事（交給 AI 判斷要怎麼反應） ----------
