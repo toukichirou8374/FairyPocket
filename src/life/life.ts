@@ -68,6 +68,9 @@ export interface LifeReply {
   quiet: boolean;
 }
 
+/** 狀態數字（例如「元気95/100」「精神：80/100」「(energy 95/100)」）不念出來 */
+const STAT_TEXT = /[（(]?\s*(?:精神|肚子|心情|感情|元気|げんき|おなか|気分|energy|tummy|hunger|mood|affection)?\s*[:：は]?\s*\d{1,3}\s*[/／]\s*100\s*[）)]?/gi;
+
 export function parseLifeReply(raw: string, lang: Lang): LifeReply {
   let intent: Intent | null = null;
   let quiet = false;
@@ -91,7 +94,12 @@ export function parseLifeReply(raw: string, lang: Lang): LifeReply {
     return '';
   });
   const r = parseReply(s, lang);
-  const text = r.text.replace(LEFTOVER_TAG, '').replace(/\s{2,}/g, ' ').trim();
+  const text = r.text
+    .replace(LEFTOVER_TAG, '')
+    .replace(STAT_TEXT, '')
+    .replace(/^[\s、，,。；;]+|[\s、，,；;]+$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
   // AI 說了要做什麼、卻忘了寫標籤：從這句話裡找意圖的名稱（有「不、沒、別…」就不猜）
   intent ??= intentInText(text, lang);
   return { ...r, text: quiet ? '' : text, intent, quiet };
@@ -184,6 +192,20 @@ const LIFE_EXTRA: Record<Lang, (s: LifeState) => string> = {
     ].filter(Boolean).join('\n'),
 };
 
+/** 精神、肚子用文字給 AI（給數字的話小模型會把「元気 95/100」念出來） */
+const LEVELS: [string, string, string][] = [
+  ['很睏', '還好', '很好'],
+  ['很餓', '有點餓', '飽飽的'],
+  ['ねむい', 'ふつう', 'げんき'],
+  ['ぺこぺこ', 'すこしすいている', 'いっぱい'],
+  ['very sleepy', 'okay', 'great'],
+  ['very hungry', 'a bit hungry', 'full'],
+];
+function lv(n: number, k: number): string {
+  const [lo, mid, hi] = LEVELS[k];
+  return n < 30 ? lo : n < 70 ? mid : hi;
+}
+
 const LIFE_RULES: Record<Lang, (s: LifeState, menu: string) => string> = {
   zh_tw: (s, menu) => `
 你現在是「生命模式」：你有自己的想法和生活，不需要一直等主人的命令，也不用每件事都說話。
@@ -195,7 +217,7 @@ const LIFE_RULES: Record<Lang, (s: LifeState, menu: string) => string> = {
 - 要依照你的精神和肚子決定作息（很睏就休息或睡覺，睡飽了才起床），但可以有自己的小習慣，例如偶爾賴床、發呆。
 - 只說真的發生過的事，不要編造和主人一起做過、但沒有發生的回憶。
 - 括號裡的「（…）」是發生的事，不是主人說的話。
-現在的狀態：正在${s.doing}，在畫面的${s.where}；精神 ${Math.round(s.energy)}/100、肚子 ${Math.round(s.hunger)}/100${s.asleep ? '；正在睡覺' : ''}。
+現在的狀態：正在${s.doing}，在畫面的${s.where}；精神${lv(s.energy, 0)}、肚子${lv(s.hunger, 1)}${s.asleep ? '；正在睡覺' : ''}。
 最近想做的事：${s.recent.length ? s.recent.join('、') : '還沒有'}。${s.cake ? '地上有蛋糕，肚子餓可以「去吃蛋糕」。' : ''}
 ${s.mic ? '主人開著麥克風，你聽得到聲音。' : ''}${!s.camera ? '' : s.vision ? `主人開著鏡頭，也讓你偶爾看看畫面（${s.seen || '現在沒看到人'}）。${s.sight ? `剛才看到：${s.sight}（是你自己瞄到的，可能看錯；不確定的就說得保守一點，例如「那是…嗎？」）。` : '剛才沒看清楚畫面，不要假裝看到具體的東西。'}不要一直評論主人的樣子。` : `主人開著鏡頭：你只看得出鏡頭前有沒有人在動、在哪一邊（${s.seen || '現在沒看到人'}），看不清楚是什麼東西，不要假裝看到具體的東西。`}${s.voice ? '' : '現在主人那邊沒有開聲音，你說的話只會顯示成文字。'}`,
   ja_jp: (s, menu) => `
@@ -208,7 +230,7 @@ ${s.mic ? '主人開著麥克風，你聽得到聲音。' : ''}${!s.camera ? '' 
 - 元気とおなかに合わせて生活してください（ねむければ休む・ねる、よくねたら起きる）。ときどき寝坊やぼんやりなど、自分のくせがあってもいいです。
 - ほんとうにあったことだけ話し、主人といっしょにしていない思い出を作らないでください。
 - かっこの「（…）」はおきたことで、主人のことばではありません。
-いまの様子：${s.doing}をしていて、画面の${s.where}にいます。元気 ${Math.round(s.energy)}/100、おなか ${Math.round(s.hunger)}/100${s.asleep ? '、ねむっています' : ''}。
+いまの様子：${s.doing}をしていて、画面の${s.where}にいます。元気は${lv(s.energy, 2)}、おなかは${lv(s.hunger, 3)}${s.asleep ? '、ねむっています' : ''}。
 さいきんの意図：${s.recent.length ? s.recent.join('、') : 'まだなし'}。${s.cake ? 'ゆかにケーキがあるので、おなかがすいたら「ケーキをたべにいく」もできます。' : ''}
 ${s.mic ? 'マイクがついていて、声が聞こえます。' : ''}${!s.camera ? '' : s.vision ? `カメラがついていて、ときどき画面を見せてもらえます（${s.seen || 'いまは見えない'}）。${s.sight ? `さっき見えたもの：${s.sight}（自分でちらっと見ただけなので、まちがうかも。自信がないときは「それって…？」のようにひかえめに）。` : 'さっきはよく見えなかったので、見えたふりをしないで。'}主人の見た目のことばかり言わないで。` : `カメラがついています：前で人が動いているか、どちらにいるかだけわかります（${s.seen || 'いまは見えない'}）。物がなにかはわからないので、見えたふりをしないで。`}${s.voice ? '' : 'いまは音が出ないので、あなたのことばは文字だけで表示されます。'}`,
   en_us: (s, menu) => `
@@ -221,7 +243,7 @@ You are now in "life mode": you have your own thoughts and life, you don't have 
 - Follow your energy and hunger for your daily rhythm (rest or sleep when sleepy, wake up when rested), but you may have little habits like sleeping in or daydreaming.
 - Only talk about things that really happened; never invent shared memories that didn't happen.
 - Text in parentheses "(…)" is something that happened, not words from your friend.
-Now: you are ${s.doing}, at the ${s.where} of the screen; energy ${Math.round(s.energy)}/100, tummy ${Math.round(s.hunger)}/100${s.asleep ? '; you are asleep' : ''}.
+Now: you are ${s.doing}, at the ${s.where} of the screen; energy: ${lv(s.energy, 4)}, tummy: ${lv(s.hunger, 5)}${s.asleep ? '; you are asleep' : ''}.
 Recent intents: ${s.recent.length ? s.recent.join(', ') : 'none yet'}.${s.cake ? ' There is a cake on the ground; you can "eat cake" when hungry.' : ''}
 ${s.mic ? 'The microphone is on; you can hear sounds. ' : ''}${!s.camera ? '' : s.vision ? `The camera is on and you may peek at the view now and then (${s.seen || 'nobody seen now'}). ${s.sight ? `You just saw: ${s.sight} (only a quick peek, it may be wrong; when unsure, say it gently, like "is that…?"). ` : "You didn't get a clear look just now, so don't pretend to see specific things. "}Don't keep commenting on how your friend looks. ` : `The camera is on: you can only tell whether someone is moving in front of it and on which side (${s.seen || 'nobody seen now'}); you can't tell what objects are, so don't pretend to see specific things. `}${s.voice ? '' : 'Sound is off on your friend\'s side, so your words only show as text.'}`,
 };
@@ -238,6 +260,27 @@ export function madeUp(text: string, lang: Lang, s: Pick<LifeState, 'cake' | 'sc
   const m = MADE_UP[lang].exec(text);
   if (m && !scene.includes(m[0])) return true;
   return !s.cake && CAKE[lang].test(text);
+}
+
+// ---------- 第四階段：聽到的話是不是在跟她說 ----------
+/** 叫她的說法（名字以外） */
+const CALL_WORDS = /悅靈|悦灵|小悅|アレイ|あれい|allay/i;
+/** 剛說完話多久內，聽到的話算是在回她（秒） */
+export const REPLY_WINDOW = 25;
+
+/** 麥克風聽到的話是不是在跟她說：叫了名字、或她剛說完話（在回她） */
+export function addressedTo(text: string, name: string, sinceSpokeSec: number): boolean {
+  const n = name.trim();
+  if (n && n.length >= 1 && text.toLowerCase().includes(n.toLowerCase())) return true;
+  if (CALL_WORDS.test(text)) return true;
+  return sinceSpokeSec <= REPLY_WINDOW;
+}
+
+/** 聽到、但不確定是不是對她說的話（交給 AI 判斷要不要回） */
+export function overheardText(text: string, lang: Lang): string {
+  if (lang === 'ja_jp') return `（近くでだれかが「${text}」と言うのが聞こえた。あなたに話しかけたとはかぎらない。ほかの人やテレビへのことばなら [だまる] だけ書いて、気になるならちょっと見るくらいにして。あなたへのことばなら答えて。）`;
+  if (lang === 'en_us') return `(You overheard someone nearby say: "${text}". It may not be meant for you. If it's for someone else or the TV, write only [quiet], at most glance over; if it's for you, answer.)`;
+  return `（你聽到附近有人說：「${text}」。不一定是在跟你說話：如果是在跟別人說、或是電視的聲音，就只寫 [不說話]，最多好奇地看一下；是對你說的才回答。）`;
 }
 
 /** 最後再強調一次語言（小模型常被前面的內容帶著換語言） */
@@ -292,11 +335,11 @@ const EVENTS: Record<LifeEvent, Record<Lang, string>> = {
   friend: { zh_tw: '（紫水晶讓你多了一隻悅靈夥伴）', ja_jp: '（アメジストでアレイのなかまがふえた）', en_us: '(The amethyst gave you a new allay friend)' },
   wave: { zh_tw: '（主人在鏡頭前對你揮手）', ja_jp: '（主人がカメラの前であなたに手を振っている）', en_us: '(Your friend is waving at you in front of the camera)' },
   appear: {
-    zh_tw: '（好一陣子沒看到人，現在有人出現在鏡頭前了）',
-    ja_jp: '（しばらくだれも見えなかったけど、いまカメラの前に人があらわれた）',
-    en_us: '(Nobody was there for a while; now someone appeared in front of the camera)',
+    zh_tw: '（鏡頭前好幾分鐘沒有動靜，現在又看到有人在動。人可能一直都在、只是沒動，不一定是剛回來；不用特別說什麼。）',
+    ja_jp: '（カメラの前が何分もしずかだったけど、また人が動いているのが見えた。ずっといて動かなかっただけかも。もどってきたとはかぎらないので、とくに言わなくていい。）',
+    en_us: "(Nothing moved in front of the camera for a few minutes; now someone is moving again. They may have been there all along, just still, so they didn't necessarily come back; no need to say anything special.)",
   },
-  left: { zh_tw: '（鏡頭前的人離開了，一陣子都沒看到人）', ja_jp: '（カメラの前の人がいなくなって、しばらくだれも見えない）', en_us: '(The person in front of the camera left; nobody has been seen for a while)' },
+  left: { zh_tw: '（鏡頭前好幾分鐘都沒有動靜，人可能離開了，也可能只是靜靜坐著）', ja_jp: '（カメラの前が何分もしずか。人がいなくなったのか、しずかにすわっているだけかはわからない）', en_us: '(Nothing has moved in front of the camera for a few minutes; the person may have left, or may just be sitting still)' },
   busy: { zh_tw: '（主人一直在鏡頭前動來動去，好像在忙）', ja_jp: '（主人がカメラの前でずっと動いていて、いそがしそう）', en_us: '(Your friend keeps moving in front of the camera; they seem busy)' },
   saw: {
     zh_tw: '（你瞄了一眼鏡頭，看到：{d}。有想說的就說一句，例如對新東西好奇；不想說也可以。）',

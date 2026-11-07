@@ -349,7 +349,23 @@ export class Sound {
     g.gain.value = Math.min(1.5, m.allay * 1.2);
     src.connect(g).connect(this.bus(ctx, 'voice'));
     src.start(ctx.currentTime + 0.15);
+    this.clips.add(src);
+    src.onended = () => this.clips.delete(src);
     return buf.duration + 0.3;
+  }
+
+  /** 正在播的說話聲音 */
+  private clips = new Set<AudioBufferSourceNode>();
+  /** 停掉正在播的說話聲音（被打斷時） */
+  stopClips(): void {
+    for (const s of this.clips) {
+      try {
+        s.stop();
+      } catch {
+        /* 已經停了 */
+      }
+    }
+    this.clips.clear();
   }
 
   /** 悅靈發言：悅靈叫聲 + 紫水晶鈴聲 */

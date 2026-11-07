@@ -178,7 +178,7 @@ export function buildSystem(pet: PetState, mem: BrainMemory, lang: Lang, sit: Si
   const facts: string[] = [
     `名字：${pet.name}`,
     `個性：${PERSONA[pet.personality][lang]}`,
-    `跟主人的感情：${level(pet.affection, '還在慢慢變熟', '感情不錯', '非常喜歡主人')}（${Math.round(pet.affection)}/100）`,
+    `跟主人的感情：${level(pet.affection, '還在慢慢變熟', '感情不錯', '非常喜歡主人')}`,
     `現在的心情：${level(pet.mood, '有點低落', '普通', '很好')}；肚子：${level((pet.hunger / 20) * 100, '很餓', '還好', '飽飽的')}；精神：${level(pet.energy, '很睏', '還好', '很有精神')}`,
     `現在是 ${sit.hour} 點${sit.asleep ? '，剛剛在睡覺被叫醒' : ''}`,
     ...(sit.person ? [`現在跟你說話的應該是「${sit.person}」（聽聲音猜的，偶爾會認錯；對話紀錄裡「名字：」開頭的是那個人說的）`] : []),

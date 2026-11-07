@@ -31,9 +31,10 @@ import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeopl
 import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
-import { DIRECT_EVENTS, intentName, isLifeSlot, lifeEventText, lifeRules, lifeTextVoiceOn, madeUp, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
+import { DIRECT_EVENTS, intentName, isLifeSlot, lifeEventText, lifeRules, lifeTextVoiceOn, madeUp, overheardText, addressedTo, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
 import { fetchTts, listModels, look } from './brain/brain';
 import { HABITS, addLog, awayText, bumpLike, lastLifeSeen, loadLikes, loadLog, markLifeSeen, rhythmText, saveLikes, saveLog, todayLog, topLikes } from './life/rhythm';
+import { monitorLog, monitorOn } from './life/monitor';
 import { LOOK_EVERY, SAW_EVERY, SIGHT_FRESH, VISION_PROMPT, lifeVisionOn, newThings, parseVision, snapshot, type Sight } from './life/vision';
 import { pickVoice, loadTtsVoices } from './ttsVoice';
 import { Recognizer, speechSupported } from './speech';
@@ -122,7 +123,7 @@ async function micOn(): Promise<void> {
         // 有人在說話：原本會飛過來歪頭聽（AI 生命模式由 AI 自己決定，不自動飛過來）
         if (!final) {
           if (!lifeSlot) ctrl.listen(true);
-        } else void answerText(text, alts);
+        } else void answerText(text, alts, true);
       },
       // 語音辨識不能用（沒有權限等）：改用只聽聲音的方式
       () => {
@@ -203,14 +204,24 @@ async function openSports(): Promise<void> {
 /** 最後一次有人跟悅靈說話的時間（剛聊完不主動閒聊） */
 let lastUserAt = -Infinity;
 
-async function answerText(text: string, alts: string[] = [text]): Promise<void> {
+async function answerText(text: string, alts: string[] = [text], fromMic = false): Promise<void> {
   lastUserAt = performance.now();
   // AI 生命模式：不用規則（指令、認人問名字、關鍵字），全部交給 AI
   if (lifeSlot) {
     if (!text.trim()) return;
     liveWake();
     assistant.chat(personNow() ?? t('chat.you'), text);
-    // 主人跟她說話：先轉過來看著主人
+    // 第四階段：麥克風聽到的話不一定是對她說的（家人互相說話、電視）。
+    // 叫了她的名字、或她剛說完話（在回她）才算對她說；其他的交給 AI 判斷要不要回（多半安靜）
+    const sinceSpoke = (performance.now() - lastSpoke) / 1000;
+    const toHer = !fromMic || addressedTo(text, pet.name, sinceSpoke);
+    monitorLog('heard', { text, typed: !fromMic, toHer, sinceSpokeSec: Math.round(sinceSpoke) });
+    if (!toHer) {
+      void lifeAsk(overheardText(who(text), talkLang()), 'event');
+      return;
+    }
+    // 主人打字或叫她：她正在說的話先停下來（被打斷），轉過來看著主人
+    if (!fromMic) lifeHush();
     ctrl.attend(10);
     void lifeAsk(who(text), 'chat');
     return;
@@ -667,8 +678,11 @@ function liveMotion(x: number, y: number): void {
   const now = performance.now();
   personX += (x - personX) * 0.35;
   personY += (y - personY) * 0.35;
-  // 好一陣子沒看到人，現在有人出現：打招呼
-  if (now - lastPersonAt > 30_000 && now - lastLiveGreet > 60_000 && ctrl.awake && pet.onboarded) {
+  // 好一陣子沒看到人，現在有人出現：打招呼。
+  // 鏡頭只看得到「動」：人坐著不動也會被當成不在，所以 AI 生命模式要 3 分鐘沒動靜才算，而且 5 分鐘內只說一次
+  const away = lifeSlot ? 180_000 : 30_000;
+  const again = lifeSlot ? 300_000 : 60_000;
+  if (now - lastPersonAt > away && now - lastLiveGreet > again && ctrl.awake && pet.onboarded) {
     lastLiveGreet = now;
     // AI 生命模式：只告訴 AI 有人出現了，要不要打招呼由 AI 決定
     if (lifeSlot) {
@@ -803,6 +817,7 @@ function lifeFromLine(kind: LineKind, food: Food | null, d: number | string): vo
 function lifeEvent(e: LifeEvent, d = ''): void {
   if (!lifeSlot) return;
   const text = lifeEventText(e, talkLang(), d);
+  monitorLog('event', { e, text });
   if (LOGGED_EVENTS.has(e)) {
     addLog(lifeLog, text, talkLang());
     saveLog(lifeLog);
@@ -881,7 +896,7 @@ window.setInterval(() => {
   if (present && !lifeSawPerson) {
     lifeSawPerson = true;
     lifeBusySince = now;
-  } else if (!present && lifeSawPerson && now - lastPersonAt > 60_000) {
+  } else if (!present && lifeSawPerson && now - lastPersonAt > 180_000) {
     lifeSawPerson = false;
     lifeEvent('left');
   } else if (present && now - lifeBusySince > 180_000) {
@@ -952,27 +967,117 @@ function lifeDeaf(sec: number): void {
  * 生命模式的說話（第三階段）：先請家裡電腦用微軟神經語音即時念（自然、有心情的語調，前面有紫水晶鈴聲），
  * 不能用時改用裝置內建的語音；不用悅靈語假裝成自由對話。
  */
-async function lifeSpeak(text: string, lang: Lang, feeling: Feeling = null): Promise<void> {
+// ---- 說話排隊：一次只說一句，說完（停一下）才說下一句；新的一句來時，還沒說的自言自語就不說了 ----
+interface LifeLine {
+  text: string;
+  lang: Lang;
+  feeling: Feeling;
+  epoch: number;
+  at: number;
+  /** 回應主人（不會被新的話擠掉） */
+  direct: boolean;
+}
+let lifeLines: LifeLine[] = [];
+let lifeTalking = false;
+/** 被打斷時叫醒正在等的那一句 */
+let lifeLineCut: (() => void) | null = null;
+const wait = (ms: number) =>
+  new Promise<void>((resolve) => {
+    const id = window.setTimeout(() => {
+      lifeLineCut = null;
+      resolve();
+    }, ms);
+    lifeLineCut = () => {
+      window.clearTimeout(id);
+      lifeLineCut = null;
+      resolve();
+    };
+  });
+function lifeLine(text: string, lang: Lang, feeling: Feeling, direct: boolean): void {
+  // 還沒說的自言自語讓位給新的話；回應主人的最多留一句
+  lifeLines = lifeLines.filter((l) => l.direct).slice(-1);
+  lifeLines.push({ text, lang, feeling, epoch: lifeEpoch, at: performance.now(), direct });
+  monitorLog('queue', { text, direct, waiting: lifeLines.length - 1, talking: lifeTalking });
+  if (!lifeTalking) void lifeLinesPump();
+}
+async function lifeLinesPump(): Promise<void> {
+  lifeTalking = true;
+  try {
+    while (lifeLines.length) {
+      const l = lifeLines.shift()!;
+      // 換了模式、或等太久（20 秒）就不說了
+      if (l.epoch !== lifeEpoch || !lifeSlot || performance.now() - l.at > 20_000) continue;
+      const en = l.lang === 'en_us';
+      const read = Math.max(3.2, l.text.length * (en ? 0.07 : 0.23));
+      if (lifeVoice()) {
+        const sec = await lifeSpeak(l.text, l.lang, l.feeling);
+        if (l.epoch !== lifeEpoch) continue;
+        // sec＝還要等多久才念完（神經語音是播放長度；內建語音已經念完，回傳 0），念完再停半秒
+        await wait(Math.max(sec, 0) * 1000 + 500);
+      } else {
+        hud.say(l.text, read * 1000);
+        lastSpoke = performance.now();
+        await wait(Math.min(read, 4) * 1000);
+      }
+    }
+  } finally {
+    lifeTalking = false;
+  }
+}
+/** 打斷她（主人打字、點泡泡）：停掉正在說的、不說還沒說的 */
+function lifeHush(): void {
+  if (!lifeTalking && !lifeLines.length) return;
+  monitorLog('hush', { waiting: lifeLines.length });
+  lifeLines = [];
+  sound.stopClips();
+  window.speechSynthesis?.cancel();
+  talkDeafUntil = Math.min(talkDeafUntil, performance.now() + 300);
+  listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
+  lifeLineCut?.();
+}
+
+/** 念一句話：回傳還要等幾秒才念完（念的時候才顯示泡泡） */
+async function lifeSpeak(text: string, lang: Lang, feeling: Feeling = null): Promise<number> {
   const vol = sound.level('voice');
-  lifeDeaf(Math.min(14, 0.8 + text.length * (lang === 'en_us' ? 0.07 : 0.2)));
-  if (vol <= 0) return;
+  const est = Math.min(14, 0.8 + text.length * (lang === 'en_us' ? 0.07 : 0.2));
+  const show = (sec: number) => {
+    hud.say(text, Math.max(3200, sec * 1000 + 600));
+    lastSpoke = performance.now();
+    lifeDeaf(sec);
+  };
+  if (vol <= 0) {
+    show(est);
+    return est;
+  }
   const epoch = lifeEpoch;
   const cfg = loadBrain();
   if (performance.now() >= ttsOffUntil && navigator.onLine) {
     const r = await fetchTts(cfg, text, lang, feeling);
-    if (epoch !== lifeEpoch || !lifeSlot) return;
+    if (epoch !== lifeEpoch || !lifeSlot) return 0;
     if (r.ok) {
       const buf = await sound.decodeMono(r.audio);
       const sec = buf ? sound.playClip(buf) : 0;
-      if (sec > 0) return lifeDeaf(sec);
-    } else if (r.why !== 'net') ttsOffUntil = performance.now() + 10 * 60_000;
+      if (sec > 0) {
+        show(sec);
+        monitorLog('voice', { how: 'neural', sec: Math.round(sec * 10) / 10 });
+        return sec;
+      }
+    } else {
+      if (r.why !== 'net') ttsOffUntil = performance.now() + 10 * 60_000;
+      monitorLog('voice', { how: 'device', why: r.why });
+    }
   }
-  deviceSpeak(text, lang);
+  show(est);
+  return deviceSpeak(text, lang, est);
 }
-function deviceSpeak(text: string, lang: Lang): void {
+/** 裝置內建語音：念完才回傳 0（最多等預估時間 + 3 秒） */
+function deviceSpeak(text: string, lang: Lang, est: number): Promise<number> {
   const s = window.speechSynthesis;
   const vol = sound.level('voice');
-  if (!s || vol <= 0) return;
+  if (!s || vol <= 0) return Promise.resolve(est);
+  let done: (sec: number) => void = () => {};
+  const p = new Promise<number>((resolve) => (done = resolve));
+  window.setTimeout(() => done(0), (est + 3) * 1000);
   s.cancel();
   const u = new SpeechSynthesisUtterance(text);
   const tag = SPEECH_LANG[lang];
@@ -982,15 +1087,18 @@ function deviceSpeak(text: string, lang: Lang): void {
   u.pitch = 1.35;
   u.rate = 1;
   u.volume = vol;
-  u.onend = () => {
+  u.onend = u.onerror = () => {
     talkDeafUntil = Math.min(talkDeafUntil, performance.now() + 400);
     listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
+    done(0);
   };
   s.speak(u);
+  return p;
 }
 
 /** 照 AI 的意圖讓控制器行動 */
 function lifeDo(i: LifeIntentName): void {
+  monitorLog('intent', { i, cake: !!stage.cake, at: ctrl.doing });
   lifeRecent.push(i);
   bumpLike(lifeLikes, i);
   saveLikes(lifeLikes);
@@ -1053,6 +1161,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
       },
       lang,
     );
+  // 觀察紀錄：給 AI 的生命模式狀態（系統說明的最後一段：現在的狀態、畫面、作息、今天的事…）
+  if (monitorOn()) monitorLog('ask', { how, text, life: system.slice(-3500) });
   let raw: string | null = null;
   // 主人說的話：雲端 AI（只有主人本人、有每日每月上限）→ 家裡電腦的 AI
   if (how === 'chat' && (!isCloudTired() || Date.now() >= (cloudTired?.check ?? 0))) {
@@ -1070,6 +1180,7 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
   if (how === 'chat') hud.say('', 1);
   // 這段時間換了模式或關掉了：舊的回答不用
   if (!lifeSlot || epoch !== lifeEpoch) return false;
+  monitorLog('reply', { how, raw });
   if (!raw) {
     lifeFail();
     window.setTimeout(lifeFlush, 50);
@@ -1090,8 +1201,12 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
   // 自言自語（自己決定、或只是看到聽到什麼）：隔太近不說；說到畫面裡沒有的東西（花、沒有的蛋糕…）也不說
   if (r.text && (how === 'decide' || how === 'notice')) {
     const now = performance.now();
-    if (now - lifeSelfTalkAt < SELF_TALK_GAP[how] || madeUp(r.text, lang, { cake: !!stage.cake, scene: lifeScene(lang) })) r = { ...r, text: '' };
-    else lifeSelfTalkAt = now;
+    const tooSoon = now - lifeSelfTalkAt < SELF_TALK_GAP[how];
+    const fake = madeUp(r.text, lang, { cake: !!stage.cake, scene: lifeScene(lang) });
+    if (tooSoon || fake) {
+      monitorLog('silenced', { text: r.text, why: fake ? 'made_up' : 'too_soon', sinceLastSec: Math.round((now - lifeSelfTalkAt) / 1000) });
+      r = { ...r, text: '' };
+    } else lifeSelfTalkAt = now;
   }
   // 記憶：主人說的話、發生的事、悅靈做的事（自己決定下一步的提示不記）
   if (how !== 'decide') remember(brainMem, 'user', text);
@@ -1118,12 +1233,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
     if (wait) window.setTimeout(() => lifeSlot && epoch === lifeEpoch && lifeDo(i), wait * 1000);
     else lifeDo(i);
   }
-  if (r.text) {
-    const en = lang === 'en_us';
-    hud.say(r.text, Math.max(3200, r.text.length * (en ? 70 : 230)));
-    if (lifeVoice()) void lifeSpeak(r.text, lang, r.feeling);
-    lastSpoke = performance.now();
-  }
+  // 說話排隊（說完一句才說下一句）
+  if (r.text) lifeLine(r.text, lang, r.feeling, how === 'chat' || how === 'event');
   // 下一次自己決定至少隔 6 秒
   lifeNextAt = performance.now() + 6000;
   window.setTimeout(lifeFlush, 50);
@@ -1231,6 +1342,7 @@ function visionHintOnce(): void {
   window.setTimeout(() => hud.toast(t('life.visionHint')), 2500);
 }
 function lifeStop(): void {
+  lifeHush();
   if (!lifeSlot) return;
   lifeSlot = null;
   lifeEpoch++;
@@ -1274,7 +1386,8 @@ window.addEventListener('pointerdown', liveWake);
 const cameraEvents: ArEvents = {
   wave: () => {
     const now = performance.now();
-    if (now - lastWaveAt < (brainReady() || lifeSlot ? 12_000 : 8_000)) return;
+    // 揮手偵測偶爾會誤判：AI 生命模式 45 秒內只算一次
+    if (now - lastWaveAt < (lifeSlot ? 45_000 : brainReady() ? 12_000 : 8_000)) return;
     lastWaveAt = now;
     cheer(pet, 5);
     // AI 生命模式：沒有固定的揮手回應，交給 AI

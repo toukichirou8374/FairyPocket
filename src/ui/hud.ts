@@ -8,6 +8,7 @@ import { setVoiceAgeOn, voiceAgeOn } from '../voiceAge';
 import { brainSettings } from './brainSettings';
 import { lifeTextVoiceOn, setLifeTextVoice } from '../life/life';
 import { lifeVisionOn, setLifeVision } from '../life/vision';
+import { monitorOn, setMonitor } from '../life/monitor';
 import { foodIcon, gridURL, HEART, HEART_PAL, ITEM_ICONS, SHANK, SHANK_PAL, statGrid } from '../pixel';
 import { affectionLevel, BEDTIMES, FOOD_IDS, moodLevel, NAME_MAX, wakeHour, type Bedtime, PERSONALITY_COLOR, PERSONALITY_IDS, toIcons, type Food, type Personality, type PetState } from '../game/state';
 import type { AssetImages } from '../game/assets';
@@ -792,6 +793,19 @@ export class Hud {
   private openDev(): void {
     const { box, close } = this.modal(t('dev.area'));
     brainSettings(box);
+    // 生命模式觀察紀錄（送到家裡電腦，開發時看悅靈實際怎麼想、怎麼做）
+    const mon = el('button', 'btn', box);
+    const showMon = () => {
+      const on = monitorOn();
+      mon.textContent = `${t('dev.lifeMonitor')}：${t(on ? 'on' : 'off')}`;
+      mon.classList.toggle('on', on);
+    };
+    showMon();
+    mon.addEventListener('click', () => {
+      setMonitor(!monitorOn());
+      showMon();
+    });
+    el('div', 'info', box).textContent = t('dev.lifeMonitorHelp');
 
     el('label', '', box).textContent = t('va.title');
     el('div', 'info', box).textContent = t('va.help');

@@ -18,13 +18,14 @@ import http from 'node:http';
 import path from 'node:path';
 import { cloudChat, cloudStatus, isOwner } from './cloud-ai.mjs';
 import { tts } from './tts-azure.mjs';
+import { writeLifeLog } from './life-log.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const TOKEN_FILE = path.join(ROOT, 'private', 'ai-token.txt');
 const LISTEN = { host: '127.0.0.1', port: 11435 };
 const OLLAMA = { host: '127.0.0.1', port: 11434 };
 const ORIGINS = new Set(['https://toukichirou8374.github.io', 'http://localhost:4173', 'http://localhost:5173']);
-const ROUTES = new Set(['GET /api/tags', 'POST /api/chat', 'POST /api/cloud/chat', 'GET /api/cloud/status', 'POST /api/tts']);
+const ROUTES = new Set(['GET /api/tags', 'POST /api/chat', 'POST /api/cloud/chat', 'GET /api/cloud/status', 'POST /api/tts', 'POST /api/lifelog']);
 /** 雲端 AI（要花錢）：只有電腦主人本人的 Tailscale 帳號能用 */
 const CLOUD = new Set(['POST /api/cloud/chat', 'GET /api/cloud/status']);
 const MAX_BODY = 64 * 1024;
@@ -92,6 +93,29 @@ const server = http.createServer((req, res) => {
   if (!tokenOk(req.headers.authorization)) return void res.writeHead(401).end();
   if (!rateOk()) return void res.writeHead(429).end();
   if (Number(req.headers['content-length'] ?? 0) > MAX_BODY) return void res.writeHead(413).end();
+
+  // 生命模式的觀察紀錄（開發用，手機的開發者區打開才會送；存在 private/life-logs/）
+  if (route === 'POST /api/lifelog') {
+    let body = '';
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > MAX_BODY) return void req.destroy();
+      body += c;
+    });
+    req.on('end', () => {
+      let parsed = null;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        return void res.writeHead(400).end();
+      }
+      const [code, out] = writeLifeLog(parsed);
+      res.writeHead(code, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(out));
+    });
+    return;
+  }
 
   // 即時語音（微軟免費額度；有通行碼的家人都能用，金鑰留在這台電腦）
   if (route === 'POST /api/tts') {
