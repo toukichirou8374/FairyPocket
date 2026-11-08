@@ -31,12 +31,13 @@ import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeopl
 import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
-import { DIRECT_EVENTS, intentName, isLifeSlot, lifeChatRules, lifeEventText, lifeRules, lifeTextVoiceOn, madeUp, PREFER, overheardText, addressedTo, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
+import { DIRECT_EVENTS, intentName, isLifeSlot, lifeChatRules, lifeEventText, lifeMenuNames, lifeRules, type LifeState, lifeTextVoiceOn, madeUp, PREFER, overheardText, addressedTo, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
 import { fetchTts, listModels, look } from './brain/brain';
 import { TREASURE_NAME, loadTreasures, saveTreasures, treasureCount, treasureList, type TreasureKind } from './life/rhythm';
 import { HABITS, addLog, awayText, bumpLike, lastLifeSeen, loadLikes, loadLog, markLifeSeen, rhythmText, saveLikes, saveLog, todayLog, topLikes } from './life/rhythm';
 import { monitorLog, monitorOn } from './life/monitor';
 import { isEcho, lifeSystem, nameTag, pickHeard } from './life/persona';
+import { FORMAT_HINT, jsonToTags, replySchema } from './life/structured';
 import { LOOK_EVERY, SAW_EVERY, SIGHT_FRESH, VISION_PROMPT, lifeVisionOn, parseVision, snapshot, type Sight } from './life/vision';
 import { pickVoice, loadTtsVoices } from './ttsVoice';
 import { Recognizer, speechSupported } from './speech';
@@ -240,6 +241,21 @@ async function answerText(text: string, alts: string[] = [text], fromMic = false
     const sinceSpoke = (performance.now() - lastSpoke) / 1000;
     const toHer = !fromMic || addressedTo(text, pet.name, sinceSpoke);
     monitorLog('heard', { text, typed: !fromMic, toHer, sinceSpokeSec: Math.round(sinceSpoke) });
+    // 小助手：請她做事（現在幾點、天氣、計時、查資料、放音樂）。事情由助理功能真的去做（天氣數字來自氣象服務，不是 AI 編的），
+    // 她用自己的聲音、排隊說出結果，不會搶走身體的控制
+    if (toHer) {
+      const lang = talkLang();
+      for (const a of [text, ...alts]) {
+        const cmd = detectCommand(a, lang);
+        if (!cmd) continue;
+        monitorLog('helper', { text, kind: cmd.kind });
+        if (!fromMic) lifeHush();
+        remember(brainMem, 'user', who(text));
+        ctrl.attend(6);
+        void assistant.run(cmd);
+        return;
+      }
+    }
     if (!toHer) {
       void lifeAsk(overheardText(who(text), talkLang()), 'event');
       return;
@@ -1205,11 +1221,7 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
   const epoch = lifeEpoch;
   const lang = talkLang();
   if (how === 'chat') hud.say('…', 9000);
-  const system =
-    // 生命模式專用的「她是誰、怎麼說話」（不用原本陪聊的助理設定；不叫主人，認得聲音就叫名字）
-    lifeSystem(pet, { speaker: personNow(), family: people.map((p) => p.name), notes: brainMem.notes }, lang) +
-    (how === 'chat' ? lifeChatRules : lifeRules)(
-      {
+  const st: LifeState = {
         doing: lifeDoing(lang),
         where: lifeWhere(lang),
         energy: pet.energy,
@@ -1232,9 +1244,15 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
         treasures: treasureCount(lifeTreasures),
         prefer: [...(PREFER[pet.personality] ?? []), ...topLikes(lifeLikes)],
         hasNotes: brainMem.notes.length > 0,
-      },
-      lang,
-    );
+  };
+  const system =
+    // 生命模式專用的「她是誰、怎麼說話」（不用原本陪聊的助理設定；不叫主人，認得聲音就叫名字）
+    lifeSystem(pet, { speaker: personNow(), family: people.map((p) => p.name), notes: brainMem.notes }, lang) +
+    (how === 'chat' ? lifeChatRules : lifeRules)(st, lang);
+  // 家裡電腦的 AI 用固定格式回答（意圖、動作只能從清單選；實驗：24 次決定全部有效、不再連續選同一件事）；雲端 AI 照舊用標籤
+  const localSystem = `${system}\n${FORMAT_HINT[lang]}`;
+  const schema = replySchema(lang, lifeMenuNames(st, lang));
+  const local = (x: string | null) => (x ? jsonToTags(x, lang) : x);
   // 觀察紀錄：給 AI 的生命模式狀態（系統說明的最後一段：現在的狀態、畫面、作息、今天的事…）
   if (monitorOn()) monitorLog('ask', { how, text, life: system.slice(-3500) });
   // 直接跟她說的話：附一句提醒（不記進對話）。實驗發現她會學對話紀錄裡只有動作的回合，變成都不回話
@@ -1251,7 +1269,7 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
       cloudNotice(c.why);
     }
   }
-  raw ??= await ask(cfg, system, brainMem, askText, 25000, lang);
+  raw ??= local(await ask(cfg, localSystem, brainMem, askText, 25000, lang, schema));
   lifeBusy = false;
   // 「…」先留著，等她開口時直接換成那句話（以前會先清成一個空白泡泡，再出現第二個泡泡才說話）；沒回答就收起來
   if (how === 'chat' && !raw) hud.hideBubble();
@@ -1259,7 +1277,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
   if (!lifeSlot || epoch !== lifeEpoch) return false;
   monitorLog('reply', { how, raw });
   // 有人告訴她名字（AI 寫了 [名字：…]）：把剛才聽到的聲音記成這個名字（只存在這台手機）
-  const named = raw ? nameTag(raw) : null;
+  // 有人自我介紹：AI 的 [名字：…]，或「我是いつき」這種說法（實驗：小模型常忘了寫名字欄位）
+  const named = (raw ? nameTag(raw) : null) ?? (how === 'chat' ? nameFrom(text.replace(/^[^：:]{1,12}[：:]/, '')) : null);
   if (named && lastVoice && performance.now() - lastVoice.at < 90_000 && voiceIdOn()) {
     addPerson(people, named, lastVoice.feat);
     savePeople(people);
@@ -1276,7 +1295,7 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
   // 用了別的語言（例如設定中文卻回日文）：再請家裡電腦的 AI 用設定的語言回答一次；還是不對就只留對的句子
   if (r.text && mixedLanguage(r.text, lang)) {
     lifeBusy = true;
-    const again = await ask(cfg, system, brainMem, `${text}\n${LIFE_LANG_REMIND[lang]}`, 25000, lang);
+    const again = local(await ask(cfg, localSystem, brainMem, `${text}\n${LIFE_LANG_REMIND[lang]}`, 25000, lang, schema));
     lifeBusy = false;
     if (!lifeSlot || epoch !== lifeEpoch) return false;
     const r2 = again ? parseLifeReply(again, lang) : null;
@@ -2065,6 +2084,19 @@ hud.sayHook = (text) => {
 
 /** 助理的回答：說出來、顯示泡泡、做個動作 */
 function assistSay(line: string, mood: Mood): void {
+  // AI 生命模式：助理做完的事由她用自己的聲音、排隊說（不用原本的固定動作，身體照她自己的活動）
+  if (lifeSlot) {
+    if (mood === 'think') {
+      hud.say('…', 8000);
+      return;
+    }
+    if (mood === 'alarm') playSfx('bell');
+    ctrl.setFeeling(mood === 'oops' || mood === 'sad' ? 'sad' : mood === 'surprised' || mood === 'alarm' ? 'surprised' : 'happy', 6);
+    lifeLine(line, talkLang(), null, true);
+    remember(brainMem, 'allay', line);
+    saveMemory(brainMem);
+    return;
+  }
   const now = performance.now();
   const en = talkLang() === 'en_us';
   hud.say(line, Math.max(3200, line.length * (en ? 70 : 230)));

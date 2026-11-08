@@ -367,13 +367,16 @@ export function lifeChatRules(s: LifeState, lang: Lang): string {
   return `${CHAT_RULES[lang](s, menu)}${extra ? `\n${extra}` : ''}\n${LANG_LAST[lang]}`;
 }
 
-export function lifeRules(s: LifeState, lang: Lang): string {
-  // 剛做完一整段的活動，下一段先不給選（以前會連續 5 次都選「整理翅膀」）；睡覺、休息不在此限
+/** 現在能選的活動名稱（目前語言）；剛做完一整段的活動，下一段先不給選（以前會連續 5 次都選「整理翅膀」）；睡覺、休息不在此限 */
+export function lifeMenuNames(s: LifeState, lang: Lang): string[] {
   const last = s.lastActivity;
-  const menu = availableIntents(s)
-    .filter((i) => !s.lastActivity || i !== last || i === 'rest' || i === 'sleep' || i === 'wake')
-    .map((i) => intentName(i, lang))
-    .join(lang === 'en_us' ? ', ' : '、');
+  return availableIntents(s)
+    .filter((i) => !last || i !== last || i === 'rest' || i === 'sleep' || i === 'wake')
+    .map((i) => intentName(i, lang));
+}
+
+export function lifeRules(s: LifeState, lang: Lang): string {
+  const menu = lifeMenuNames(s, lang).join(lang === 'en_us' ? ', ' : '、');
   const extra = LIFE_EXTRA[lang](s);
   return `${LIFE_RULES[lang](s, menu)}${extra ? `\n${extra}` : ''}\n${MUST_TAG[lang]}\n${LANG_LAST[lang]}`;
 }

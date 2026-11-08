@@ -311,7 +311,8 @@ export async function listModels(cfg: Pick<BrainConfig, 'url' | 'token'>, timeou
 }
 
 /** 問 AI（失敗回傳 null，交給原本的回答方式） */
-export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, text: string, timeoutMs = 25000, lang?: Lang): Promise<string | null> {
+/** format：Ollama 的 JSON Schema（生命模式請 AI 用固定格式回答；只給家裡電腦的 AI） */
+export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, text: string, timeoutMs = 25000, lang?: Lang, format?: Record<string, unknown>): Promise<string | null> {
   if (!cfg.on || !cfg.url || !safeBrainUrl(cfg.url)) return null;
   const messages = [
     { role: 'system', content: system },
@@ -324,7 +325,7 @@ export async function ask(cfg: BrainConfig, system: string, mem: BrainMemory, te
     const r = await fetch(`${base(cfg.url)}/api/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders(cfg) },
-      body: JSON.stringify({ model: cfg.model, messages, stream: false, keep_alive: '30m', options: { temperature: 0.8, num_predict: 160 } }),
+      body: JSON.stringify({ model: cfg.model, messages, stream: false, keep_alive: '30m', ...(format ? { format } : {}), options: { temperature: 0.8, num_predict: format ? 220 : 160 } }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!r.ok) return null;
