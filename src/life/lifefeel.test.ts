@@ -145,3 +145,41 @@ describe('不把自己的聲音當成有人在說話', () => {
     expect(isEcho('你在做什麼', [])).toBe(false);
   });
 });
+
+import { introName } from '../voiceId';
+describe('只有明確的自我介紹才記成名字', () => {
+  it('一般的話不是名字', () => {
+    for (const t of ['好累', '嗨', '嗯', '我是說今天好累', '我今天好累', "It's cold", '我是要去洗澡']) expect(introName(t), t).toBeNull();
+  });
+  it('自我介紹', () => {
+    expect(introName('我是いつき喔')).toBe('いつき');
+    expect(introName('我叫小明')).toBe('小明');
+    expect(introName('わたしはいつきです')).toBe('いつき');
+    expect(introName("Hi I'm Ken".replace(/^Hi /, ''))).toBe('Ken');
+    expect(introName('叫我阿美')).toBe('阿美');
+  });
+});
+
+describe('去看看畫面裡真的有的東西', () => {
+  it('飛到東西旁邊、盯著它看', () => {
+    const camera = new THREE.PerspectiveCamera(42, 0.5, 0.1, 100);
+    camera.position.set(0, 1.6, 5.4);
+    const o = () => new THREE.Object3D();
+    const model = { root: o(), tilt: o(), head: o(), body: o(), armL: o(), armR: o(), wingL: o(), wingR: o(), setEyes: () => {}, setWings: () => {} } as unknown as AllayModel;
+    const thing = new THREE.Vector3(1, 0.21, -0.5);
+    const c = new AllayController(model, { camera, bounds: () => ({ minX: -1.5, maxX: 1.5, minY: 0.45, maxY: 2, minZ: -1.6, maxZ: 1 }), night: () => false, things: () => [thing] }, createPet(Date.now()), { say: () => {}, particle: () => {}, caught: () => {} });
+    c.setLife(true);
+    c.intend('inspect');
+    for (let i = 0; i < 160; i++) c.update(0.05);
+    expect(c.pos.distanceTo(thing)).toBeLessThan(1.2);
+    expect(c.activity?.i).toBe('inspect');
+  });
+});
+
+import { junkName } from '../voiceId';
+describe('被誤記的名字會清掉', () => {
+  it('「嗨」「好累」不是名字，真的名字留著', () => {
+    for (const n of ['嗨', '好累', '嗯', '我今天好累', 'Hello']) expect(junkName(n), n).toBe(true);
+    for (const n of ['いつき', '小明', '媽媽', 'Ken', '阿美']) expect(junkName(n), n).toBe(false);
+  });
+});

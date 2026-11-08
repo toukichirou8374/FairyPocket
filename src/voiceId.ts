@@ -255,3 +255,28 @@ export function nameFrom(text: string): string | null {
   if (/^[A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,2}$/.test(t) && t.length <= 20) return t.replace(/\b\w/g, (c) => c.toUpperCase());
   return null;
 }
+
+/**
+ * 只認「明確的自我介紹」裡的名字（生命模式用）：一定要有「我是／我叫／叫我／わたしは／my name is…」這類開頭，
+ * 而且名字不能像一句話。nameFrom 是在「問了名字之後」用的，單獨一句「好累」「嗨」也會被當成名字。
+ */
+const INTRO = /^(?:我是|我叫做|我叫|我的名字是|我的名字叫|叫我|你可以叫我|わたしは|わたしの名前は|私は|私の名前は|ぼくは|僕は|おれは|俺は|my name is|my name's|call me|i'?m|i am)\s*/i;
+const NOT_NAME = /[說想要很累了的嗎呢吧啊不沒會]|覺得|今天|明天|昨天|現在|[、，,。！？!?]/;
+export function introName(text: string): string | null {
+  const t = text.trim();
+  if (!INTRO.test(t)) return null;
+  const n = nameFrom(t);
+  if (!n) return null;
+  const rest = t.replace(INTRO, '').replace(/(?:です|だよ|だ|っていいます|と言います|喔|哦|啦|呀|啊|耶|唷|ね|よ)?[。！!.~～…]*$/, '').trim();
+  // 「我是說今天好累」這種：剩下的部分像一句話就不算
+  if (NOT_NAME.test(rest.replace(/喔|哦|啦|呀|耶|唷/g, ''))) return null;
+  if (/^[\p{Script=Han}]{5,}$/u.test(n)) return null;
+  return n;
+}
+
+/** 明顯不是名字的（v0.57.1 的錯誤可能把「嗨」「好累」記成名字）：啟動時清掉 */
+const JUNK_NAMES = new Set(['嗨', '嗯', '喔', '哦', '好', '對', '哈囉', '你好', '謝謝', '晚安', '早安', 'はい', 'うん', 'ええ', 'Hi', 'Hello', 'Ok', 'Okay', 'Yes', 'No']);
+export function junkName(name: string): boolean {
+  const n = name.trim();
+  return !n || JUNK_NAMES.has(n) || NOT_NAME.test(n);
+}

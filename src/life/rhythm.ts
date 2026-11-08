@@ -6,6 +6,7 @@
 import type { Lang } from '../i18n';
 import type { Personality } from '../game/state';
 import type { Intent } from './life';
+import { ago } from './drives';
 
 /** 瀏覽器的 localStorage（測試環境、私密瀏覽沒有時，讀寫會在 try 裡失敗而用預設值） */
 const browserStorage = (): Storage => globalThis.localStorage as Storage;
@@ -73,10 +74,10 @@ export function awayText(from: number, to: number, h: Habit, lang: Lang): string
   const hour = new Date(to).getHours();
   const slept = sleptWhileAway(from, to, h);
   if (lang === 'ja_jp')
-    return `（かぞくが ${dur}ぶりにもどってきてアプリをひらいた。いまは ${hour} 時。${slept ? 'そのあいだに夜があったので、あなたはねていたはず。' : ''}時間がたったことしかわからないので、そのあいだのできごとを作らないで。）`;
+    return `（かぞくが ${dur}ぶりにもどってきてアプリをひらいた。いまは ${hour} 時。${slept ? 'そのあいだに夜があったので、あなたはねていたはず。' : ''}時間がたったことしかわからないので、そのあいだのできごとを作らないで。きょう本当にあったことで話したいことがあれば、ひとつだけ話してもいい。）`;
   if (lang === 'en_us')
-    return `(Your friend came back and opened the app after about ${dur}. It's ${hour}:00 now. ${slept ? 'A night passed in between, so you were probably asleep. ' : ''}You only know that time passed; don't invent things that happened meanwhile.)`;
-  return `（家人離開了大約 ${dur}，現在回來打開了 App。現在是 ${hour} 點。${slept ? '這段時間跨過了晚上，你那時應該在睡覺。' : ''}你只知道時間過了，不要編造這段時間具體發生的事。）`;
+    return `(Your friend came back and opened the app after about ${dur}. It's ${hour}:00 now. ${slept ? 'A night passed in between, so you were probably asleep. ' : ''}You only know that time passed; don't invent things that happened meanwhile. If something that really happened today is worth sharing, you may mention one thing.)`;
+  return `（家人離開了大約 ${dur}，現在回來打開了 App。現在是 ${hour} 點。${slept ? '這段時間跨過了晚上，你那時應該在睡覺。' : ''}你只知道時間過了，不要編造這段時間具體發生的事。今天真的發生過、想分享的事，可以挑一件說。）`;
 }
 
 // ---------- 今天真的發生過的事（存在手機裡） ----------
@@ -117,10 +118,8 @@ export function todayLog(log: LogEntry[], lang: Lang, now = Date.now(), n = 6): 
   return log
     .filter((e) => e.lang === lang && new Date(e.at).toDateString() === day && e.at <= now)
     .slice(-n)
-    .map((e) => {
-      const d = new Date(e.at);
-      return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')} ${e.text}`;
-    });
+    // 用「多久以前」表示（小模型看不出幾點幾分是多久以前；「剛剛被摸頭」的感覺才接得上）
+    .map((e) => `${ago(now - e.at, lang)}：${e.text}`);
 }
 
 // ---------- 喜好：最近常做的事 ----------

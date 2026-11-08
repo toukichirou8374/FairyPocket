@@ -27,7 +27,7 @@ import { detectCommand } from './assist/command';
 import { Assistant, type Mood } from './assist/assistant';
 import { SenseTest } from './ui/senseTest';
 import { VoiceAge, voiceAgeOn, type AgeGuess } from './voiceAge';
-import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeople, voiceFeatures, voiceIdOn } from './voiceId';
+import { addPerson, identify, introName, junkName, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeople, voiceFeatures, voiceIdOn } from './voiceId';
 import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
@@ -38,6 +38,7 @@ import { HABITS, addLog, awayText, bumpLike, lastLifeSeen, loadLikes, loadLog, m
 import { monitorLog, monitorOn } from './life/monitor';
 import { isEcho, lifeSystem, nameTag, pickHeard } from './life/persona';
 import { FORMAT_HINT, jsonToTags, replySchema } from './life/structured';
+import { Habituation, drivesPrefer, drivesText, interacted, newActivity, newDrives, repeatText, tickDrives } from './life/drives';
 import { LOOK_EVERY, SAW_EVERY, SIGHT_FRESH, VISION_PROMPT, lifeVisionOn, parseVision, snapshot, type Sight } from './life/vision';
 import { pickVoice, loadTtsVoices } from './ttsVoice';
 import { Recognizer, speechSupported } from './speech';
@@ -262,7 +263,8 @@ async function answerText(text: string, alts: string[] = [text], fromMic = false
     }
     // 主人打字或叫她：她正在說的話先停下來（被打斷），轉過來看著主人
     if (!fromMic) lifeHush();
-    ctrl.attend(10);
+    interacted(lifeDrives);
+    lifeNotice(10);
     void lifeAsk(who(text), 'chat');
     return;
   }
@@ -305,6 +307,11 @@ async function answerText(text: string, alts: string[] = [text], fromMic = false
 
 // ---------- 說話者辨識・第二步：模糊認人（第一次聽到的聲音在對話裡問名字） ----------
 const people = loadPeople();
+// 清掉被誤記成名字的話（v0.57.1：一句「好累」也可能被當成名字）
+if (people.some((p) => junkName(p.name))) {
+  people.splice(0, people.length, ...people.filter((p) => !junkName(p.name)));
+  savePeople(people);
+}
 /** 最近聽到的一段聲音特徵（生命模式裡有人說出名字時，記成那個人） */
 let lastVoice: { feat: number[]; at: number } | null = null;
 /** 問了名字、等對方自我介紹 */
@@ -822,6 +829,26 @@ const lifeLog = loadLog();
 const lifeLikes = loadLikes();
 /** 記到「今天發生的事」的事件（作息、自己決定的不記） */
 const LOGGED_EVENTS = new Set<LifeEvent>(['petted', 'tickled', 'woken', 'called', 'fed', 'favoriteFood', 'full', 'caughtBall', 'bath', 'noteBlock', 'bedTap', 'firework', 'cake', 'friend', 'wave', 'saw', 'found', 'milestone', 'renamed']);
+/** 內在需求（無聊、想家人）、重複刺激的習慣 */
+const lifeDrives = newDrives();
+const lifeHabit = new Habituation();
+window.setInterval(() => {
+  if (lifeSlot && document.visibilityState === 'visible') tickDrives(lifeDrives, 1, ctrl.mode === 'sleep');
+}, 1000);
+/** 專心做事（哼歌、發呆、找東西…）時被叫，要慢一拍才轉過來；平常也不是瞬間反應 */
+const ABSORBING = new Set<string>(['sing', 'daydream', 'groom', 'search', 'inspect', 'treasure', 'rest']);
+function lifeNotice(sec: number): void {
+  const a = ctrl.activity;
+  const delay = a && ABSORBING.has(a.i) ? 600 + Math.random() * 600 : 150 + Math.random() * 200;
+  window.setTimeout(() => lifeSlot && ctrl.attend(sec), delay);
+}
+/** 畫面裡真的有、可以去看的東西 */
+function lifeThings(): THREE.Vector3[] {
+  const out: THREE.Vector3[] = [];
+  if (stage.bed) out.push(stage.bedSpot(new THREE.Vector3()));
+  for (const o of [stage.cake, stage.noteBlock, stage.jukebox]) if (o) out.push(o.position.clone());
+  return out;
+}
 /** 收藏（在地上找東西時偶爾真的找到） */
 const lifeTreasures = loadTreasures();
 let lifeFoundAt = -Infinity;
@@ -879,7 +906,8 @@ function lifeFromLine(kind: LineKind, food: Food | null, d: number | string): vo
 /** 發生的事先收集一下（1.2 秒內的合成一次），再一起交給 AI */
 function lifeEvent(e: LifeEvent, d = ''): void {
   if (!lifeSlot) return;
-  const text = lifeEventText(e, talkLang(), d);
+  // 重複的刺激會習慣：幾分鐘內第 3 次以上，告訴 AI（反應可以變淡、或有點煩）
+  const text = lifeEventText(e, talkLang(), d) + (DIRECT_EVENTS.has(e) ? repeatText(lifeHabit.count(e), talkLang()) : '');
   monitorLog('event', { e, text });
   if (LOGGED_EVENTS.has(e)) {
     addLog(lifeLog, text, talkLang());
@@ -889,7 +917,8 @@ function lifeEvent(e: LifeEvent, d = ''): void {
   if (lifePending.length > 4) lifePending.shift();
   if (DIRECT_EVENTS.has(e)) {
     lifePendingDirect = true;
-    ctrl.attend(5);
+    interacted(lifeDrives);
+    lifeNotice(5);
   }
   window.clearTimeout(lifeFlushTimer);
   lifeFlushTimer = window.setTimeout(lifeFlush, 1200);
@@ -1183,7 +1212,8 @@ function deviceSpeak(text: string, lang: Lang, est: number): Promise<number> {
 
 /** 照 AI 的意圖讓控制器行動 */
 function lifeDo(i: LifeIntentName): void {
-  monitorLog('intent', { i, cake: !!stage.cake, at: ctrl.doing });
+  monitorLog('intent', { i, cake: !!stage.cake, at: ctrl.doing, bored: Math.round(lifeDrives.boredom * 100), lonely: Math.round(lifeDrives.lonely * 100) });
+  newActivity(lifeDrives, i, lifeRecent);
   lifeRecent.push(i);
   bumpLike(lifeLikes, i);
   saveLikes(lifeLikes);
@@ -1242,7 +1272,10 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
         likes: topLikes(lifeLikes).map((i) => intentName(i, lang)),
         collection: treasureList(lifeTreasures, lang),
         treasures: treasureCount(lifeTreasures),
-        prefer: [...(PREFER[pet.personality] ?? []), ...topLikes(lifeLikes)],
+        prefer: [...drivesPrefer(lifeDrives, lifeRecent), ...(PREFER[pet.personality] ?? []), ...topLikes(lifeLikes)],
+        drives: drivesText(lifeDrives, lang, drivesPrefer(lifeDrives, lifeRecent).filter((i) => i !== 'approach' && i !== 'peek' && (i !== 'inspect' || lifeThings().length > 0)).map((i) => intentName(i, lang))),
+        things: lifeThings().length,
+        avoid: how === 'decide' && lifeDrives.boredom > 0.65 ? lifeRecent.slice(-3) : undefined,
         hasNotes: brainMem.notes.length > 0,
   };
   const system =
@@ -1278,7 +1311,7 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
   monitorLog('reply', { how, raw });
   // 有人告訴她名字（AI 寫了 [名字：…]）：把剛才聽到的聲音記成這個名字（只存在這台手機）
   // 有人自我介紹：AI 的 [名字：…]，或「我是いつき」這種說法（實驗：小模型常忘了寫名字欄位）
-  const named = (raw ? nameTag(raw) : null) ?? (how === 'chat' ? nameFrom(text.replace(/^[^：:]{1,12}[：:]/, '')) : null);
+  const named = (raw ? nameTag(raw) : null) ?? (how === 'chat' ? introName(text.replace(/^[^：:]{1,12}[：:]/, '')) : null);
   if (named && lastVoice && performance.now() - lastVoice.at < 90_000 && voiceIdOn()) {
     addPerson(people, named, lastVoice.feat);
     savePeople(people);
@@ -1700,7 +1733,7 @@ function caught(): void {
 
 const ctrl = new AllayController(
   model,
-  { camera: stage.camera, bounds: () => stage.bounds(), night: () => night, bed: () => (stage.bed ? stage.bedSpot(new THREE.Vector3()) : null), bedYaw: () => stage.bedYaw() },
+  { camera: stage.camera, bounds: () => stage.bounds(), night: () => night, bed: () => (stage.bed ? stage.bedSpot(new THREE.Vector3()) : null), bedYaw: () => stage.bedYaw(), things: () => lifeThings() },
   pet,
   {
     say,

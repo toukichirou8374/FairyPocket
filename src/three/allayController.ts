@@ -62,6 +62,8 @@ export interface World {
   bed?(): THREE.Vector3 | null;
   /** 床的方向 */
   bedYaw?(): number;
+  /** 生命模式：畫面裡可以去看的東西（床、蛋糕、音符盒、唱片機）的位置 */
+  things?(): THREE.Vector3[];
 }
 
 export interface Hooks {
@@ -86,7 +88,7 @@ export interface Hooks {
 export type LifeIntent =
   | 'explore' | 'explore_left' | 'explore_right' | 'explore_high' | 'explore_low'
   | 'approach' | 'observe' | 'stay' | 'daydream' | 'play' | 'dance' | 'rest' | 'sleep' | 'wake'
-  | 'sing' | 'stretch' | 'search' | 'peek' | 'groom' | 'patrol' | 'treasure';
+  | 'sing' | 'stretch' | 'search' | 'peek' | 'groom' | 'patrol' | 'treasure' | 'inspect';
 
 /**
  * 生命模式的一段活動要做多久（秒）。診斷：以前每個意圖只做 2.6–9 秒就回去等 AI，看起來只是一直換地方飛；
@@ -95,7 +97,7 @@ export type LifeIntent =
 export const SESSION_SEC: Partial<Record<LifeIntent, [number, number]>> = {
   explore: [45, 90], explore_left: [40, 80], explore_right: [40, 80], explore_high: [40, 70], explore_low: [40, 70],
   approach: [12, 20], observe: [20, 40], stay: [20, 40], daydream: [30, 60], play: [20, 35], dance: [20, 35], rest: [60, 120],
-  sing: [35, 70], search: [45, 90], peek: [25, 45], groom: [25, 45], patrol: [30, 50], treasure: [25, 45],
+  sing: [35, 70], search: [45, 90], peek: [25, 45], groom: [25, 45], patrol: [30, 50], treasure: [25, 45], inspect: [20, 40],
 };
 
 /** 她的收藏角落（左後方的地上） */
@@ -193,6 +195,13 @@ export class AllayController {
     this.attendUntil = this.t + sec;
   }
   private updateGaze(dt: number): void {
+    // 正在看某個東西：眼睛和頭一直對著它
+    if (this.inspectAt && this.t < this.inspectUntil) {
+      this.gazeYaw = Math.atan2(this.inspectAt.x - this.pos.x, this.inspectAt.z - this.pos.z);
+      this.gazeUp = THREE.MathUtils.clamp((this.inspectAt.y - this.pos.y) * 0.5, -0.4, 0.3);
+      this.gazeIn = 0;
+      return;
+    }
     this.gazeIn -= dt;
     if (this.gazeIn > 0) return;
     const dreamy = this.mode === 'idle' && this.dreaming;
@@ -330,6 +339,19 @@ export class AllayController {
         this.setMode('flourish', 9);
         this.act = 'patrol';
         return;
+      case 'inspect': {
+        // 去看看畫面裡真的有的東西（床、蛋糕、音符盒、唱片機）：飛到旁邊，盯著它看
+        const things = this.world.things?.() ?? [];
+        if (!things.length) return this.observe();
+        const s = this.session;
+        const thing = things[(s ? s.steps - 1 : 0) % things.length];
+        this.inspectAt = thing.clone();
+        this.target.set(thing.x + rand(-0.35, 0.35), Math.max(b.minY + 0.25, thing.y + 0.45), thing.z + 0.45);
+        this.clampVec(this.target);
+        this.setMode('wander', 7);
+        this.after = 'inspect';
+        return;
+      }
       case 'treasure':
         // 去收藏角落看看收藏
         this.target.set(TREASURE_SPOT.x * b.maxX, b.minY + 0.2, TREASURE_SPOT.z * Math.abs(b.minZ));
@@ -343,7 +365,10 @@ export class AllayController {
   /** 生命模式的小活動（哼歌、整理翅膀、找東西、偷看、巡邏）；換動作時清掉 */
   private act: 'sing' | 'groom' | 'search' | 'peek' | 'patrol' | null = null;
   /** 飛到目的地之後要做的事 */
-  private after: 'search' | 'peek' | 'treasure' | null = null;
+  private after: 'search' | 'peek' | 'treasure' | 'inspect' | null = null;
+  /** 正在看的東西、看到什麼時候 */
+  private inspectAt: THREE.Vector3 | null = null;
+  private inspectUntil = 0;
   private actFx = 0;
   /** 生命模式閒著時慢慢飄移的目標（不會一直停在同一點，也不會過動） */
   private readonly driftTo = new THREE.Vector3();
@@ -704,7 +729,7 @@ export class AllayController {
     switch (this.mode) {
       case 'idle': {
         // 生命模式自己閒著：慢慢飄來飄去（每 6～12 秒換個方向，範圍不大、速度很慢）
-        if (this.life && !this.act && !this.dreaming && !this.gest && !this.attending) {
+        if (this.life && !this.act && !this.dreaming && !this.gest && !this.attending && this.t >= this.inspectUntil) {
           this.driftIn -= dt;
           if (this.driftIn <= 0) {
             this.driftIn = rand(6, 12);
@@ -965,6 +990,12 @@ export class AllayController {
       this.lookDir = Math.random() < 0.5 ? 1 : -1;
       this.setMode('observe', rand(4, 6));
       this.act = 'search';
+      return;
+    }
+    if (after === 'inspect' && this.inspectAt) {
+      // 到了：停下來盯著那個東西看一陣子
+      this.setMode('idle', rand(5, 8));
+      this.inspectUntil = this.t + this.modeDur;
       return;
     }
     if (after === 'treasure') {

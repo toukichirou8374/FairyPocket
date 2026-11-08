@@ -19,15 +19,15 @@ export const isLifeSlot = (s: string | null): s is LifeSlot => !!s && (LIFE_SLOT
 export const INTENTS = [
   'explore', 'explore_left', 'explore_right', 'explore_high', 'explore_low',
   'approach', 'observe', 'stay', 'daydream', 'play', 'dance', 'rest', 'sleep', 'wake', 'eat_cake',
-  'sing', 'stretch', 'search', 'peek', 'groom', 'patrol', 'treasure',
+  'sing', 'stretch', 'search', 'peek', 'groom', 'patrol', 'treasure', 'inspect',
 ] as const;
 export type Intent = (typeof INTENTS)[number];
 
 /** 給 AI 看的意圖清單（與 INTENTS 同順序） */
 export const INTENT_MENU: Record<Lang, string[]> = {
-  zh_tw: ['四處探索', '去左邊看看', '去右邊看看', '飛高一點', '飛低一點', '靠近家人', '停下來觀察', '待在原地', '發呆', '自己玩', '跳舞', '休息', '睡覺', '起床', '去吃蛋糕', '哼歌', '伸懶腰', '在地上找東西', '躲起來偷看', '整理翅膀', '繞一圈巡邏', '去看看收藏'],
-  ja_jp: ['たんけん', 'ひだりへいく', 'みぎへいく', 'たかくとぶ', 'ひくくとぶ', 'ちかづく', 'かんさつ', 'そのまま', 'ぼんやりする', 'ひとりあそび', 'おどる', 'やすむ', 'ねる', 'おきる', 'ケーキをたべにいく', 'はなうた', 'のびをする', 'ものをさがす', 'かくれてのぞく', 'はねのておいれ', 'ぐるっとパトロール', 'たからものを見にいく'],
-  en_us: ['explore', 'go left', 'go right', 'fly higher', 'fly lower', 'come closer', 'observe', 'stay', 'daydream', 'play alone', 'dance', 'rest', 'sleep', 'wake up', 'eat cake', 'hum a song', 'stretch', 'search the ground', 'hide and peek', 'groom wings', 'patrol around', 'visit my treasures'],
+  zh_tw: ['四處探索', '去左邊看看', '去右邊看看', '飛高一點', '飛低一點', '靠近家人', '停下來觀察', '待在原地', '發呆', '自己玩', '跳舞', '休息', '睡覺', '起床', '去吃蛋糕', '哼歌', '伸懶腰', '在地上找東西', '躲起來偷看', '整理翅膀', '繞一圈巡邏', '去看看收藏', '去看看附近的東西'],
+  ja_jp: ['たんけん', 'ひだりへいく', 'みぎへいく', 'たかくとぶ', 'ひくくとぶ', 'ちかづく', 'かんさつ', 'そのまま', 'ぼんやりする', 'ひとりあそび', 'おどる', 'やすむ', 'ねる', 'おきる', 'ケーキをたべにいく', 'はなうた', 'のびをする', 'ものをさがす', 'かくれてのぞく', 'はねのておいれ', 'ぐるっとパトロール', 'たからものを見にいく', 'ちかくのものを見にいく'],
+  en_us: ['explore', 'go left', 'go right', 'fly higher', 'fly lower', 'come closer', 'observe', 'stay', 'daydream', 'play alone', 'dance', 'rest', 'sleep', 'wake up', 'eat cake', 'hum a song', 'stretch', 'search the ground', 'hide and peek', 'groom wings', 'patrol around', 'visit my treasures', 'check out something nearby'],
 };
 
 export function intentFrom(name: string): Intent | null {
@@ -145,9 +145,9 @@ export const PREFER: Record<string, Intent[]> = {
 };
 
 /** 現在能選的意圖：個性喜歡的、她最近愛做的排前面；「靠近家人」放最後（不要一直黏著人） */
-export function availableIntents(s: { cake: boolean; asleep: boolean; treasures?: number; prefer?: Intent[] }): Intent[] {
+export function availableIntents(s: { cake: boolean; asleep: boolean; treasures?: number; things?: number; prefer?: Intent[] }): Intent[] {
   if (s.asleep) return ['sleep', 'wake'];
-  const ok = (i: Intent) => i !== 'wake' && (i !== 'eat_cake' || s.cake) && (i !== 'treasure' || (s.treasures ?? 0) > 0);
+  const ok = (i: Intent) => i !== 'wake' && (i !== 'eat_cake' || s.cake) && (i !== 'treasure' || (s.treasures ?? 0) > 0) && (i !== 'inspect' || (s.things ?? 0) > 0);
   const first = [...new Set(s.prefer ?? [])].filter(ok);
   const rest = INTENTS.filter((i) => ok(i) && !first.includes(i) && i !== 'approach');
   return [...first, ...rest, 'approach'];
@@ -192,6 +192,12 @@ export interface LifeState {
   treasures?: number;
   /** 個性、喜好排前面的意圖 */
   prefer?: Intent[];
+  /** 畫面裡可以去看的東西有幾個（床、蛋糕、音符盒、唱片機） */
+  things?: number;
+  /** 內在需求的感覺（無聊、想家人…） */
+  drives?: string;
+  /** 無聊時暫時不想做的（最近做過的） */
+  avoid?: Intent[];
   /** 畫面裡真的有的東西（目前語言） */
   scene?: string[];
   /** 有沒有開麥克風／鏡頭 */
@@ -202,6 +208,7 @@ export interface LifeState {
 const LIFE_EXTRA: Record<Lang, (s: LifeState) => string> = {
   zh_tw: (s) =>
     [
+      s.drives ? `現在的感覺：${s.drives}。` : '',
       s.collection?.length ? `你的收藏角落（左後方的地上）放著你自己找到的：${s.collection.join('、')}。` : '',
       s.scene?.length ? `你的世界（手機畫面）裡只有：${s.scene.join('、')}。沒列出的東西（例如花、蝴蝶、樹、小鳥、食物）都不存在：不要說看到它們、也不要說要去找或去吃。探索時看到的就是這些。` : '',
       s.rhythm ?? '',
@@ -211,6 +218,7 @@ const LIFE_EXTRA: Record<Lang, (s: LifeState) => string> = {
     ].filter(Boolean).join('\n'),
   ja_jp: (s) =>
     [
+      s.drives ? `いまの気持ち：${s.drives}。` : '',
       s.collection?.length ? `あなたのたからものコーナー（左おくの地面）には、自分で見つけたもの：${s.collection.join('、')}。` : '',
       s.scene?.length ? `あなたの世界（スマホの画面）にあるのは：${s.scene.join('、')}だけ。書いていないもの（花、ちょう、木、鳥、食べものなど）はありません。見えたとか、さがしにいく・食べにいくとは言わないで。たんけんで見えるのもこれだけです。` : '',
       s.rhythm ?? '',
@@ -220,6 +228,7 @@ const LIFE_EXTRA: Record<Lang, (s: LifeState) => string> = {
     ].filter(Boolean).join('\n'),
   en_us: (s) =>
     [
+      s.drives ? `How you feel: ${s.drives}.` : '',
       s.collection?.length ? `Your treasure corner (on the ground, back left) holds things you found yourself: ${s.collection.join(', ')}.` : '',
       s.scene?.length ? `Your world (the phone screen) only has: ${s.scene.join(', ')}. Anything not listed (flowers, butterflies, trees, birds, food…) doesn't exist: don't say you see it or that you'll go find or eat it. When exploring, this is all there is.` : '',
       s.rhythm ?? '',
@@ -372,6 +381,8 @@ export function lifeMenuNames(s: LifeState, lang: Lang): string[] {
   const last = s.lastActivity;
   return availableIntents(s)
     .filter((i) => !last || i !== last || i === 'rest' || i === 'sleep' || i === 'wake')
+    // 無聊時，最近做過的事暫時不想做（不是隨機，是「無聊」本身）；睡覺、休息照常可以選
+    .filter((i) => !s.avoid?.includes(i) || i === 'rest' || i === 'sleep' || i === 'wake')
     .map((i) => intentName(i, lang));
 }
 

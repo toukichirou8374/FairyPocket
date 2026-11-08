@@ -42,7 +42,8 @@ describe('生活節奏（第二階段）', () => {
     addLog(log, '(Your friend petted your head)', 'en_us', at(9));
     addLog(log, '（主人摸了摸你的頭）', 'zh_tw', at(7, 0, 7));
     addLog(log, '（主人摸了摸你的頭）', 'zh_tw', at(10, 30));
-    expect(todayLog(log, 'zh_tw', at(12))).toEqual(['8:05 主人餵你吃了蘋果', '10:30 主人摸了摸你的頭']);
+    expect(todayLog(log, 'zh_tw', at(12))).toEqual(['4 小時前：主人餵你吃了蘋果', '2 小時前：主人摸了摸你的頭']);
+    expect(todayLog(log, 'zh_tw', at(10, 31))[1]).toBe('剛剛：主人摸了摸你的頭');
   });
 
   it('喜好：常做的事會變成喜好，作息類不算，舊的慢慢變淡', () => {
