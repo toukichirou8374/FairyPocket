@@ -833,6 +833,18 @@ export class Hud {
     if (people.length) {
       const prow = el('div', 'btnrow', box);
       for (const p of people) {
+        // 改名：悅靈會用這個名字叫這個聲音的人
+        const r = el('button', 'btn small', prow);
+        r.textContent = `✎ ${p.name}`;
+        r.addEventListener('click', () => {
+          const n = prompt(t('vid.renamePrompt', { name: p.name }), p.name)?.trim();
+          if (!n || n === p.name || n.length > 12) return;
+          p.name = n;
+          savePeople(people);
+          r.textContent = `✎ ${n}`;
+          b.textContent = `✕ ${n}`;
+          showPeople();
+        });
         const b = el('button', 'btn small', prow);
         b.textContent = `✕ ${p.name}`;
         b.addEventListener('click', () => {
@@ -840,6 +852,7 @@ export class Hud {
           people.splice(people.indexOf(p), 1);
           savePeople(people);
           b.remove();
+          r.remove();
           showPeople();
         });
       }

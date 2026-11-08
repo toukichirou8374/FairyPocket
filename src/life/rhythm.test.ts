@@ -59,7 +59,7 @@ describe('生活節奏（第二階段）', () => {
     expect(s).toContain('作息：測試');
     expect(s).toContain('今天真的發生過的事（可以提起，但不要編造其他的）：8:05 主人餵你吃了蘋果');
     expect(s).toContain('應該是你喜歡的事：哼歌');
-    expect(s).toContain('主人喜歡恐龍');
+    expect(s).toContain('家人喜歡恐龍');
     expect(lifeRules(state, 'zh_tw')).not.toContain('今天真的發生過的事');
   });
 });

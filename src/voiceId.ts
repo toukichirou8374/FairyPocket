@@ -35,6 +35,20 @@ export interface Person {
   n: number;
   createdAt: number;
   lastHeard: number;
+  /** 最近幾段話的聲音特徵（只存在這台裝置；比只用平均準，例如同一個人大聲、小聲、近、遠） */
+  samples?: number[][];
+}
+
+/** 每個人最多記幾段話的特徵 */
+export const MAX_SAMPLES = 24;
+
+/** 跟這個人有多不像：平均聲音，和最像的 3 段話的平均，取比較像的那個 */
+export function personDistance(p: Person, feat: number[]): number {
+  const centroid = voiceDistance(p.feat, feat);
+  const s = (p.samples ?? []).map((x) => voiceDistance(x, feat)).sort((a, b) => a - b);
+  if (s.length < 3) return centroid;
+  const near = (s[0] + s[1] + s[2]) / 3;
+  return Math.min(centroid, near);
 }
 
 // ---------- 聲音特徵：MFCC（音色）平均與變化 + 音高 ----------
@@ -163,7 +177,7 @@ export const SAME_PERSON = 5.6;
 
 /** 猜是誰：最像的人夠像、而且明顯比第二像的人更像，才算認得 */
 export function identify(people: readonly Person[], feat: number[]): { person: Person | null; dist: number } {
-  const scored = people.map((p) => ({ p, d: voiceDistance(p.feat, feat) })).sort((x, y) => x.d - y.d);
+  const scored = people.map((p) => ({ p, d: personDistance(p, feat) })).sort((x, y) => x.d - y.d);
   const best = scored[0];
   if (!best || best.d > SAME_PERSON) return { person: null, dist: best?.d ?? Infinity };
   const second = scored[1];
@@ -177,13 +191,18 @@ export function learn(p: Person, feat: number[], now = Date.now()): void {
   p.feat = p.feat.map((v, i) => v * (1 - w) + feat[i] * w);
   p.n++;
   p.lastHeard = now;
+  p.samples = [...(p.samples ?? []), [...feat]].slice(-MAX_SAMPLES);
 }
 
 // ---------- 存取 ----------
 export function loadPeople(): Person[] {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? '[]') as Person[];
-    return Array.isArray(v) ? v.filter((p) => p && typeof p.name === 'string' && Array.isArray(p.feat) && p.feat.length === 2 * CEPS + 1) : [];
+    return Array.isArray(v)
+      ? v
+          .filter((p) => p && typeof p.name === 'string' && Array.isArray(p.feat) && p.feat.length === 2 * CEPS + 1)
+          .map((p) => ({ ...p, samples: Array.isArray(p.samples) ? p.samples.filter((s) => Array.isArray(s) && s.length === 2 * CEPS + 1).slice(-MAX_SAMPLES) : [] }))
+      : [];
   } catch {
     return [];
   }
@@ -203,7 +222,7 @@ export function addPerson(people: Person[], name: string, feat: number[], now = 
     learn(same, feat, now);
     return same;
   }
-  const p: Person = { id: `${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, feat: [...feat], n: 1, createdAt: now, lastHeard: now };
+  const p: Person = { id: `${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`, name, feat: [...feat], n: 1, createdAt: now, lastHeard: now, samples: [[...feat]] };
   people.push(p);
   // 太多人：忘記最久沒聽到的
   if (people.length > MAX_PEOPLE) people.sort((a, b) => b.lastHeard - a.lastHeard).splice(MAX_PEOPLE);

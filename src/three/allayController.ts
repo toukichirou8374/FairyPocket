@@ -76,13 +76,30 @@ export interface Hooks {
   lifeIdle?(): void;
   /** 哼歌時輕輕叫一聲（悅靈原本的叫聲） */
   hum?(): void;
+  /** 生命模式：在地上找完一個地方（找不找得到東西由外面決定） */
+  searched?(at: THREE.Vector3): void;
+  /** 生命模式：在收藏角落看收藏 */
+  treasure?(at: THREE.Vector3): void;
 }
 
 /** AI 生命模式的意圖（見 life/life.ts） */
 export type LifeIntent =
   | 'explore' | 'explore_left' | 'explore_right' | 'explore_high' | 'explore_low'
   | 'approach' | 'observe' | 'stay' | 'daydream' | 'play' | 'dance' | 'rest' | 'sleep' | 'wake'
-  | 'sing' | 'stretch' | 'search' | 'peek' | 'groom' | 'patrol';
+  | 'sing' | 'stretch' | 'search' | 'peek' | 'groom' | 'patrol' | 'treasure';
+
+/**
+ * 生命模式的一段活動要做多久（秒）。診斷：以前每個意圖只做 2.6–9 秒就回去等 AI，看起來只是一直換地方飛；
+ * 現在 AI 選的是「一段活動」，控制器在這段時間裡分幾個步驟做（同一區域換幾個點、找好幾個地方…），被打斷後也會接著做。
+ */
+export const SESSION_SEC: Partial<Record<LifeIntent, [number, number]>> = {
+  explore: [45, 90], explore_left: [40, 80], explore_right: [40, 80], explore_high: [40, 70], explore_low: [40, 70],
+  approach: [12, 20], observe: [20, 40], stay: [20, 40], daydream: [30, 60], play: [20, 35], dance: [20, 35], rest: [60, 120],
+  sing: [35, 70], search: [45, 90], peek: [25, 45], groom: [25, 45], patrol: [30, 50], treasure: [25, 45],
+};
+
+/** 她的收藏角落（左後方的地上） */
+export const TREASURE_SPOT = { x: -0.8, z: -0.6 };
 
 /** AI 說的心情：讓動作與外觀跟著變（開心蹦蹦跳、難過垂頭、想睡慢慢拍翅膀…） */
 export type Feeling = 'happy' | 'sad' | 'surprised' | 'shy' | 'sleepy';
@@ -142,10 +159,27 @@ export class AllayController {
   /** true＝AI 生命模式：不用原本的隨機決定、作息腳本，閒下來就通知 AI（hooks.lifeIdle） */
   life = false;
 
+  /** 生命模式正在做的一段活動（AI 選的）；做完才再問 AI */
+  private session: { i: LifeIntent; started: number; until: number; steps: number } | null = null;
+  /** 給 AI 看的「正在做哪段活動、做了多久」 */
+  get activity(): { i: LifeIntent; sec: number; leftSec: number } | null {
+    const s = this.session;
+    return s && this.t < s.until ? { i: s.i, sec: Math.round(this.t - s.started), leftSec: Math.round(s.until - this.t) } : null;
+  }
+  /** AI 暫時連不上：手上的活動多做一會兒（延續 AI 決定的事，不是新的腳本） */
+  extendActivity(sec: number): void {
+    if (this.session) this.session.until = Math.max(this.session.until, this.t + sec);
+  }
+  /** 不做了（例如換模式） */
+  endActivity(): void {
+    this.session = null;
+  }
+
   setLife(on: boolean): void {
     if (this.life === on) return;
     this.life = on;
     this.gazeIn = 0;
+    this.session = null;
     if (on && !this.posed && this.mode !== 'sleep') this.toIdle();
   }
 
@@ -207,6 +241,14 @@ export class AllayController {
     }
     // 睡著時只聽「起床」；其他意圖先不做（不會被 AI 搞到半夢半醒亂飛）
     if (asleep) return;
+    const len = SESSION_SEC[i];
+    this.session = len ? { i, started: this.t, until: this.t + rand(len[0], len[1]), steps: 0 } : null;
+    this.lifeStep(i, b, tr);
+  }
+
+  /** 一段活動裡的一個步驟（第一次、或上一步做完還在活動時間內） */
+  private lifeStep(i: LifeIntent, b: ReturnType<World['bounds']>, tr: Traits): void {
+    if (this.session) this.session.steps++;
     const midY = (b.minY + 0.3 + b.maxY) / 2;
     switch (i) {
       case 'explore':
@@ -288,13 +330,20 @@ export class AllayController {
         this.setMode('flourish', 9);
         this.act = 'patrol';
         return;
+      case 'treasure':
+        // 去收藏角落看看收藏
+        this.target.set(TREASURE_SPOT.x * b.maxX, b.minY + 0.2, TREASURE_SPOT.z * Math.abs(b.minZ));
+        this.clampVec(this.target);
+        this.setMode('wander', 7);
+        this.after = 'treasure';
+        return;
     }
   }
 
   /** 生命模式的小活動（哼歌、整理翅膀、找東西、偷看、巡邏）；換動作時清掉 */
   private act: 'sing' | 'groom' | 'search' | 'peek' | 'patrol' | null = null;
   /** 飛到目的地之後要做的事 */
-  private after: 'search' | 'peek' | null = null;
+  private after: 'search' | 'peek' | 'treasure' | null = null;
   private actFx = 0;
   /** 生命模式閒著時慢慢飄移的目標（不會一直停在同一點，也不會過動） */
   private readonly driftTo = new THREE.Vector3();
@@ -686,7 +735,10 @@ export class AllayController {
       case 'observe':
         this.target.set(this.anchor.x, this.anchor.y + Math.sin(this.t * 1.1) * 0.06, this.anchor.z);
         speed *= 0.4;
-        if (this.modeTime > this.modeDur) this.toIdle();
+        if (this.modeTime > this.modeDur) {
+          if (this.act === 'search') this.hooks.searched?.(this.pos);
+          this.toIdle();
+        }
         break;
       case 'flourish': {
         // 繞一圈小小的 8 字飛舞
@@ -915,6 +967,12 @@ export class AllayController {
       this.act = 'search';
       return;
     }
+    if (after === 'treasure') {
+      // 到了收藏角落：低頭看看收藏
+      this.setMode('observe', rand(5, 8));
+      this.hooks.treasure?.(this.pos);
+      return;
+    }
     if (after === 'peek') {
       // 到了：躲在邊邊歪頭偷看主人
       this.setMode('idle', rand(5, 7));
@@ -928,6 +986,10 @@ export class AllayController {
   private decide(): void {
     // 生命模式：不用隨機決定，原地輕輕飄著，請 AI 決定下一步（AI 沒回應就一直安全地待著）
     if (this.life) {
+      // 一段活動還沒做完：接著做下一步（被摸、被叫、聊天打斷之後也會回到這裡）
+      const s = this.session;
+      if (s && this.t < s.until && s.i !== 'approach' && s.i !== 'stretch') return this.lifeStep(s.i, this.world.bounds(), this.tr);
+      this.session = null;
       this.anchor.copy(this.pos);
       this.clampVec(this.anchor);
       this.setMode('idle', rand(8, 12));

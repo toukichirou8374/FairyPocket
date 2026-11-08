@@ -67,16 +67,16 @@ export function sleptWhileAway(from: number, to: number, h: Habit): boolean {
   return sleepTime(new Date(to).getHours(), h) || to - from > 24 * 3600_000;
 }
 
-/** 主人離開一陣子再回來（交給 AI 的事） */
+/** 家人離開一陣子再回來（交給 AI 的事） */
 export function awayText(from: number, to: number, h: Habit, lang: Lang): string {
   const dur = duration(to - from, lang);
   const hour = new Date(to).getHours();
   const slept = sleptWhileAway(from, to, h);
   if (lang === 'ja_jp')
-    return `（主人が ${dur}ぶりにもどってきてアプリをひらいた。いまは ${hour} 時。${slept ? 'そのあいだに夜があったので、あなたはねていたはず。' : ''}時間がたったことしかわからないので、そのあいだのできごとを作らないで。）`;
+    return `（かぞくが ${dur}ぶりにもどってきてアプリをひらいた。いまは ${hour} 時。${slept ? 'そのあいだに夜があったので、あなたはねていたはず。' : ''}時間がたったことしかわからないので、そのあいだのできごとを作らないで。）`;
   if (lang === 'en_us')
     return `(Your friend came back and opened the app after about ${dur}. It's ${hour}:00 now. ${slept ? 'A night passed in between, so you were probably asleep. ' : ''}You only know that time passed; don't invent things that happened meanwhile.)`;
-  return `（主人離開了大約 ${dur}，現在回來打開了 App。現在是 ${hour} 點。${slept ? '這段時間跨過了晚上，你那時應該在睡覺。' : ''}你只知道時間過了，不要編造這段時間具體發生的事。）`;
+  return `（家人離開了大約 ${dur}，現在回來打開了 App。現在是 ${hour} 點。${slept ? '這段時間跨過了晚上，你那時應該在睡覺。' : ''}你只知道時間過了，不要編造這段時間具體發生的事。）`;
 }
 
 // ---------- 今天真的發生過的事（存在手機裡） ----------
@@ -125,7 +125,7 @@ export function todayLog(log: LogEntry[], lang: Lang, now = Date.now(), n = 6): 
 
 // ---------- 喜好：最近常做的事 ----------
 const LIKE_KEY = 'fairypocket.lifelikes.v1';
-/** 不算喜好的（作息、回應主人） */
+/** 不算喜好的（作息、回應家人） */
 const NOT_LIKES = new Set<Intent>(['wake', 'sleep', 'rest', 'approach', 'stay', 'eat_cake']);
 
 export type Likes = Partial<Record<Intent, number>>;
@@ -174,4 +174,36 @@ export function markLifeSeen(now = Date.now(), storage: Pick<Storage, 'setItem'>
   } catch {
     /* 存不了也沒關係 */
   }
+}
+
+// ---------- 收藏：在地上找東西時偶爾真的找到（存在手機裡，會影響她之後想做什麼） ----------
+export type TreasureKind = 'shard' | 'feather' | 'bead';
+export const TREASURE_NAME: Record<TreasureKind, Record<Lang, string>> = {
+  shard: { zh_tw: '紫水晶碎片', ja_jp: 'アメジストのかけら', en_us: 'an amethyst shard' },
+  feather: { zh_tw: '小羽毛', ja_jp: '小さなはね', en_us: 'a little feather' },
+  bead: { zh_tw: '亮晶晶的玻璃珠', ja_jp: 'きらきらのビーズ', en_us: 'a shiny bead' },
+};
+const TREASURE_KEY = 'fairypocket.lifetreasures.v1';
+export type Treasures = Partial<Record<TreasureKind, number>>;
+export function loadTreasures(storage: Pick<Storage, 'getItem'> = browserStorage()): Treasures {
+  try {
+    const o = JSON.parse(storage.getItem(TREASURE_KEY) ?? '{}') as Treasures;
+    return o && typeof o === 'object' ? o : {};
+  } catch {
+    return {};
+  }
+}
+export function saveTreasures(t: Treasures, storage: Pick<Storage, 'setItem'> = browserStorage()): void {
+  try {
+    storage.setItem(TREASURE_KEY, JSON.stringify(t));
+  } catch {
+    /* 存不了也沒關係 */
+  }
+}
+export function treasureCount(t: Treasures): number {
+  return Object.values(t).reduce((s, n) => s + (n ?? 0), 0);
+}
+/** 給 AI 看的收藏清單（例如「小羽毛×2」） */
+export function treasureList(t: Treasures, lang: Lang): string[] {
+  return (Object.entries(t) as [TreasureKind, number][]).filter(([, n]) => n > 0).map(([k, n]) => (n > 1 ? `${TREASURE_NAME[k][lang]}×${n}` : TREASURE_NAME[k][lang]));
 }

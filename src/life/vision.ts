@@ -30,7 +30,7 @@ export const LOOK_EVERY = 30;
 /** 看到的描述幾秒內算「現在」 */
 export const SIGHT_FRESH = 90;
 /** 新東西的反應最少隔幾秒 */
-export const SAW_EVERY = 90;
+export const SAW_EVERY = 300;
 
 /** 請家裡電腦的 AI 看截圖（不是悅靈說話，只是描述畫面） */
 export const VISION_PROMPT: Record<Lang, string> = {

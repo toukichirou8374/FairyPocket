@@ -132,7 +132,7 @@ const PERSONA: Record<Personality, Record<Lang, string>> = {
 };
 type Personality = PetState['personality'];
 
-const LANG_RULE: Record<Lang, string> = {
+export const LANG_RULE: Record<Lang, string> = {
   zh_tw: '一律用台灣的繁體中文和台灣用語回答（不要用簡體字、不要用中國大陸用語）。',
   ja_jp: '必ず自然でやさしい日本語だけで答えてください。中国語の単語や文（「們」「這」「嗎」「呢」「沒」「說」などを使った中国語）は絶対にまぜないでください。ひらがなを多めに使ってください。',
   en_us: 'Always answer in simple, friendly American English only. Do not mix in any Chinese or Japanese words.',

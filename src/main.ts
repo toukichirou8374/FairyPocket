@@ -31,11 +31,13 @@ import { addPerson, identify, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeopl
 import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
-import { DIRECT_EVENTS, intentName, isLifeSlot, lifeEventText, lifeRules, lifeTextVoiceOn, madeUp, overheardText, addressedTo, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
+import { DIRECT_EVENTS, intentName, isLifeSlot, lifeChatRules, lifeEventText, lifeRules, lifeTextVoiceOn, madeUp, PREFER, overheardText, addressedTo, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
 import { fetchTts, listModels, look } from './brain/brain';
+import { TREASURE_NAME, loadTreasures, saveTreasures, treasureCount, treasureList, type TreasureKind } from './life/rhythm';
 import { HABITS, addLog, awayText, bumpLike, lastLifeSeen, loadLikes, loadLog, markLifeSeen, rhythmText, saveLikes, saveLog, todayLog, topLikes } from './life/rhythm';
 import { monitorLog, monitorOn } from './life/monitor';
-import { LOOK_EVERY, SAW_EVERY, SIGHT_FRESH, VISION_PROMPT, lifeVisionOn, newThings, parseVision, snapshot, type Sight } from './life/vision';
+import { lifeSystem, nameTag, pickHeard } from './life/persona';
+import { LOOK_EVERY, SAW_EVERY, SIGHT_FRESH, VISION_PROMPT, lifeVisionOn, parseVision, snapshot, type Sight } from './life/vision';
 import { pickVoice, loadTtsVoices } from './ttsVoice';
 import { Recognizer, speechSupported } from './speech';
 import { neuralBuffer } from './neuralVoice';
@@ -210,6 +212,22 @@ async function answerText(text: string, alts: string[] = [text], fromMic = false
   if (lifeSlot) {
     if (!text.trim()) return;
     liveWake();
+    // 聽聲音認人（只在這台手機比對）：認得就叫名字，不認得就不稱呼（不再叫「主人」）
+    if (fromMic) {
+      const family = people.map((p) => p.name);
+      text = pickHeard([text, ...alts.filter((a) => a !== text)], family);
+      const heard = voiceAge.on ? voiceAge.takeRecent() : null;
+      const feat = heard ? voiceFeatures(heard.data, heard.rate) : null;
+      if (feat && voiceIdOn()) {
+        lastVoice = { feat, at: performance.now() };
+        const { person } = identify(people, feat);
+        if (person) {
+          learn(person, feat);
+          savePeople(people);
+          currentPerson = { name: person.name, at: performance.now() };
+        } else currentPerson = null;
+      }
+    }
     assistant.chat(personNow() ?? t('chat.you'), text);
     // 第四階段：麥克風聽到的話不一定是對她說的（家人互相說話、電視）。
     // 叫了她的名字、或她剛說完話（在回她）才算對她說；其他的交給 AI 判斷要不要回（多半安靜）
@@ -265,6 +283,8 @@ async function answerText(text: string, alts: string[] = [text], fromMic = false
 
 // ---------- 說話者辨識・第二步：模糊認人（第一次聽到的聲音在對話裡問名字） ----------
 const people = loadPeople();
+/** 最近聽到的一段聲音特徵（生命模式裡有人說出名字時，記成那個人） */
+let lastVoice: { feat: number[]; at: number } | null = null;
 /** 問了名字、等對方自我介紹 */
 let askName: { feat: number[]; at: number } | null = null;
 let lastAskAt = -Infinity;
@@ -680,8 +700,8 @@ function liveMotion(x: number, y: number): void {
   personY += (y - personY) * 0.35;
   // 好一陣子沒看到人，現在有人出現：打招呼。
   // 鏡頭只看得到「動」：人坐著不動也會被當成不在，所以 AI 生命模式要 3 分鐘沒動靜才算，而且 5 分鐘內只說一次
-  const away = lifeSlot ? 180_000 : 30_000;
-  const again = lifeSlot ? 300_000 : 60_000;
+  const away = lifeSlot ? 600_000 : 30_000;
+  const again = lifeSlot ? 1_200_000 : 60_000;
   if (now - lastPersonAt > away && now - lastLiveGreet > again && ctrl.awake && pet.onboarded) {
     lastLiveGreet = now;
     // AI 生命模式：只告訴 AI 有人出現了，要不要打招呼由 AI 決定
@@ -769,7 +789,7 @@ function lifeScene(lang: Lang): string[] {
     cake: ['蛋糕', 'ケーキ', 'cake'],
     note: ['音符盒', '音ブロック', 'note block'],
     jukebox: ['唱片機', 'ジュークボックス', 'jukebox'],
-    ball: ['主人丟的球', '主人がなげたボール', 'the ball your friend threw'],
+    ball: ['家人丟的球', 'かぞくがなげたボール', 'the ball someone threw'],
   };
   const i = lang === 'zh_tw' ? 0 : lang === 'ja_jp' ? 1 : 2;
   const keys = ['grass', night ? 'stars' : 'sky', ...(stage.bed ? ['bed'] : []), ...(stage.cake ? ['cake'] : []), ...(stage.noteBlock ? ['note'] : []), ...(stage.jukebox ? ['jukebox'] : []), ...(stage.ball ? ['ball'] : [])];
@@ -779,14 +799,35 @@ function lifeScene(lang: Lang): string[] {
 const lifeLog = loadLog();
 const lifeLikes = loadLikes();
 /** 記到「今天發生的事」的事件（作息、自己決定的不記） */
-const LOGGED_EVENTS = new Set<LifeEvent>(['petted', 'tickled', 'woken', 'called', 'fed', 'favoriteFood', 'full', 'caughtBall', 'bath', 'noteBlock', 'bedTap', 'firework', 'cake', 'friend', 'wave', 'saw', 'milestone', 'renamed']);
+const LOGGED_EVENTS = new Set<LifeEvent>(['petted', 'tickled', 'woken', 'called', 'fed', 'favoriteFood', 'full', 'caughtBall', 'bath', 'noteBlock', 'bedTap', 'firework', 'cake', 'friend', 'wave', 'saw', 'found', 'milestone', 'renamed']);
+/** 收藏（在地上找東西時偶爾真的找到） */
+const lifeTreasures = loadTreasures();
+let lifeFoundAt = -Infinity;
+/** 在地上找完一個地方：大約 5 次找到 1 次，而且 4 分鐘內最多一次（找到的東西真的存下來） */
+function lifeSearched(at: THREE.Vector3): void {
+  if (!lifeSlot || performance.now() - lifeFoundAt < 240_000 || Math.random() > 0.2) return;
+  lifeFoundAt = performance.now();
+  const kinds: TreasureKind[] = ['shard', 'feather', 'bead'];
+  const k = kinds[Math.floor(Math.random() * kinds.length)];
+  lifeTreasures[k] = (lifeTreasures[k] ?? 0) + 1;
+  saveTreasures(lifeTreasures);
+  stage.spawn('sparkle', at.clone(), 6);
+  ctrl.setFeeling('happy', 6);
+  lifeEvent('found', TREASURE_NAME[k][talkLang()]);
+}
 const SAID_LOG: Record<Lang, (t: string) => string> = {
-  zh_tw: (t) => `主人跟你說「${t}」`,
-  ja_jp: (t) => `主人が「${t}」と言った`,
+  zh_tw: (t) => `有人跟你說「${t}」`,
+  ja_jp: (t) => `だれかが「${t}」と言った`,
   en_us: (t) => `Your friend said "${t}"`,
 };
 
 /** 回答用錯語言時，重問一次附上的提醒 */
+/** 直接跟她說話時的提醒：回一句自然的短話（不用問句），也可以繼續做自己的事 */
+const LIFE_CHAT_NUDGE: Record<Lang, string> = {
+  zh_tw: '→ 這句是家人在跟你說話：像平常聊天一樣回一句短短的話，不用問問題；要繼續做你的事也可以。',
+  ja_jp: '→ これはかぞくがあなたに話しかけたことば：ふだんの会話みたいにみじかく一言返して。質問しなくていい。自分のことを続けてもいい。',
+  en_us: "→ A family member is talking to you: reply with one short, natural line like everyday talk; no need to ask a question. You can keep doing your thing.",
+};
 const LIFE_LANG_REMIND: Record<Lang, string> = {
   zh_tw: '（請只用台灣的繁體中文回答，不要用日文或英文。）',
   ja_jp: '（日本語だけで答えてください。中国語や英語はつかわないで。）',
@@ -842,12 +883,18 @@ function lifeFlush(): void {
 
 /** 給 AI 看的「現在在做什麼、在哪裡」 */
 function lifeDoing(lang: Lang): string {
+  // 正在做 AI 選的一段活動：說是哪段活動、做了多久（被打斷後可以接著做）
+  const a = ctrl.activity;
+  if (a) {
+    const n = intentName(a.i, lang);
+    return lang === 'ja_jp' ? `「${n}」の途中（${a.sec}秒くらい）` : lang === 'en_us' ? `in the middle of "${n}" (about ${a.sec}s in)` : `「${n}」做到一半（大約 ${a.sec} 秒了）`;
+  }
   const m = ctrl.doing;
   const D: Record<string, [string, string, string]> = {
     idle: ['輕輕飄著', 'ふわふわ浮かぶ', 'floating gently'],
     wander: ['飛來飛去', 'あちこちとぶ', 'flying around'],
     observe: ['東張西望', 'きょろきょろ', 'looking around'],
-    approach: ['待在主人前面', '主人の前にいる', 'staying near your friend'],
+    approach: ['待在家人前面', 'かぞくの前にいる', 'staying near the family'],
     rest: ['在地上休息', 'ゆかでやすむ', 'resting on the ground'],
     sleep: ['睡覺', 'ねる', 'sleeping'],
     dance: ['跳舞', 'おどる', 'dancing'],
@@ -896,7 +943,7 @@ window.setInterval(() => {
   if (present && !lifeSawPerson) {
     lifeSawPerson = true;
     lifeBusySince = now;
-  } else if (!present && lifeSawPerson && now - lastPersonAt > 180_000) {
+  } else if (!present && lifeSawPerson && now - lastPersonAt > 600_000) {
     lifeSawPerson = false;
     lifeEvent('left');
   } else if (present && now - lifeBusySince > 180_000) {
@@ -912,6 +959,10 @@ let lifeLooking = false;
 let lifeLookAt = -Infinity;
 let lifeSawAt = -Infinity;
 let lifeLookFails = 0;
+/** 已經跟 AI 說過的東西（30 分鐘內不再說） */
+const lifeThingsTold = new Map<string, number>();
+/** 人、身體部位、姿勢（不算「新東西」） */
+const PERSONISH = /人|主人|頭|臉|手|身體|眼|頭髮|衣服|person|people|man|woman|face|head|hand|body|hair|eye|顔|かお|あたま|からだ|ひと/i;
 function lifeVision(): boolean {
   return lifeSlot === 'lifelive' && sensor.on && lifeVisionOn();
 }
@@ -942,11 +993,17 @@ async function lifeLook(): Promise<void> {
     return;
   }
   lifeLookFails = 0;
-  const fresh = lifeSight && performance.now() - lifeSight.at < 10 * 60_000 ? newThings(lifeSight.things, sight.things) : sight.things;
-  lifeSight = { ...sight, at: performance.now() };
-  if (fresh.length && performance.now() - lifeSawAt > SAW_EVERY * 1000 && ctrl.mode !== 'sleep') {
-    lifeSawAt = performance.now();
-    lifeEvent('saw', (sight.desc || fresh.join(lang === 'en_us' ? ', ' : '、')).replace(/[。.!！?？]+$/, ''));
+  // 新東西：連續兩次都看到（AI 看圖每次說法會變，看一次不算）、30 分鐘內沒提過、不是人的姿勢或身體部位
+  const now2 = performance.now();
+  const prev = lifeSight && now2 - lifeSight.at < 3 * 60_000 ? lifeSight.things : [];
+  const fresh = sight.things.filter((x) => !PERSONISH.test(x) && prev.some((p) => p.includes(x) || x.includes(p)) && now2 - (lifeThingsTold.get(x) ?? -Infinity) > 30 * 60_000);
+  lifeSight = { ...sight, at: now2 };
+  monitorLog('look', { desc: sight.desc, things: sight.things, fresh });
+  if (fresh.length && now2 - lifeSawAt > SAW_EVERY * 1000 && ctrl.mode !== 'sleep') {
+    lifeSawAt = now2;
+    for (const x of fresh) lifeThingsTold.set(x, now2);
+    // 只說「看到什麼東西」，不說人的動作（以前會被說成「主人回頭了！」）
+    lifeEvent('saw', fresh.join(lang === 'en_us' ? ', ' : '、'));
   }
 }
 window.setInterval(() => void lifeLook(), 5000);
@@ -1137,8 +1194,9 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
   const lang = talkLang();
   if (how === 'chat') hud.say('…', 9000);
   const system =
-    buildSystem(pet, brainMem, lang, { hour: new Date().getHours(), asleep: pet.asleep, foodName: (f) => itemName(f), speaker: currentSpeaker(), person: personNow() }) +
-    lifeRules(
+    // 生命模式專用的「她是誰、怎麼說話」（不用原本陪聊的助理設定；不叫主人，認得聲音就叫名字）
+    lifeSystem(pet, { speaker: personNow(), family: people.map((p) => p.name), notes: brainMem.notes }, lang) +
+    (how === 'chat' ? lifeChatRules : lifeRules)(
       {
         doing: lifeDoing(lang),
         where: lifeWhere(lang),
@@ -1146,6 +1204,7 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
         hunger: (pet.hunger / MAX_HUNGER) * 100,
         asleep: ctrl.mode === 'sleep',
         recent: lifeRecent.map((i) => intentName(i, lang)),
+        lastActivity: how === 'decide' ? lifeRecent.at(-1) : undefined,
         voice: lifeVoice() && sound.level('voice') > 0,
         cake: !!stage.cake,
         scene: lifeScene(lang),
@@ -1157,16 +1216,21 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
         rhythm: rhythmText(new Date().getHours(), HABITS[pet.personality], lang),
         today: todayLog(lifeLog, lang),
         likes: topLikes(lifeLikes).map((i) => intentName(i, lang)),
+        collection: treasureList(lifeTreasures, lang),
+        treasures: treasureCount(lifeTreasures),
+        prefer: [...(PREFER[pet.personality] ?? []), ...topLikes(lifeLikes)],
         hasNotes: brainMem.notes.length > 0,
       },
       lang,
     );
   // 觀察紀錄：給 AI 的生命模式狀態（系統說明的最後一段：現在的狀態、畫面、作息、今天的事…）
   if (monitorOn()) monitorLog('ask', { how, text, life: system.slice(-3500) });
+  // 直接跟她說的話：附一句提醒（不記進對話）。實驗發現她會學對話紀錄裡只有動作的回合，變成都不回話
+  const askText = how === 'chat' ? `${text}\n${LIFE_CHAT_NUDGE[lang]}` : text;
   let raw: string | null = null;
   // 主人說的話：雲端 AI（只有主人本人、有每日每月上限）→ 家裡電腦的 AI
   if (how === 'chat' && (!isCloudTired() || Date.now() >= (cloudTired?.check ?? 0))) {
-    const c = await askCloud(cfg, system, brainMem, text, lang);
+    const c = await askCloud(cfg, system, brainMem, askText, lang);
     if (c.ok) {
       raw = c.text;
       if (cloudTired) setCloudTired(null);
@@ -1175,12 +1239,20 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
       cloudNotice(c.why);
     }
   }
-  raw ??= await ask(cfg, system, brainMem, text, 25000, lang);
+  raw ??= await ask(cfg, system, brainMem, askText, 25000, lang);
   lifeBusy = false;
   if (how === 'chat') hud.say('', 1);
   // 這段時間換了模式或關掉了：舊的回答不用
   if (!lifeSlot || epoch !== lifeEpoch) return false;
   monitorLog('reply', { how, raw });
+  // 有人告訴她名字（AI 寫了 [名字：…]）：把剛才聽到的聲音記成這個名字（只存在這台手機）
+  const named = raw ? nameTag(raw) : null;
+  if (named && lastVoice && performance.now() - lastVoice.at < 90_000 && voiceIdOn()) {
+    addPerson(people, named, lastVoice.feat);
+    savePeople(people);
+    currentPerson = { name: named, at: performance.now() };
+    monitorLog('voice-name', { name: named, people: people.length });
+  }
   if (!raw) {
     lifeFail();
     window.setTimeout(lifeFlush, 50);
@@ -1218,7 +1290,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
     ...(r.intent ? [`（意圖：${intentName(r.intent, lang)}）`] : []),
     ...(r.actions.length ? [`（${GESTURE_LABEL[lang]}：${r.actions.map((g) => gestureName(g, lang)).join('、')}）`] : []),
   ].join('');
-  if (r.text || did) remember(brainMem, 'allay', `${r.text}${did}`.trim());
+  // 只記有說話的回合（只有動作的回合放進對話紀錄，AI 會學著也只寫動作、不回話）；做了什麼另外記在 lifeRecent
+  if (r.text) remember(brainMem, 'allay', `${r.text}${did}`.trim());
   if (how === 'chat') for (const n of r.notes) addNote(brainMem, n);
   saveMemory(brainMem);
   // 心情表現在動作和外觀上
@@ -1245,6 +1318,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
 function lifeFail(): void {
   lifeFails++;
   lifeNextAt = performance.now() + retryDelay(lifeFails) * 1000;
+  // AI 連不上：手上 AI 選的活動先多做一會兒（不會突然停在原地）
+  ctrl.extendActivity(retryDelay(lifeFails));
   if (!lifeStandby) {
     lifeStandby = true;
     lifeChipShow();
@@ -1387,7 +1462,7 @@ const cameraEvents: ArEvents = {
   wave: () => {
     const now = performance.now();
     // 揮手偵測偶爾會誤判：AI 生命模式 45 秒內只算一次
-    if (now - lastWaveAt < (lifeSlot ? 45_000 : brainReady() ? 12_000 : 8_000)) return;
+    if (now - lastWaveAt < (lifeSlot ? 90_000 : brainReady() ? 12_000 : 8_000)) return;
     lastWaveAt = now;
     cheer(pet, 5);
     // AI 生命模式：沒有固定的揮手回應，交給 AI
@@ -1602,6 +1677,11 @@ const ctrl = new AllayController(
     sfx: playSfx,
     lifeIdle: () => lifeDecide(),
     hum: () => sound.speak(pet.personality),
+    searched: (at) => lifeSearched(at),
+    treasure: (at) => {
+      stage.spawn('sparkle', at.clone().add(new THREE.Vector3(0, -0.1, 0)), 4);
+      monitorLog('treasure', { count: treasureCount(lifeTreasures) });
+    },
   },
 );
 

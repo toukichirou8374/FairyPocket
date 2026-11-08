@@ -40,7 +40,7 @@ describe('AI 生命模式：意圖與回答', () => {
   });
 
   it('發生的事的文字（三種語言）與重試間隔', () => {
-    expect(lifeEventText('fed', 'zh_tw', '蘋果')).toBe('（主人餵你吃了蘋果）');
+    expect(lifeEventText('fed', 'zh_tw', '蘋果')).toBe('（家人餵你吃了蘋果）');
     expect(lifeEventText('petted', 'en_us')).toContain('petted');
     expect([1, 2, 3, 4, 5, 10].map(retryDelay)).toEqual([30, 60, 120, 240, 300, 300]);
     expect(isLifeSlot('lifetext')).toBe(true);
