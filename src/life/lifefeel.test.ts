@@ -133,3 +133,15 @@ describe('說話不外洩', () => {
     expect(treasureList({ feather: 2, bead: 1 }, 'zh_tw')).toEqual(['小羽毛×2', '亮晶晶的玻璃珠']);
   });
 });
+
+import { isEcho } from './persona';
+describe('不把自己的聲音當成有人在說話', () => {
+  it('聽到跟她剛說的話很像，就是自己的聲音', () => {
+    expect(isEcho('嘿嘿嗨', ['嘿嘿，嗨！'])).toBe(true);
+    expect(isEcho('慢走', ['慢走～'])).toBe(true);
+    expect(isEcho('這首歌我很喜歡呢', ['嘿嘿，這首歌我很喜歡。'])).toBe(true);
+    expect(isEcho('那我去洗澡了', ['慢走～', '嘿嘿，嗨！'])).toBe(false);
+    expect(isEcho('嗨', ['嘿嘿，嗨！'])).toBe(false);
+    expect(isEcho('你在做什麼', [])).toBe(false);
+  });
+});

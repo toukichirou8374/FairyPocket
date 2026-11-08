@@ -36,7 +36,7 @@ import { fetchTts, listModels, look } from './brain/brain';
 import { TREASURE_NAME, loadTreasures, saveTreasures, treasureCount, treasureList, type TreasureKind } from './life/rhythm';
 import { HABITS, addLog, awayText, bumpLike, lastLifeSeen, loadLikes, loadLog, markLifeSeen, rhythmText, saveLikes, saveLog, todayLog, topLikes } from './life/rhythm';
 import { monitorLog, monitorOn } from './life/monitor';
-import { lifeSystem, nameTag, pickHeard } from './life/persona';
+import { isEcho, lifeSystem, nameTag, pickHeard } from './life/persona';
 import { LOOK_EVERY, SAW_EVERY, SIGHT_FRESH, VISION_PROMPT, lifeVisionOn, parseVision, snapshot, type Sight } from './life/vision';
 import { pickVoice, loadTtsVoices } from './ttsVoice';
 import { Recognizer, speechSupported } from './speech';
@@ -214,6 +214,12 @@ async function answerText(text: string, alts: string[] = [text], fromMic = false
     liveWake();
     // 聽聲音認人（只在這台手機比對）：認得就叫名字，不認得就不稱呼（不再叫「主人」）
     if (fromMic) {
+      // 聽到的是她自己剛說的話（喇叭的聲音又被麥克風收到）：不理
+      const said = lifeSaid.filter((s) => performance.now() - s.at < 60_000).map((s) => s.text);
+      if (isEcho(text, said)) {
+        monitorLog('echo', { text });
+        return;
+      }
       const family = people.map((p) => p.name);
       text = pickHeard([text, ...alts.filter((a) => a !== text)], family);
       const heard = voiceAge.on ? voiceAge.takeRecent() : null;
@@ -1017,9 +1023,13 @@ function lifeVoice(): boolean {
 let ttsOffUntil = 0;
 /** 說話時暫停聽（避免聽到自己的聲音） */
 function lifeDeaf(sec: number): void {
-  talkDeafUntil = performance.now() + sec * 1000 + 500;
+  // 說完後再多等 1.5 秒：手機的語音辨識比較慢，她最後一句的辨識結果會晚一點才送來（以前會錄到自己的聲音）
+  talkDeafUntil = performance.now() + sec * 1000 + ECHO_TAIL;
   listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
 }
+const ECHO_TAIL = 1500;
+/** 她最近說過的話（麥克風聽到很像的話＝聽到自己的聲音，不當成有人在說話） */
+const lifeSaid: { text: string; at: number }[] = [];
 /**
  * 生命模式的說話（第三階段）：先請家裡電腦用微軟神經語音即時念（自然、有心情的語調，前面有紫水晶鈴聲），
  * 不能用時改用裝置內建的語音；不用悅靈語假裝成自由對話。
@@ -1051,6 +1061,8 @@ const wait = (ms: number) =>
     };
   });
 function lifeLine(text: string, lang: Lang, feeling: Feeling, direct: boolean): void {
+  lifeSaid.push({ text, at: performance.now() });
+  if (lifeSaid.length > 6) lifeSaid.shift();
   // 還沒說的自言自語讓位給新的話；回應主人的最多留一句
   lifeLines = lifeLines.filter((l) => l.direct).slice(-1);
   lifeLines.push({ text, lang, feeling, epoch: lifeEpoch, at: performance.now(), direct });
@@ -1145,7 +1157,7 @@ function deviceSpeak(text: string, lang: Lang, est: number): Promise<number> {
   u.rate = 1;
   u.volume = vol;
   u.onend = u.onerror = () => {
-    talkDeafUntil = Math.min(talkDeafUntil, performance.now() + 400);
+    talkDeafUntil = Math.min(talkDeafUntil, performance.now() + ECHO_TAIL);
     listener.pausedUntil = voiceAge.pausedUntil = talkDeafUntil;
     done(0);
   };
@@ -1241,7 +1253,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
   }
   raw ??= await ask(cfg, system, brainMem, askText, 25000, lang);
   lifeBusy = false;
-  if (how === 'chat') hud.say('', 1);
+  // 「…」先留著，等她開口時直接換成那句話（以前會先清成一個空白泡泡，再出現第二個泡泡才說話）；沒回答就收起來
+  if (how === 'chat' && !raw) hud.hideBubble();
   // 這段時間換了模式或關掉了：舊的回答不用
   if (!lifeSlot || epoch !== lifeEpoch) return false;
   monitorLog('reply', { how, raw });
@@ -1306,7 +1319,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
     if (wait) window.setTimeout(() => lifeSlot && epoch === lifeEpoch && lifeDo(i), wait * 1000);
     else lifeDo(i);
   }
-  // 說話排隊（說完一句才說下一句）
+  // 說話排隊（說完一句才說下一句）；聊天時 AI 選擇不說話：收起「…」
+  if (how === 'chat' && !r.text) hud.hideBubble();
   if (r.text) lifeLine(r.text, lang, r.feeling, how === 'chat' || how === 'event');
   // 下一次自己決定至少隔 6 秒
   lifeNextAt = performance.now() + 6000;
@@ -2044,7 +2058,8 @@ const assistant = new Assistant(overlay, { lang: () => talkLang(), say: assistSa
 // 說話模式：悅靈說的話顯示在左下的對話紀錄（飛得比較高時也看得到）
 hud.sayHook = (text) => {
   if (!assistant.talking) return false;
-  if (text !== '…') assistant.chat(pet.name, text);
+  // 空白的話不放進對話紀錄（以前會先出現一段空白的對話，第二段才是她說的話）
+  if (text.trim() && text !== '…') assistant.chat(pet.name, text);
   return true;
 };
 

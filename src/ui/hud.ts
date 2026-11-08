@@ -570,6 +570,12 @@ export class Hud {
   /** 說話模式時，悅靈說的話改顯示在對話紀錄（回傳 true 就不顯示頭上的泡泡） */
   sayHook: ((text: string) => boolean) | null = null;
 
+  /** 收起對話泡泡（不顯示空白的泡泡） */
+  hideBubble(): void {
+    clearTimeout(this.bubbleTimer);
+    this.bubble.classList.remove('show');
+  }
+
   say(text: string, ms = 3200): void {
     if (this.sayHook?.(text)) {
       this.bubble.classList.remove('show');
