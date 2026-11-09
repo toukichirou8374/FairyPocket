@@ -29,7 +29,15 @@ describe('第四階段：是不是在跟她說話', () => {
   it('叫名字、叫悅靈、她剛說完話才算', () => {
     expect(addressedTo('小藍你在幹嘛', '小藍', 999)).toBe(true);
     expect(addressedTo('悅靈過來', '小藍', 999)).toBe(true);
-    expect(addressedTo('媽媽晚餐吃什麼', '小藍', 999)).toBe(false);
+    // 2026-11-09：語音生命模式裡沒叫名字的「おはよう仕事行くよ」也是在跟她說（以前被當成別人說話而不回）
+    expect(addressedTo('おはよう仕事行くよ', 'ネロ', 999)).toBe(true);
+    expect(addressedTo('早安', '小藍', 999)).toBe(true);
+    // 明顯在叫別的家人，或家人互相在說話（最近有兩個以上的聲音）才不是
+    expect(addressedTo('媽媽，晚餐吃什麼', '小藍', 999)).toBe(false);
+    expect(addressedTo('ママ、きょうのごはんなに', 'ネロ', 999)).toBe(false);
+    expect(addressedTo('いつき早く来て', 'ネロ', 999, { others: ['いつき'] })).toBe(false);
+    expect(addressedTo('晚餐吃什麼', '小藍', 999, { voices: 2 })).toBe(false);
+    expect(addressedTo('小藍，晚餐吃什麼', '小藍', 999, { voices: 2 })).toBe(true);
     expect(addressedTo('好啊', '小藍', REPLY_WINDOW - 1)).toBe(true);
   });
   it('聽到的話交給 AI 判斷，不是對她說的就安靜', () => {
@@ -47,5 +55,26 @@ describe('觀察紀錄開關', () => {
     setMonitor(true, st);
     expect(monitorOn(st)).toBe(true);
     expect(() => monitorLog('x', {})).not.toThrow();
+  });
+});
+
+import { trimTalk } from './life';
+describe('說話太長只留前面幾句', () => {
+  it('最多 3 句、不切在句子中間', () => {
+    const long = 'うーん…またバグ対応だったんだ。しんどかったの？バグって、むずかしいんだね。わたしも元気いっぱいになりたいな！どんなバグだったの？';
+    const t = trimTalk(long, 'ja_jp');
+    expect(t.endsWith('。') || t.endsWith('？') || t.endsWith('！')).toBe(true);
+    expect(t.length).toBeLessThanOrEqual(90);
+    expect(trimTalk('嗨！', 'zh_tw')).toBe('嗨！');
+  });
+});
+
+import { parseLifeReply as plr } from './life';
+describe('家人自己說的英文字要保留', () => {
+  it('bug、Minecraft 不會被當成混進來的外文拿掉', () => {
+    expect(plr('又是很難抓的 bug 嗎？', 'zh_tw', ['bug']).text).toBe('又是很難抓的 bug 嗎？');
+    expect(plr('早く Minecraft であそびたいな！', 'ja_jp', ['Minecraft']).text).toBe('早く Minecraft であそびたいな！');
+    // 沒有在家人的話裡出現的英文字照舊拿掉
+    expect(plr('好啊 poquito！', 'zh_tw', ['bug']).text).toBe('好啊！');
   });
 });

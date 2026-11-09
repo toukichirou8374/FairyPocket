@@ -61,15 +61,24 @@ export const FORMAT_HINT: Record<Lang, string> = {
 
 /** JSON 回答 → 原本的標籤字串（交給 parseLifeReply）；不是 JSON 就原樣回傳 */
 export function jsonToTags(raw: string, lang: Lang): string {
-  let j: LifeJson;
+  const body = raw.trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+  let j: LifeJson | null = null;
   try {
-    j = JSON.parse(raw.trim().replace(/^```(?:json)?\s*|\s*```$/g, '')) as LifeJson;
+    j = JSON.parse(body) as LifeJson;
   } catch {
-    return raw;
+    // 前面是正常的 JSON、後面多了亂碼：只取第一個完整的物件
+    const end = body.startsWith('{') ? body.indexOf('}') : -1;
+    try {
+      j = end > 0 ? (JSON.parse(body.slice(0, end + 1)) as LifeJson) : null;
+    } catch {
+      j = null;
+    }
   }
-  if (!j || typeof j !== 'object') return raw;
+  // 看起來是 JSON 卻讀不出來（小模型偶爾會壞掉）：寧可不說，也不要把亂碼念出來
+  if (!j || typeof j !== 'object') return body.startsWith('{') ? '' : raw;
   const t = TAG[lang];
-  const s = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  // 欄位裡的方括號拿掉（AI 會在「記住」裡又寫一次標籤，變成 [覚えて：[覚えて：…]]，最後多出一個「]」被念出來）
+  const s = (v: unknown) => (typeof v === 'string' ? v.replace(/[[\]［］【】]/g, '').trim() : '');
   const parts: string[] = [];
   if (s(j.mood)) parts.push(`[${s(j.mood)}]`);
   if (s(j.say)) parts.push(s(j.say));

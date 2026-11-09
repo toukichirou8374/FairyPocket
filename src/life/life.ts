@@ -74,7 +74,16 @@ export interface LifeReply {
 /** 狀態數字（例如「元気95/100」「精神：80/100」「(energy 95/100)」）不念出來 */
 const STAT_TEXT = /[（(]?\s*(?:精神|肚子|心情|感情|元気|げんき|おなか|気分|energy|tummy|hunger|mood|affection)?\s*[:：は]?\s*\d{1,3}\s*[/／]\s*100\s*[）)]?/gi;
 
-export function parseLifeReply(raw: string, lang: Lang): LifeReply {
+/**
+ * keep：要保留的英文字（家人自己說的，例如「bug」「Minecraft」）。原本中文、日文回答裡的英文字會被當成混進來的外文拿掉，
+ * 結果「又是很難抓的 bug 嗎」變成「又是很難抓的嗎」。
+ */
+export function parseLifeReply(raw: string, lang: Lang, keep: string[] = []): LifeReply {
+  // 先把要保留的字換成記號，解析完再換回來
+  const words = [...new Set(keep.filter((w) => /^[A-Za-z][A-Za-z'’-]{1,30}$/.test(w)))].slice(0, 20);
+  // \u53EA\u5141\u8A31\u82F1\u6587\u5B57\u6BCD\u3001\u6487\u865F\u3001\u9023\u5B57\u865F\uFF0C\u6240\u4EE5\u4E0D\u7528\u8DF3\u812B\u7279\u6B8A\u7B26\u865F
+  for (const [i, w] of words.entries()) raw = raw.replace(new RegExp(`\\b${w}\\b`, 'gi'), (m) => `\uE000${i}:${m.length}\uE001`);
+  const restore = (t: string) => t.replace(/\uE000(\d+):\d+\uE001/g, (_, i: string) => words[Number(i)] ?? '');
   let intent: Intent | null = null;
   let quiet = false;
   let s = raw.replace(INTENT_TAG, (_, n: string) => {
@@ -113,7 +122,7 @@ export function parseLifeReply(raw: string, lang: Lang): LifeReply {
     .trim();
   // AI 說了要做什麼、卻忘了寫標籤：從這句話裡找意圖的名稱（有「不、沒、別…」就不猜）
   intent ??= intentInText(text, lang);
-  return { ...r, text: quiet ? '' : text, intent, quiet };
+  return { ...r, text: quiet ? '' : restore(text), intent, quiet };
 }
 
 const NEGATION = /不|沒|别|別|ない|ません|\bnot\b|n't|\bno\b/i;
@@ -314,12 +323,27 @@ const CALL_WORDS = /悅靈|悦灵|小悅|アレイ|あれい|allay/i;
 /** 剛說完話多久內，聽到的話算是在回她（秒） */
 export const REPLY_WINDOW = 25;
 
-/** 麥克風聽到的話是不是在跟她說：叫了名字、或她剛說完話（在回她） */
-export function addressedTo(text: string, name: string, sinceSpokeSec: number): boolean {
+/** 開頭在叫別的家人（「媽媽，…」「ママ、…」） */
+const CALL_OTHERS = /^(?:媽媽|媽|爸爸|爸|哥哥|姊姊|姐姐|弟弟|妹妹|阿公|阿嬤|奶奶|爺爺|ママ|パパ|お母さん|お父さん|おかあさん|おとうさん|にいちゃん|ねえちゃん|mom|mommy|dad|daddy)\s*[，,、!！\s]/i;
+
+/**
+ * 麥克風聽到的話是不是在跟她說。
+ * 2026-11-09 修正：以前「沒叫名字、她也沒剛說完話」就當成不是跟她說，結果語音生命模式裡
+ * 「おはよう」「おはよう仕事行くよ」全部被忽略（實際紀錄）。現在預設是在跟她說，
+ * 只有明顯在叫別的家人、或最近有兩個以上家人的聲音在互相說話時，才當成「聽到別人說話」。
+ */
+export function addressedTo(text: string, name: string, sinceSpokeSec: number, opts: { others?: string[]; voices?: number } = {}): boolean {
+  const t = text.trim();
   const n = name.trim();
-  if (n && n.length >= 1 && text.toLowerCase().includes(n.toLowerCase())) return true;
-  if (CALL_WORDS.test(text)) return true;
-  return sinceSpokeSec <= REPLY_WINDOW;
+  if (n && t.toLowerCase().includes(n.toLowerCase())) return true;
+  if (CALL_WORDS.test(t)) return true;
+  if (sinceSpokeSec <= REPLY_WINDOW) return true;
+  // 開頭叫了別的家人（名字或稱呼）
+  if (CALL_OTHERS.test(t)) return false;
+  for (const o of opts.others ?? []) if (o && o !== n && t.startsWith(o)) return false;
+  // 最近有兩個以上家人的聲音：可能是家人互相在說話
+  if ((opts.voices ?? 0) >= 2) return false;
+  return true;
 }
 
 /** 聽到、但不確定是不是對她說的話（交給 AI 判斷要不要回） */
@@ -351,21 +375,21 @@ const MUST_TAG: Record<Lang, string> = {
 const CHAT_RULES: Record<Lang, (s: LifeState, menu: string) => string> = {
   zh_tw: (s, menu) => `
 現在家人在跟你說話。你本來正在${s.doing}。
-- 用一句短短的話自然回應（不用問問題、不用說教），可以一邊繼續做你的事。
+- 像朋友聊天一樣回應：對他說的內容有反應，再加一點你自己的感受、想法或今天真的發生的事，讓話題接得下去；偶爾問一個跟話題有關的問題。1～2 句，可以一邊繼續做你的事。
 - 只有因為這句話想換別的事做時，才在最後加 [意圖：名稱]（例如 跳舞、休息、靠近家人）；不想換就不用寫，會繼續原本的事。
-- 回答的樣子（格式範例，內容要配合當下，不要照抄）：「嘿嘿，這首歌我很喜歡。」、「唔…好累的一天。 [動作：抱抱]」、「好啊！ [意圖：跳舞]」、「慢走～」
+- 回答的樣子（格式範例，內容要配合當下，不要照抄）：「嘿嘿，這首歌我很喜歡，剛剛哼了好幾遍。」、「唔…又是那種很難抓的 bug 嗎？ [動作：抱抱]」、「好啊！我剛好也想動一動。 [意圖：跳舞]」
 - 現在的狀態只給你參考，不要直接說出來：精神${lv(s.energy, 0)}、肚子${lv(s.hunger, 1)}${s.asleep ? '、剛剛在睡覺' : ''}。`,
   ja_jp: (s, menu) => `
 いま、かぞくがあなたに話しかけています。あなたはさっきまで${s.doing}をしていました。
-- みじかい一言で自然に返事をする（質問やお説教はいらない）。していることを続けながらでもいい。
+- 友だちみたいに返事をする：相手の話に反応して、自分の気持ちや考え、きょう本当にあったことをひとつ足して、話がつづくようにする。ときどき話に関係ある質問をしてもいい。1〜2文で、していることを続けながらでもいい。
 - このことばで別のことがしたくなったときだけ、最後に [意図：名前] を書く（たとえば おどる、やすむ、ちかづく）。変えないなら書かなくていい。もとのことを続けます。
-- 返事のかたち（形だけの例。内容はそのときに合わせて、まねしないで）：「えへへ、この歌すきなんだ。」、「うーん…つかれた一日だね。 [動作：抱抱]」、「いいよ！ [意図：おどる]」、「いってらっしゃい〜」
+- 返事のかたち（形だけの例。内容はそのときに合わせて、まねしないで）：「えへへ、この歌すきなんだ。さっきから何回もうたってる。」、「うーん…またつかまえにくいバグだったの？ [動作：ぎゅっ]」、「いいよ！ちょうどうごきたかったんだ。 [意図：おどる]」
 - いまの様子は参考だけで、そのまま言わない：元気は${lv(s.energy, 2)}、おなかは${lv(s.hunger, 3)}${s.asleep ? '、さっきまでねていた' : ''}。`,
   en_us: (s, menu) => `
 A family member is talking to you now. You were ${s.doing}.
-- Reply naturally with one short line (no questions or lectures needed); you can keep doing your thing.
+- Reply like a friend: react to what they said and add your own feeling, thought or something that really happened today, so the talk can continue; sometimes ask a question about the topic. 1–2 sentences; you can keep doing your thing.
 - Only if this makes you want to do something else, end with [intent: name] (e.g. dance, rest, come closer); otherwise don't write one and you'll keep doing what you were doing.
-- Reply shape (format examples only; fit the moment, don't copy): "Hehe, I like this song.", "Mm… long day. [action: hug]", "Sure! [intent: dance]", "See you~"
+- Reply shape (format examples only; fit the moment, don't copy): "Hehe, I like this song, I've hummed it a bunch already.", "Mm… was it one of those sneaky bugs again? [action: hug]", "Sure! I was just in the mood to move. [intent: dance]"
 - Your state is for reference only, don't recite it: energy ${lv(s.energy, 4)}, tummy ${lv(s.hunger, 5)}${s.asleep ? ', you were just asleep' : ''}.`,
 };
 
@@ -473,4 +497,19 @@ export function setLifeTextVoice(on: boolean, storage: Pick<Storage, 'setItem'> 
 /** AI 連不上時的重試間隔（秒）：30、60、120…最多 5 分鐘 */
 export function retryDelay(fails: number): number {
   return Math.min(300, 30 * 2 ** Math.max(0, fails - 1));
+}
+
+/**
+ * 說話太長時只留前面幾句（語音一次念太久不像聊天）：最多 3 句、中文日文約 90 字、英文約 220 字。
+ * 句子照「。！？!?」切，不會切在句子中間。
+ */
+export function trimTalk(text: string, lang: Lang, maxSentences = 3): string {
+  const limit = lang === 'en_us' ? 220 : 90;
+  const parts = text.match(/[^。！？!?]+[。！？!?…～〜]*\s*/g) ?? [text];
+  let out = '';
+  for (const p of parts.slice(0, maxSentences)) {
+    if (out && (out + p).length > limit) break;
+    out += p;
+  }
+  return out.trim() || text.slice(0, limit);
 }

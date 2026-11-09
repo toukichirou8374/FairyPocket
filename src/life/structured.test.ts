@@ -24,3 +24,17 @@ describe('大腦→身體的固定格式', () => {
     expect(FORMAT_HINT.en_us).toContain('JSON');
   });
 });
+
+describe('2026-11-09 修正：壞掉的格式不念出來', () => {
+  it('欄位裡又寫一次標籤，不會多出「]」', () => {
+    const t = jsonToTags(JSON.stringify({ say: '', intent: 'ぐるっとパトロール', mood: '', actions: [], remember: '[覚えて：頭をなでられた]' }), 'ja_jp');
+    expect(parseLifeReply(t, 'ja_jp').text).toBe('');
+  });
+  it('前面正常、後面多了亂碼：只取第一個物件', () => {
+    const t = jsonToTags('{"say":"おはよう！","intent":"","mood":"","actions":[]} 楽しそう！” 楽しそう！”', 'ja_jp');
+    expect(parseLifeReply(t, 'ja_jp').text).toBe('おはよう！');
+  });
+  it('完全讀不出來的 JSON：不說話', () => {
+    expect(jsonToTags('{ "": "！いいな！”, 楽しそう！” 楽しそう！”', 'ja_jp')).toBe('');
+  });
+});

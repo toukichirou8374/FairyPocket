@@ -31,7 +31,7 @@ import { addPerson, identify, introName, junkName, learn, loadPeople, MAX_PEOPLE
 import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
-import { DIRECT_EVENTS, intentName, isLifeSlot, lifeChatRules, lifeEventText, lifeMenuNames, lifeRules, type LifeState, lifeTextVoiceOn, madeUp, PREFER, overheardText, addressedTo, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
+import { DIRECT_EVENTS, intentName, isLifeSlot, lifeChatRules, lifeEventText, lifeMenuNames, lifeRules, type LifeState, lifeTextVoiceOn, madeUp, PREFER, overheardText, trimTalk, addressedTo, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
 import { fetchTts, listModels, look } from './brain/brain';
 import { TREASURE_NAME, loadTreasures, saveTreasures, treasureCount, treasureList, type TreasureKind } from './life/rhythm';
 import { HABITS, addLog, awayText, bumpLike, lastLifeSeen, loadLikes, loadLog, markLifeSeen, rhythmText, saveLikes, saveLog, todayLog, topLikes } from './life/rhythm';
@@ -233,6 +233,8 @@ async function answerText(text: string, alts: string[] = [text], fromMic = false
           learn(person, feat);
           savePeople(people);
           currentPerson = { name: person.name, at: performance.now() };
+          lifeVoicesHeard.push({ name: person.name, at: performance.now() });
+          if (lifeVoicesHeard.length > 20) lifeVoicesHeard.shift();
         } else currentPerson = null;
       }
     }
@@ -240,7 +242,8 @@ async function answerText(text: string, alts: string[] = [text], fromMic = false
     // 第四階段：麥克風聽到的話不一定是對她說的（家人互相說話、電視）。
     // 叫了她的名字、或她剛說完話（在回她）才算對她說；其他的交給 AI 判斷要不要回（多半安靜）
     const sinceSpoke = (performance.now() - lastSpoke) / 1000;
-    const toHer = !fromMic || addressedTo(text, pet.name, sinceSpoke);
+    const voices = new Set(lifeVoicesHeard.filter((v) => performance.now() - v.at < 60_000).map((v) => v.name)).size;
+    const toHer = !fromMic || addressedTo(text, pet.name, sinceSpoke, { others: people.map((p) => p.name), voices });
     monitorLog('heard', { text, typed: !fromMic, toHer, sinceSpokeSec: Math.round(sinceSpoke) });
     // 小助手：請她做事（現在幾點、天氣、計時、查資料、放音樂）。事情由助理功能真的去做（天氣數字來自氣象服務，不是 AI 編的），
     // 她用自己的聲音、排隊說出結果，不會搶走身體的控制
@@ -312,6 +315,8 @@ if (people.some((p) => junkName(p.name))) {
   people.splice(0, people.length, ...people.filter((p) => !junkName(p.name)));
   savePeople(people);
 }
+/** 最近聽到、認得出來的家人聲音（判斷是不是家人互相在說話） */
+const lifeVoicesHeard: { name: string; at: number }[] = [];
 /** 最近聽到的一段聲音特徵（生命模式裡有人說出名字時，記成那個人） */
 let lastVoice: { feat: number[]; at: number } | null = null;
 /** 問了名字、等對方自我介紹 */
@@ -873,9 +878,9 @@ const SAID_LOG: Record<Lang, (t: string) => string> = {
 /** 回答用錯語言時，重問一次附上的提醒 */
 /** 直接跟她說話時的提醒：回一句自然的短話（不用問句），也可以繼續做自己的事 */
 const LIFE_CHAT_NUDGE: Record<Lang, string> = {
-  zh_tw: '→ 這句是家人在跟你說話：像平常聊天一樣回一句短短的話，不用問問題；要繼續做你的事也可以。',
-  ja_jp: '→ これはかぞくがあなたに話しかけたことば：ふだんの会話みたいにみじかく一言返して。質問しなくていい。自分のことを続けてもいい。',
-  en_us: "→ A family member is talking to you: reply with one short, natural line like everyday talk; no need to ask a question. You can keep doing your thing.",
+  zh_tw: '→ 這句是家人在跟你說話：像朋友聊天一樣回應內容，加一點你自己的想法或今天真的發生的事，讓話題接得下去；偶爾可以問一個跟話題有關的問題。',
+  ja_jp: '→ これはかぞくがあなたに話しかけたことば：友だちみたいに中身に反応して、自分の考えやきょう本当にあったことをひとつ足して、話がつづくようにしてね。ときどき話に関係ある質問をしてもいい。',
+  en_us: "→ A family member is talking to you: respond to what they said like a friend, add your own thought or something that really happened today so the talk can continue; sometimes ask a question about the topic.",
 };
 const LIFE_LANG_REMIND: Record<Lang, string> = {
   zh_tw: '（請只用台灣的繁體中文回答，不要用日文或英文。）',
@@ -1285,7 +1290,9 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
   // 家裡電腦的 AI 用固定格式回答（意圖、動作只能從清單選；實驗：24 次決定全部有效、不再連續選同一件事）；雲端 AI 照舊用標籤
   const localSystem = `${system}\n${FORMAT_HINT[lang]}`;
   const schema = replySchema(lang, lifeMenuNames(st, lang));
-  const local = (x: string | null) => (x ? jsonToTags(x, lang) : x);
+  // 固定格式只用在「自己決定下一步」（實驗：日文聊天用固定格式時，小模型會輸出亂碼；聊天、反應照舊用標籤）
+  const useJson = how === 'decide';
+  const local = (x: string | null) => (x && useJson ? jsonToTags(x, lang) : x);
   // 觀察紀錄：給 AI 的生命模式狀態（系統說明的最後一段：現在的狀態、畫面、作息、今天的事…）
   if (monitorOn()) monitorLog('ask', { how, text, life: system.slice(-3500) });
   // 直接跟她說的話：附一句提醒（不記進對話）。實驗發現她會學對話紀錄裡只有動作的回合，變成都不回話
@@ -1302,7 +1309,7 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
       cloudNotice(c.why);
     }
   }
-  raw ??= local(await ask(cfg, localSystem, brainMem, askText, 25000, lang, schema));
+  raw ??= local(await ask(cfg, useJson ? localSystem : system, brainMem, askText, 25000, lang, useJson ? schema : undefined));
   lifeBusy = false;
   // 「…」先留著，等她開口時直接換成那句話（以前會先清成一個空白泡泡，再出現第二個泡泡才說話）；沒回答就收起來
   if (how === 'chat' && !raw) hud.hideBubble();
@@ -1324,14 +1331,16 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
     return false;
   }
   lifeOk();
-  let r = parseLifeReply(raw, lang);
+  // 家人自己說的英文字（bug、Minecraft…）回答裡要保留
+  const keep = text.match(/[A-Za-z][A-Za-z'’-]{1,30}/g) ?? [];
+  let r = parseLifeReply(raw, lang, keep);
   // 用了別的語言（例如設定中文卻回日文）：再請家裡電腦的 AI 用設定的語言回答一次；還是不對就只留對的句子
   if (r.text && mixedLanguage(r.text, lang)) {
     lifeBusy = true;
-    const again = local(await ask(cfg, localSystem, brainMem, `${text}\n${LIFE_LANG_REMIND[lang]}`, 25000, lang, schema));
+    const again = local(await ask(cfg, useJson ? localSystem : system, brainMem, `${text}\n${LIFE_LANG_REMIND[lang]}`, 25000, lang, useJson ? schema : undefined));
     lifeBusy = false;
     if (!lifeSlot || epoch !== lifeEpoch) return false;
-    const r2 = again ? parseLifeReply(again, lang) : null;
+    const r2 = again ? parseLifeReply(again, lang, keep) : null;
     if (r2 && (!r2.text || !mixedLanguage(r2.text, lang))) r = { ...r2, intent: r2.intent ?? r.intent, actions: r2.actions.length ? r2.actions : r.actions };
     if (r.text && mixedLanguage(r.text, lang)) r = { ...r, text: dropMixedSentences(r.text, lang) };
   }
@@ -1371,6 +1380,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
     if (wait) window.setTimeout(() => lifeSlot && epoch === lifeEpoch && lifeDo(i), wait * 1000);
     else lifeDo(i);
   }
+  // 太長只留前面幾句（2026-11-09：改成會接話之後，小模型偶爾一次講五六句）
+  if (r.text) r = { ...r, text: trimTalk(r.text, lang) };
   // 說話排隊（說完一句才說下一句）；聊天時 AI 選擇不說話：收起「…」
   if (how === 'chat' && !r.text) hud.hideBubble();
   if (r.text) lifeLine(r.text, lang, r.feeling, how === 'chat' || how === 'event');
