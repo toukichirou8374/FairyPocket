@@ -29,13 +29,14 @@ import { SenseTest } from './ui/senseTest';
 import { VoiceAge, voiceAgeOn, type AgeGuess } from './voiceAge';
 import { addPerson, identify, introName, junkName, learn, loadPeople, MAX_PEOPLE, nameFrom, savePeople, voiceFeatures, voiceIdOn } from './voiceId';
 import { voiceIdLine } from './assist/assistant';
-import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
+import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, retryBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
 import { DIRECT_EVENTS, intentName, isLifeSlot, lifeChatRules, lifeEventText, lifeMenuNames, lifeRules, type LifeState, lifeTextVoiceOn, madeUp, PREFER, overheardText, trimTalk, addressedTo, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
 import { fetchTts, listModels, look } from './brain/brain';
 import { TREASURE_NAME, loadTreasures, saveTreasures, treasureCount, treasureList, type TreasureKind } from './life/rhythm';
 import { HABITS, addLog, awayText, bumpLike, lastLifeSeen, loadLikes, loadLog, markLifeSeen, rhythmText, saveLikes, saveLog, todayLog, topLikes } from './life/rhythm';
 import { monitorLog, monitorOn } from './life/monitor';
+import { askPersist } from './secureStore';
 import { isEcho, lifeSystem, nameTag, pickHeard } from './life/persona';
 import { FORMAT_HINT, jsonToTags, replySchema } from './life/structured';
 import { Habituation, drivesPrefer, drivesText, interacted, newActivity, newDrives, repeatText, tickDrives } from './life/drives';
@@ -383,6 +384,11 @@ function voiceIdStep(text: string, feat: number[] | null): boolean {
 const brainMem = loadMemory();
 // AI 大腦的連線設定是加密存的：啟動時解密一次
 void initBrain();
+// 請 iPhone 不要清掉這個 App 的資料；設定暫時讀不到時，App 回到前景就再讀一次（2026-11-11：AI 設定看起來被初始化）
+void askPersist();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') retryBrain();
+});
 /** AI 模式（快捷欄的 AI 文字／語音／動態）：第三層的雲端 AI 之後接在這裡 */
 let cloudMode = false;
 let brainBusy = false;

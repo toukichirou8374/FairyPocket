@@ -3,7 +3,7 @@
 // AI 會帶著悅靈的名字、個性、心情、和你的回憶與最近的對話，所以說話像同一隻悅靈。
 // 對話與記住的事只存在這台裝置（會跟著備份），送到的地方只有你自己家裡的電腦。
 
-import { getSecret, putSecret } from '../secureStore';
+import { putSecret, readSecret } from '../secureStore';
 import type { Lang } from '../i18n';
 import { FOODS, type Food, type PetState } from '../game/state';
 import { GESTURE_MENU, gestureFrom, type Gesture } from '../three/gestures';
@@ -34,21 +34,61 @@ function normalize(c: Partial<BrainConfig> | null): BrainConfig {
 /** 連線設定（網址、通行碼）加密存在這台裝置（見 secureStore.ts）；啟動時解密一次放在記憶體 */
 let cfgCache: BrainConfig | null = null;
 
-/** App 啟動時呼叫：讀出加密的設定；以前用原文存的舊設定會順便改成加密 */
+/**
+ * 設定的讀取狀態：loading＝還在讀；ready＝讀好了（或本來就沒有設定）；
+ * locked＝暫時讀不到（手機的 IndexedDB 偶爾連不上），會自動重試，期間不准覆蓋；
+ * lost＝加密鑰匙不見了，存好的設定解不開，只能重新輸入（可以用 iPhone 的密碼自動填入）。
+ */
+export type BrainStatus = 'loading' | 'ready' | 'locked' | 'lost';
+let brainStatus: BrainStatus = 'loading';
+export function brainState(): BrainStatus {
+  return brainStatus;
+}
+let retryTimer = 0;
+let retries = 0;
+
+/** App 啟動時呼叫：讀出加密的設定；以前用原文存的舊設定會順便改成加密。暫時讀不到時會自己重試 */
 export async function initBrain(): Promise<BrainConfig> {
-  const v = await getSecret<Partial<BrainConfig>>(CFG_KEY);
-  cfgCache = normalize(v);
-  if (v) await putSecret(CFG_KEY, cfgCache);
+  const r = await readSecret<Partial<BrainConfig>>(CFG_KEY);
+  if (r.state === 'locked') {
+    brainStatus = 'locked';
+    // 2、5、10、30、60 秒後再試；App 回到前景時也會再試（main.ts）
+    const wait = [2, 5, 10, 30, 60][Math.min(retries, 4)] * 1000;
+    retries++;
+    if (typeof window !== 'undefined') {
+      window.clearTimeout(retryTimer);
+      retryTimer = window.setTimeout(() => void initBrain(), wait);
+    }
+    return loadBrain();
+  }
+  retries = 0;
+  if (typeof window !== 'undefined') window.clearTimeout(retryTimer);
+  if (r.state === 'ok') {
+    cfgCache = normalize(r.value);
+    brainStatus = 'ready';
+    await putSecret(CFG_KEY, cfgCache);
+  } else {
+    cfgCache = normalize(null);
+    brainStatus = r.state === 'lost' ? 'lost' : 'ready';
+  }
   return cfgCache;
+}
+/** 還沒讀好、或暫時讀不到時，再試一次（例如 App 回到前景） */
+export function retryBrain(): void {
+  if (brainStatus === 'locked' || brainStatus === 'loading') void initBrain();
 }
 
 export function loadBrain(): BrainConfig {
   return { ...(cfgCache ?? normalize(null)) };
 }
 
-export function saveBrain(c: BrainConfig): void {
+/** 存設定。還在讀、或暫時讀不到時不存（不然空白設定會蓋掉原本存好的），回傳 false */
+export function saveBrain(c: BrainConfig): boolean {
+  if (brainStatus === 'loading' || brainStatus === 'locked') return false;
   cfgCache = { ...c };
+  if (brainStatus === 'lost') brainStatus = 'ready';
   void putSecret(CFG_KEY, cfgCache);
+  return true;
 }
 
 // ---------- 記憶：最近的對話 + 記住的事 ----------
