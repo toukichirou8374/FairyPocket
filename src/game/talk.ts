@@ -327,9 +327,9 @@ export const TALK_LINES: Record<Reply, Lines> = {
   where: L(['我在這裡！就在你旁邊', '在這裡在這裡！', '我在你身邊飛來飛去喔', '回頭看看，我在這裡！'], ['ここだよ！となりにいるよ', 'ここここ！', 'あなたのまわりをとんでるよ', 'うしろをみて、ここだよ！'], ["I'm right here! Next to you", 'Over here, over here!', "I'm flying around you!", "Look behind you, I'm here!"]),
   love: L(['我也最喜歡你了！', '嘿嘿，好開心～', '你的愛讓我好溫暖', '我們永遠在一起喔'], ['わたしもだいすき！', 'えへへ、うれしい〜', 'あなたのきもちで、ぽかぽかするよ', 'ずっといっしょだよ'], ['I love you too!', 'Hehe, that makes me happy~', 'Your love makes me feel warm', "We'll always be together"]),
   lovesBack: L(['我最最最喜歡你了！全世界第一！', '每次你這樣說，我的心都亮起來了', "被你喜歡，我是最幸福的悅靈！", "我的喜歡比天空還要大！"], ['せかいでいちばんだいすき！', 'そう言ってくれると、むねがキラキラするの', "あなたにすかれて、しあわせ！", "わたしのすき、おそらよりおおきいよ！"], ['I love you the most in the whole world!', 'When you say that, my heart sparkles', "Being loved by you is the best!", "My love is bigger than the sky!"]),
-  morning: L(['早安！今天也一起加油！', '早安～睡得好嗎？', "早安！今天的太陽好亮喔！"], ['おはよう！今日もいっしょにがんばろう！', 'おはよう〜よくねむれた？', "おはよう！きょうのおひさま、まぶしいね！"], ["Good morning! Let's have a great day!", 'Morning~ Did you sleep well?', "Morning! The sun is so bright today!"]),
+  morning: L(['早安！今天也一起加油！', '早安～睡得好嗎？', "早安！今天的太陽好亮喔！", "早安！我們先伸個懶腰吧！", "早安～今天也要吃早餐喔"], ['おはよう！今日もいっしょにがんばろう！', 'おはよう〜よくねむれた？', "おはよう！きょうのおひさま、まぶしいね！", "おはよう！まずはのびをしよう！", "おはよう〜あさごはんもたべてね"], ["Good morning! Let's have a great day!", 'Morning~ Did you sleep well?', "Morning! The sun is so bright today!", "Morning! Let's stretch first!", "Morning~ don't forget breakfast"]),
   morningAtNight: L(['咦？現在是晚上了啦！', '早安？外面天都黑了喔', "你是不是剛睡醒呀？現在是晚上喔", "月亮在天上，要說晚安才對"], ['あれ？いまは夜だよ！', 'おはよう？そとはまっくらだよ', "いまおきたの？もうよるだよ", "おつきさまがでてるよ、おやすみだね"], ["Huh? It's nighttime now!", "Good morning? It's dark outside!", "Did you just wake up? It's night", "The moon is out, say good night!"]),
-  night: L(['晚安，做個好夢喔', '呼啊…我也想睡了', "晚安，明天見喔"], ['おやすみ、いいゆめをね', 'ふわぁ…わたしもねむい', "おやすみ、またあしたね"], ['Good night, sweet dreams', 'Yawn… I’m sleepy too', "Good night, see you tomorrow"]),
+  night: L(['晚安，做個好夢喔', '呼啊…我也想睡了', "晚安，明天見喔", "晚安～我們一起數羊吧", "閉上眼睛，聽聽安靜的聲音"], ['おやすみ、いいゆめをね', 'ふわぁ…わたしもねむい', "おやすみ、またあしたね", "おやすみ〜いっしょにひつじをかぞえよう", "めをとじて、しずかなおとをきこうね"], ['Good night, sweet dreams', 'Yawn… I’m sleepy too', "Good night, see you tomorrow", "Good night~ let's count sheep", "Close your eyes and listen to the quiet"]),
   nightAtDay: L(['現在還是白天耶，要午睡嗎？', '這麼早就要睡啦？', "天還亮亮的，再玩一下嘛！", '太陽還在上班喔！'], ['まだおひるだよ、おひるね？', 'もうねちゃうの？', "まだあかるいよ、もうすこしあそぼう！", 'おひさまはまだおしごとちゅうだよ！'], ["It's still daytime! A nap?", 'Sleeping already?', "It's still bright! Let's play a bit more!", 'The sun is still at work!']),
   goOut: L(['路上小心喔！', '早點回來，我會等你', '要記得帶水壺喔！', '出去玩要開開心心的！'], ['いってらっしゃい！きをつけてね', 'はやくかえってきてね', 'すいとうわすれないでね！', 'たのしんできてね！'], ['Have a good time! Be careful!', "Come back soon, I'll wait", "Don't forget your water bottle!", 'Have lots of fun out there!']),
   bye: L(['掰掰！要早點回來喔', '再見～我會等你', '明天見喔！', '揮揮手～下次再一起玩！'], ['バイバイ！はやくかえってきてね', 'またね〜まってるよ', 'またあしたね！', 'ふりふり〜またあそぼうね！'], ['Bye! Come back soon', "See you~ I'll wait for you", 'See you tomorrow!', "Wave wave~ let's play next time!"]),
@@ -362,7 +362,7 @@ export const TALK_LINES: Record<Reply, Lines> = {
   bath: L(['洗澡澡！泡泡好好玩！', '洗香香，等一下再來找我喔', "洗完澡會變得香噴噴喔！", "記得洗耳朵後面喔"], ['おふろ！あわあわたのしいね！', 'きれいになったら、またあそんでね', "おふろのあとは、いいにおい！", "おみみのうしろもあらってね"], ['Bath time! Bubbles are fun!', 'Get all clean and come back to me', "You'll smell so nice after!", "Wash behind your ears too!"]),
   brush: L(['刷刷刷！牙齒亮晶晶！', '上面刷一刷，下面刷一刷', '刷完牙，笑起來最漂亮！', '裡面的牙齒也要刷喔'], ['しゃかしゃか！はがピカピカ！', 'うえもしたも、しゃかしゃか', 'はみがきしたら、えがおがピカピカ！', 'おくのはも、わすれずにね'], ['Brush brush! Sparkly teeth!', 'Brush the top, brush the bottom', 'Clean teeth make the best smile!', "Don't forget the back teeth!"]),
   school: L(['今天在學校學了什麼？', '老師好嗎？要跟我說喔！', '寫作業加油！我在旁邊陪你', '今天有交到新朋友嗎？'], ['きょうはがっこうでなにをならったの？', 'せんせいげんき？おしえてね！', 'しゅくだいがんばって！そばにいるよ', 'きょう、あたらしいともだちできた？'], ['What did you learn at school today?', 'Tell me about your teacher!', "Good luck with homework! I'm here", 'Did you make a new friend today?']),
-  friend: L(['我們是最好的朋友！', '朋友越多越開心！', '下次介紹朋友給我認識嘛！', '你的朋友也是我的朋友！'], ['わたしたち、なかよしだね！', 'ともだちがいっぱいだとたのしいね！', 'こんど、ともだちをしょうかいしてね！', 'あなたのともだちは、わたしのともだち！'], ["We're best friends!", 'More friends, more fun!', 'Let me meet your friends someday!', 'Your friends are my friends too!']),
+  friend: L(['我們是最好的朋友！', '朋友越多越開心！', '下次介紹朋友給我認識嘛！', '你的朋友也是我的朋友！', "有好朋友陪，什麼都好玩", "吵架了也要記得和好喔"], ['わたしたち、なかよしだね！', 'ともだちがいっぱいだとたのしいね！', 'こんど、ともだちをしょうかいしてね！', 'あなたのともだちは、わたしのともだち！', "ともだちといっしょだと、なんでもたのしい", "けんかしても、なかなおりしようね"], ["We're best friends!", 'More friends, more fun!', 'Let me meet your friends someday!', 'Your friends are my friends too!', "Everything is fun with friends", "If you fight, make up after, okay?"]),
   fly: L(['飛高高囉～咻！', '看我飛到最高！', '我要飛去摸雲朵！', '風吹過來好舒服喔'], ['たかいたかーい！びゅーん！', 'いちばんたかくとぶよ！', 'くもにさわりにいくよ！', 'かぜがきもちいいね'], ['Up, up, and away! Whoosh!', 'Watch me fly the highest!', "I'm flying up to touch the clouds!", 'The wind feels so nice']),
   come: L(['來了來了！', '飛過去囉～', '等我一下，馬上到！', '我飛到你身邊囉'], ['いまいくよ！', 'とんでいくね〜', 'ちょっとまってね、すぐいくよ！', 'あなたのそばまでとんできたよ'], ['Coming, coming!', 'Flying over~', 'Wait for me, almost there!', "I'm here next to you now"]),
   repeat: L(['你一直說這個耶，好好笑！', '我聽到了啦～嘿嘿', "你是不是很喜歡這句話呀？", "好啦好啦，我記住了！"], ['それ、なんかいも言ってるよ！', 'きこえてるよ〜えへへ', "そのことば、すきなの？", "わかったわかった、おぼえたよ！"], ["You keep saying that! So funny!", 'I heard you~ hehe', "Do you really like saying that?", "Okay, okay, I got it!"]),
@@ -371,6 +371,7 @@ export const TALK_LINES: Record<Reply, Lines> = {
 /** 依個性的台詞（跟大家的台詞一起抽，出現機率比較高） */
 const BY_PERSONALITY: Record<Personality, Partial<Record<Reply, Lines>>> = {
   guardian: {
+    morning: L(["早安！昨晚我一直守著你喔"], ["おはよう！よるのあいだ、ずっとまもってたよ"], ["Morning! I watched over you all night"]),
     greet: L(['你好！今天我也會好好守護你'], ['こんにちは！きょうもまもってあげるね'], ["Hello! I'll watch over you today too"]),
     love: L(['我會一直保護你的！'], ['ずっとまもってあげるね！'], ["I'll always protect you!"]),
     sad: L(['有我在，什麼都不用怕'], ['わたしがいるから、だいじょうぶ'], ["I'm here, nothing to worry about"]),
@@ -385,6 +386,7 @@ const BY_PERSONALITY: Record<Personality, Partial<Record<Reply, Lines>>> = {
     cold: L(['要蓋好被子，不要感冒喔'], ['ふとんをかけて、かぜひかないでね'], ["Stay under the blanket, don't catch a cold"]),
   },
   brave: {
+    morning: L(["早安！新的冒險開始囉！"], ["おはよう！あたらしいぼうけんのはじまり！"], ["Morning! A new adventure begins!"]),
     greet: L(['嗨！今天要去哪裡冒險？'], ['やあ！きょうはどこへぼうけんする？'], ['Hi! Where shall we adventure today?']),
     play: L(['來比賽！我一定會贏！'], ['しょうぶだ！ぜったいかつよ！'], ["Let's race! I'll win for sure!"]),
     scared: L(['有什麼好怕的！我來打倒它！'], ['こわくない！わたしがやっつける！'], ["Nothing to fear! I'll beat it!"]),
@@ -397,6 +399,7 @@ const BY_PERSONALITY: Record<Personality, Partial<Record<Reply, Lines>>> = {
     likes: L(['我最喜歡冒險和挑戰！'], ['ぼうけんとチャレンジがだいすき！'], ['I love adventures and challenges!']),
   },
   cautious: {
+    cold: L(["好、好冷…我可以靠近你一點嗎？"], ["さ、さむい…ちょっとくっついていい？"], ["I-it's cold… can I come closer?"]),
     birthday: L(['生、生日快樂…送你小小的祝福'], ['お、おめでとう…ちいさなおいわいだよ'], ['H-happy birthday… a tiny wish for you']),
     greet: L(['你、你好…今天也請溫柔一點喔'], ['こ、こんにちは…'], ['H-hello…']),
     love: L(['真、真的嗎？我好開心…'], ['ほ、ほんと？うれしい…'], ['R-really? I’m so happy…']),
@@ -410,6 +413,7 @@ const BY_PERSONALITY: Record<Personality, Partial<Record<Reply, Lines>>> = {
     goOut: L(['要、要早點回來喔…'], ['は、はやくかえってきてね…'], ['P-please come back soon…']),
   },
   playful: {
+    friend: L(["我們找好朋友一起來玩鬼抓人！"], ["ともだちとおにごっこしよう！"], ["Let's play tag with our friends!"]),
     repeat: L(['再說一次！我們來玩鸚鵡遊戲！'], ['もういっかい！オウムごっこしよう！'], ["Say it again! Let's play parrot!"]),
     greet: L(['嗨嗨嗨！來玩來玩！'], ['やっほーやっほー！あそぼう！'], ["Hi hi hi! Let's play!"]),
     play: L(['耶！我最愛玩了！'], ['やったー！あそぶのだいすき！'], ['Yay! Playing is my favorite!']),
