@@ -33,7 +33,7 @@ import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, ret
 import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
 import { DIRECT_EVENTS, intentName, isLifeSlot, lifeChatRules, lifeEventText, lifeMenuNames, lifeRules, type LifeState, lifeTextVoiceOn, madeUp, PREFER, overheardText, trimTalk, addressedTo, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
 import { fetchTts, listModels, look, askClaude, claudeInfo } from './brain/brain';
-import { aiDiag, dropClaims, claimsDone, limitCandidate, loadRoute, newReqId, redactNames, route, type AiSource } from './brain/router';
+import { aiDiag, dropClaims, claimsDone, explicitIntent, limitCandidate, loadRoute, newReqId, redactNames, route, type AiSource } from './brain/router';
 import { FinalGate, HeldFinal, hearInfo, hearTrace, lenTag, similarity } from './life/hearing';
 import { TREASURE_NAME, loadTreasures, saveTreasures, treasureCount, treasureList, type TreasureKind } from './life/rhythm';
 import { HABITS, addLog, awayText, bumpLike, lastLifeSeen, loadLikes, loadLog, markLifeSeen, rhythmText, saveLikes, saveLog, todayLog, topLikes } from './life/rhythm';
@@ -1500,6 +1500,8 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
   // AI 3.0：Claude 的回答只是候選：不能寫記憶；身體被別的地方控制時不帶動作；不能說「已經做好了」
   if (source === 'claude') {
     r = limitCandidate(r, source, bodyLockedByOther());
+    // 沒有寫意圖標籤就不換活動（不從句子裡猜）
+    if (!explicitIntent(raw)) r = { ...r, intent: null };
     if (r.text && claimsDone(r.text, lang)) {
       monitorLog('claim', { reqId });
       r = { ...r, text: dropClaims(r.text, lang) };

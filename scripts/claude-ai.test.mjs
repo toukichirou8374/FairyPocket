@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import Anthropic from '@anthropic-ai/sdk';
-import { buildParams, cleanRequest, createClaude, FAKE_REPLY, MODELS, worstCaseUsd } from './claude-ai.mjs';
+import { buildParams, cleanRequest, createClaude, estTokens, FAKE_REPLY, MODELS, worstCaseUsd } from './claude-ai.mjs';
 
 function setup(cfg, { reply, error, delayMs = 0, model } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-ai-'));
@@ -92,7 +92,7 @@ test('Opus 不送 thinking；Fable 加上伺服器端拒答備援（只備援到
   assert.equal(f.model, 'claude-fable-5-2');
   assert.equal('thinking' in f, false);
   assert.deepEqual(f.betas, ['server-side-fallback-2026-07-01']);
-  assert.deepEqual(f.fallbacks, [{ model: 'claude-opus-5-5' }]);
+  assert.equal(f.fallbacks, 'default');
   // 不認得的深度一律 Sonnet（不會自己升到 Fable）
   assert.equal(cleanRequest(body({ depth: 'max' })).depth, 'sonnet');
 });
@@ -189,4 +189,10 @@ test('模型編號（2026-11 官方）', () => {
   assert.equal(MODELS.sonnet.id, 'claude-sonnet-5-5');
   assert.equal(MODELS.opus.id, 'claude-opus-5-5');
   assert.equal(MODELS.fable.id, 'claude-fable-5-2');
+});
+
+test('輸入 token 估計不會低估中文、日文（實測：中文 1261 字＝1500 token、日文 1758 字＝1792 token、英文 3460 字＝1205 token）', () => {
+  assert.ok(estTokens('悅'.repeat(1261)) >= 1500);
+  assert.ok(estTokens('あ'.repeat(1758)) >= 1792);
+  assert.ok(estTokens('a'.repeat(3460)) >= 1205);
 });

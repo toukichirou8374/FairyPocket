@@ -149,6 +149,12 @@ export function limitCandidate<T extends Candidate>(c: T, source: AiSource, body
   return out;
 }
 
+/** 回答裡有沒有明確寫意圖標籤（[意圖：…]、意圖：…）。Claude 會照格式寫標籤，所以不用從句子裡猜：
+ *  實測 2026-11-17：20 句裡沒有一句寫意圖標籤，但從句子猜出了 4 個意圖，全部猜錯（「Did you sleep okay?」→睡覺、「好像在跳舞」→跳舞） */
+export function explicitIntent(raw: string): boolean {
+  return /(?:意圖|意図|いと|intent)\s*[:：]/i.test(raw);
+}
+
 /** 說「已經做好了」但其實沒有做（計時、鬧鐘、音樂、查資料由小助手功能真的做；AI 只能說想做） */
 const CLAIM: Record<Lang, RegExp> = {
   zh_tw: /(已經|已)(幫你|替你)?(設好|設定好|開好|定好|放好|播放|查好)(了)?/,

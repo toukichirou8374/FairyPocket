@@ -11,9 +11,10 @@
 | 分類 | 內容 |
 |---|---|
 | **已真正修復**（程式已改，有測試） | 同一句送兩次；家人的話被判成回音；她說話時家人的話整句消失；AI 在想時家人的話被降級成「發生的事」、兩個回答重疊；停掉的辨識還會送舊結果；空結果（NoMatch）；麥克風暫時被占用就永久放棄；重新開始失敗後默默停住；停掉時還沒送出的中途結果遺失 |
-| **已通過隔離測試** | 路由（12 項）、Claude 後端（14 項，假的 client）、語音辨識（13 項，假的瀏覽器辨識）、聽的判斷（11 項，含 11-15 實際例子）；FP 全部 186 項回歸測試、型別檢查、正式建置都通過；本機預覽開啟沒有錯誤 |
-| **只能假回應驗證** | Claude 的實際回答品質、延遲、實際 token 與花費；Fable→Opus 拒答備援；真的 429 |
-| **尚未取得 API 憑證** | `private/claude.txt` 還不存在（Claude 來源還沒在家裡電腦設定）。既有雲端 AI 的金鑰存在（`private/cloud.txt`，已確認「有」，沒有讀出內容），可以用 `key_source=cloud` 共用，**但要製作人決定**；帳戶餘額無法在不呼叫的情況下確認（要到 Anthropic Console 看） |
+| **已通過隔離測試** | 路由（13 項）、Claude 後端（15 項，假的 client）、語音辨識（13 項，假的瀏覽器辨識）、聽的判斷（11 項，含 11-15 實際例子）；FP 全部 187 項回歸測試、型別檢查、正式建置都通過；本機預覽開啟沒有錯誤 |
+| **已用真實 API 實測**（2026-11-17，見 [live-test-2026-11-17.md](live-test-2026-11-17.md)） | 製作人核准、每月 US$100 額度。家裡電腦直接跑後端（**沒有經過、沒有重啟正式 11435**），用真的生命模式系統說明：Sonnet 10 句、Opus 6 句、Fable 4 句，全部成功，共 US$0.163。語言全對、標籤都解析得到、沒有說「已經做好了」、危險的事都叫去找大人。實測抓到 3 個問題並已修正：Fable 備援模型 400、中文輸入 token 估價偏低、從句子亂猜意圖 |
+| **只能假回應驗證** | 真的拒答（refusal）與伺服器端備援實際切換；真的 429 |
+| **API 憑證** | `private/claude.txt` 已建立：`enabled=1`、`key_source=cloud`（共用既有雲端 AI 的金鑰，沒有讀出或顯示內容）、每天 US$5、每月 US$80（雲端 Haiku 每月上限 13.3，合計不超過 100）。正式 11435 還沒載入 Claude 路由，所以目前手機用不到 |
 | **尚未在 iPhone 實測** | 全部語音修正（iPhone Safari 的實際行為）、設定與診斷畫面 |
 | **尚未獲正式部署授權** | FP 網頁、正式 11435 轉接程式（新路由 `/api/claude/*` 需要重新啟動轉接程式才會生效） |
 
@@ -72,7 +73,7 @@
 ## 8. Claude API（第三個來源，後端）
 - `scripts/claude-ai.mjs`，轉接程式新路由 `POST /api/claude/chat`、`GET /api/claude/status`，**只限主人本人的 Tailscale 帳號**（跟既有雲端 AI 同一個檢查）。沒有新增公開入口、沒有 Funnel。
 - 模型（依 2026-11 官方模型表確認）：`claude-sonnet-5-5`（一般）、`claude-opus-5-5`（需要想的話）、`claude-fable-5-2`（只在明確選擇時）。
-- 參數：不送 temperature 等取樣參數、不預填回答；`output_config.effort: low`；Sonnet 5.5 用 `thinking: {type: "between_tools"}`（送 `disabled` 會 400）；Opus 5.5 思考不能關（只用 effort）；Fable 5.2 不送 thinking，加上伺服器端拒答備援（`server-side-fallback-2026-07-01`，備援到 Opus 5.5，同一次呼叫內）。
+- 參數：不送 temperature 等取樣參數、不預填回答；`output_config.effort: low`；Sonnet 5.5 用 `thinking: {type: "between_tools"}`（送 `disabled` 會 400）；Opus 5.5 思考不能關（只用 effort）；Fable 5.2 不送 thinking，加上伺服器端拒答備援（`server-side-fallback-2026-07-01`，`fallbacks: "default"`＝由 Anthropic 選建議的模型，同一次呼叫內）。**實測修正**：原本指定備援到 Opus 5.5，API 回 400「Opus 5.5 不是 Fable 5.2 允許的備援模型」，Fable 4 句全部失敗（不收費）；改成 `"default"` 後 4 句都成功。備援模型的價格不在表上時，用 Fable 的價格記帳（偏高、比較安全）。
 - 先看 `stop_reason`（拒答）再讀內容；Fable 由 Opus 接手時用 Opus 的價格記帳。
 - 預設**關閉**：`private/claude.txt` 第一次啟動時自動建立 `enabled=0`；`fake=1` 是不連網、不花錢的假回應模式。
 
@@ -98,7 +99,8 @@
 
 ## 12. 費用控制
 - 後端強制每天／每月上限（預設每天 US$0.30、每月 US$4，約 45／600 日圓；`private/claude.txt` 可改）。**呼叫前用最壞情況估價**（輸入字數÷2 當 token、輸出用上限），超過剩下的額度就不呼叫。
-- 一次聊天的最壞情況估價（系統說明約 4000 字時）：Sonnet 約 US$0.01、Opus 約 US$0.04、Fable 約 US$0.08；送出內容到上限時：Sonnet 0.017、Opus 0.052、Fable 0.103。實際花費通常比估價低很多（回答很短）。
+- **實測花費（2026-11-17，真的生命模式系統說明）**：Sonnet 每句 US$0.003～0.006、Opus 0.007～0.013、Fable 0.012～0.022；20 句共 US$0.163。以 Sonnet 每句約 US$0.004 算，每月 80 美元約 2 萬句。
+- 估價修正：原本用「字數 ÷ 2」估輸入 token，但中文 1261 字實際是 1500 token（約 1 字 1 token），會低估；改成 `estTokens`（中日文 1 字 1 token、英文 3 字 1 token，再乘 1.5）。輸出仍用上限估。
 - 開關（`enabled`）、逾時（Sonnet 20 秒／Opus 30 秒／Fable 40 秒）、同時只跑 1 個、**不自動重試**（`maxRetries: 0`）、429 回傳要等幾秒、請求編號、手機丟棄不是這一次的回答、預算用完回到原本的 AI。
 - 沒有購買額度、沒有開自動儲值。
 
@@ -112,20 +114,25 @@
 ## 14. 測試結果（2026-11-17，本機、隔離）
 | 項目 | 結果 |
 |---|---|
-| `node --test scripts/claude-ai.test.mjs`（假 client：關閉、假回應、沒金鑰、Sonnet／Opus／Fable 參數、Fable 由 Opus 接手記帳、拒答、每日／每月預算、最壞估價、同時只一個、429／金鑰錯誤／逾時、最少內容、共用金鑰、模型編號） | 14／14 通過 |
-| `src/brain/router.test.ts`（自動、手動、Claude 未開、事件不花錢、預算冷卻、離線、深度與 Fable、複雜度三語、名字遮蔽、候選限制、身體鎖定、「已經做好了」） | 12／12 通過 |
+| `node --test scripts/claude-ai.test.mjs`（假 client：關閉、假回應、沒金鑰、Sonnet／Opus／Fable 參數、Fable 由 Opus 接手記帳、拒答、每日／每月預算、最壞估價、同時只一個、429／金鑰錯誤／逾時、最少內容、共用金鑰、模型編號） | 15／15 通過（新增：中日文 token 估價不低估） |
+| `src/brain/router.test.ts`（自動、手動、Claude 未開、事件不花錢、預算冷卻、離線、深度與 Fable、複雜度三語、名字遮蔽、候選限制、身體鎖定、「已經做好了」） | 13／13 通過（新增：Claude 的意圖只看標籤） |
 | `src/speech.test.ts`（三語言、只有中途結果、NoMatch、沒權限、暫時占用、重新開始退避、stalled、停掉時的中途結果、快速開關、停掉後計時取消） | 13／13 通過 |
 | `src/life/hearing.test.ts`（11-15／11-11 實際例子、真回音、原本的回音測試、中英文、重複／修正／新句、留著的話、階段紀錄） | 11／11 通過 |
-| FP 全部回歸（`NODE_OPTIONS=--no-experimental-webstorage npx vitest run --dir src`） | 12 檔 186／186 通過 |
+| FP 全部回歸（`NODE_OPTIONS=--no-experimental-webstorage npx vitest run --dir src`） | 13 檔 187／187 通過 |
 | `tsc --noEmit`、`npm run build`、本機預覽開啟（沒有主控台錯誤） | 通過 |
 | 背景、TTS 回音的實際行為、iPhone Safari | **未實測**（需要 iPhone） |
+| 真實 Claude API（家裡電腦直接跑後端 `createClaude`，不經過 11435） | Sonnet 10／10、Opus 6／6、Fable 4／4 成功（修正備援後）；見 live-test-2026-11-17.md |
 | 轉接程式整合（新路由經過真的 11435） | **未測**（不能動正式 11435；路由程式只做了語法檢查） |
 
 ## 15. 下一步與需要製作人決定的事
 1. **iPhone 實測**（部署授權後，一次一步）：語音生命模式說「早安」→ 開發者區「語音與 AI 診斷」看是否走到 8/8；在她說話時插話一句，看 `held` 後是否回答；連說兩句看是否只回一次。
 2. **轉接程式更新**（需要授權與一次提權執行）：新的 `scripts/ai-proxy.mjs`＋`claude-ai.mjs` 放到正式 main 時，**要把正式 main 未提交的 Retry-After 兩處修補一起保留**（`Access-Control-Expose-Headers` 與 429 的 `retry-after`）；然後停掉 11435 讓 watchdog 重新啟動。更新前 Claude 路由不會生效（手機看到 404 就當作關閉，跟以前一樣）。
-3. **真實 API 小額測試計畫（需要你核准預算才做）**：在 `private/claude.txt` 設 `daily_usd=0.08`、`monthly_usd=0.08`、`enabled=1`，金鑰由你決定：自己在電腦上填 `key=`（不要貼到聊天），或 `key_source=cloud` 共用既有雲端 AI 的金鑰。測試：Sonnet 3 句（最壞約 US$0.03）、Opus 1 句（最壞約 US$0.04）、Fable **0 句**（除非你另外指定）；總上限 US$0.08（約 12 日圓）由後端強制，超過就不呼叫。測完 `enabled=0`。
+3. ~~真實 API 小額測試~~：**已完成（2026-11-17）**。製作人核准，並說明每月有 US$100、不累積、可以多用。實際跑了 20 句（比原本計畫多，包含 Fable），共 US$0.163。設定保留 `enabled=1`、每天 5、每月 80（轉接程式更新前手機用不到）。
+5. **要不要用多一點 Claude**（製作人決定）：目前預設「自動」＝只有複雜的話才用 Claude（Sonnet），簡單的話用 Haiku。想多用：開發者區「AI 運作方式」選「Claude 優先」、「Claude 深度」選 Opus（複雜的話用 Opus）。也可以把預設改成 Claude 優先。
+6. **既有的「從句子猜意圖」**（生命模式，凍結）：實測看到 gemma／Haiku 也會走同一段猜測（例如「Did you sleep okay?」會被猜成「睡覺」）。這次只對 Claude 關掉猜測；其他來源要不要也改，請製作人決定（猜測原本是為了 gemma 常忘記寫標籤）。
 4. 合併到 main 與部署 FP 網頁：需要本輪以外的授權。
 
 ## 附註：既有程式裡的家人名字
 盤點時發現，既有程式（開發者區問題、生命模式人設的例子、幾個測試）裡有一位家人的真實名字。本輪只把 `main.ts` 一個註解改成「〇〇」；其他的屬於凍結的生命模式與既有功能，**沒有改**，要不要換掉請製作人決定。報告與證據裡都已遮蔽。
+
+**實測時注意到（2026-11-17）**：生命模式人設的「記住」例子裡有這個名字，所以 Claude 路徑雖然會遮蔽家人的名字，**這個例子還是會原樣送到 Anthropic**（跟既有的雲端 Haiku 一樣）。這次真實測試送出前已經把例子換成假名字。正式啟用 Claude 前，建議把人設例子換成假名字（要改到凍結的生命模式文字，所以請製作人決定）。

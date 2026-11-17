@@ -78,11 +78,17 @@ export function cleanRequest(body) {
   return { system: lang ? `${system}\n\n${lang}` : system, messages, depth, reqId };
 }
 
-/** 呼叫前的「最壞情況」估價（字數 ÷ 2 當成 token 數，偏高估；輸出用上限算） */
+/** 輸入 token 數的高估：中文、日文大約 1 字 1 token（實測 2026-11-17：中文 1261 字＝1500 token），英文大約 3 字 1 token；都再乘 1.5 */
+export function estTokens(text) {
+  const wide = (text.match(/[^\x00-\x7f]/g) ?? []).length;
+  return Math.ceil((wide + (text.length - wide) / 3) * 1.5);
+}
+
+/** 呼叫前的「最壞情況」估價（輸入用 estTokens 高估；輸出用上限算） */
 export function worstCaseUsd(req) {
   const m = MODELS[req.depth];
-  const chars = req.system.length + req.messages.reduce((s, x) => s + x.content.length, 0);
-  return Math.ceil(chars / 2) * m.input + MAX_TOKENS[req.depth] * m.output;
+  const tokens = estTokens(req.system) + req.messages.reduce((s, x) => s + estTokens(x.content), 0);
+  return tokens * m.input + MAX_TOKENS[req.depth] * m.output;
 }
 
 export function usageUsd(depth, usage) {
@@ -109,9 +115,10 @@ export function buildParams(req) {
   if (req.depth === 'sonnet') p.thinking = { type: 'between_tools' };
   // Opus 5.5 的思考不能關（只用 effort 控制）；Fable 5.2 一定會思考（不送 thinking）
   if (req.depth === 'fable') {
-    // 拒答時由伺服器改用 Opus 5.5 回答（同一次呼叫內，不會另外同時叫好幾個付費模型）
+    // 拒答時由伺服器改用 Anthropic 建議的模型回答（同一次呼叫內，不會另外同時叫好幾個付費模型）。
+    // 實測（2026-11-17）：Opus 5.5 不在 Fable 5.2 允許的備援名單裡（400），所以用 "default"
     p.betas = ['server-side-fallback-2026-07-01'];
-    p.fallbacks = [{ model: MODELS.opus.id }];
+    p.fallbacks = 'default';
   }
   return p;
 }

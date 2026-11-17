@@ -1,6 +1,6 @@
 // AI 3.0：三個來源的路由測試（規則；不呼叫任何 AI）
 import { describe, expect, it } from 'vitest';
-import { claimsDone, complexity, dropClaims, limitCandidate, redactNames, route, type RouteInput } from './router';
+import { claimsDone, complexity, dropClaims, explicitIntent, limitCandidate, redactNames, route, type RouteInput } from './router';
 
 const base = (x: Partial<RouteInput> = {}): RouteInput => ({
   settings: { mode: 'auto', depth: 'sonnet' },
@@ -80,5 +80,15 @@ describe('Claude 只拿到最少的內容；回答只是候選', () => {
     expect(claimsDone('タイマー、セットしたよ！', 'ja_jp')).toBe(true);
     expect(claimsDone("I've set a timer for you.", 'en_us')).toBe(true);
     expect(claimsDone('我想去看看花', 'zh_tw')).toBe(false);
+  });
+});
+
+describe('Claude 的意圖只看標籤（2026-11-17 實測）', () => {
+  it('有標籤才算；只是句子裡提到「睡」「跳舞」不算', () => {
+    expect(explicitIntent('好啊！我剛好也想動一動。 [意圖：跳舞]')).toBe(true);
+    expect(explicitIntent('いいよ！ [意図：おどる]')).toBe(true);
+    expect(explicitIntent('Sure! [intent: dance]')).toBe(true);
+    expect(explicitIntent('Good morning! Did you sleep okay? [action: wave right]')).toBe(false);
+    expect(explicitIntent('我最喜歡看燭光一閃一閃的樣子，好像在跳舞耶。')).toBe(false);
   });
 });
