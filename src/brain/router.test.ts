@@ -1,6 +1,6 @@
 // AI 3.0：三個來源的路由測試（規則；不呼叫任何 AI）
 import { describe, expect, it } from 'vitest';
-import { claimsDone, complexity, dropClaims, explicitIntent, limitCandidate, redactNames, route, type RouteInput } from './router';
+import { claimsDone, complexity, DEFAULT_ROUTE, dropClaims, explicitIntent, limitCandidate, redactNames, route, type RouteInput } from './router';
 
 const base = (x: Partial<RouteInput> = {}): RouteInput => ({
   settings: { mode: 'auto', depth: 'sonnet' },
@@ -90,5 +90,17 @@ describe('Claude 的意圖只看標籤（2026-11-17 實測）', () => {
     expect(explicitIntent('Sure! [intent: dance]')).toBe(true);
     expect(explicitIntent('Good morning! Did you sleep okay? [action: wave right]')).toBe(false);
     expect(explicitIntent('我最喜歡看燭光一閃一閃的樣子，好像在跳舞耶。')).toBe(false);
+  });
+});
+
+describe('預設：Claude 優先（製作人 2026-11-17 決定）', () => {
+  const avail = { local: true, cloud: true, claude: true };
+  it('Claude 能用時先用 Claude；Claude 沒開時跟以前一樣（雲端→本機）', () => {
+    expect(DEFAULT_ROUTE.mode).toBe('claude-first');
+    expect(route(base({ text: '今天好冷喔', settings: DEFAULT_ROUTE, avail })).order).toEqual(['claude', 'cloud', 'local']);
+    expect(route(base({ text: '今天好冷喔', settings: DEFAULT_ROUTE, avail: { ...avail, claude: false } })).order).toEqual(['cloud', 'local']);
+  });
+  it('發生的事、自己決定活動：還是只用本機（不花錢）', () => {
+    expect(route(base({ how: 'event', settings: DEFAULT_ROUTE, avail })).order).toEqual(['local']);
   });
 });

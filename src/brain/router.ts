@@ -18,7 +18,7 @@ export interface RouteSettings {
   mode: AiMode;
   depth: ClaudeDepth;
 }
-export const DEFAULT_ROUTE: RouteSettings = { mode: 'auto', depth: 'sonnet' };
+export const DEFAULT_ROUTE: RouteSettings = { mode: 'claude-first', depth: 'sonnet' };
 
 const KEY = 'fp.aiRoute';
 function store(): Storage | null {
