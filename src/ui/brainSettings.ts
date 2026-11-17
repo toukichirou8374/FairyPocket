@@ -1,7 +1,9 @@
 // 設定頁：AI 大腦（家裡電腦的本機 AI）的開關、連線網址、模型、記憶。
 
 import { t } from '../i18n';
-import { brainState, cloudInfo, listModels, loadBrain, loadMemory, saveBrain, saveMemory } from '../brain/brain';
+import { brainState, claudeInfo, cloudInfo, listModels, loadBrain, loadMemory, saveBrain, saveMemory } from '../brain/brain';
+import { AI_MODES, CLAUDE_DEPTHS, aiDiag, loadRoute, saveRoute } from '../brain/router';
+import { hearInfo, hearTrace } from '../life/hearing';
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent?: HTMLElement): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -152,6 +154,78 @@ export function brainSettings(box: HTMLElement): void {
         mmax: Math.round(r.monthly * 150),
       });
   });
+
+  // AI 3.0：AI 運作方式（三個來源，每次只選一個）與 Claude 深度
+  el('label', '', box).textContent = t('route.title');
+  el('div', 'info', box).textContent = t('route.help');
+  const rs = loadRoute();
+  const pick = <T extends string>(label: string, values: readonly T[], get: () => T, set: (v: T) => void, note?: (v: T) => string) => {
+    el('div', 'info', box).textContent = label;
+    const sel = el('select', 'name-input', box);
+    for (const v of values) {
+      const o = el('option', '', sel);
+      o.value = v;
+      o.textContent = t(`route.${v}` as Parameters<typeof t>[0]);
+    }
+    sel.value = get();
+    const n = el('div', 'info', box);
+    const showNote = () => (n.textContent = note?.(get()) ?? '');
+    showNote();
+    sel.addEventListener('change', () => {
+      set(sel.value as T);
+      saveRoute(rs);
+      showNote();
+    });
+  };
+  pick(t('route.mode'), AI_MODES, () => rs.mode, (v) => (rs.mode = v));
+  pick(t('route.depth'), CLAUDE_DEPTHS, () => rs.depth, (v) => (rs.depth = v), (v) => (v === 'fable' ? t('route.fableNote') : ''));
+
+  el('label', '', box).textContent = t('claude.title');
+  el('div', 'info', box).textContent = t('claude.help');
+  const kinfo = el('div', 'info', box);
+  const kbtn = el('button', 'btn', box);
+  kbtn.textContent = t('claude.check');
+  kbtn.addEventListener('click', async () => {
+    kinfo.textContent = t('ai.testing');
+    const r = await claudeInfo(cfg);
+    if (r === 'denied') kinfo.textContent = t('cloud.denied');
+    else if (r === 'net') kinfo.textContent = t('ai.fail');
+    else if (r === 'old') kinfo.textContent = t('claude.old');
+    else if (!r.enabled) kinfo.textContent = t('claude.off');
+    else if (r.fake) kinfo.textContent = t('claude.fake');
+    else if (!r.ready) kinfo.textContent = t('cloud.nokey');
+    else
+      kinfo.textContent = t('claude.usage', {
+        d: Math.round(r.dayUsd * 150),
+        dmax: Math.round(r.daily * 150),
+        m: Math.round(r.monthUsd * 150),
+        mmax: Math.round(r.monthly * 150),
+      });
+  });
+
+  // 語音與 AI 診斷（只在記憶體）：卡在哪一步、哪個 AI 回答、花多久
+  el('label', '', box).textContent = t('diag.title');
+  el('div', 'info', box).textContent = t('diag.help');
+  const diag = el('div', 'info ai-notes', box);
+  const showDiag = () => {
+    const now = performance.now();
+    const marks = hearTrace.marks
+      .slice(-10)
+      .map((m) => `${Math.round((now - m.at) / 1000)}s ${m.stage}${m.detail ? ` ${m.detail}` : ''}`)
+      .reverse();
+    diag.textContent = [
+      `STT: ${hearInfo.stt || '-'} · ${hearInfo.lang || '-'}`,
+      hearTrace.summary(),
+      ...marks,
+      `AI: ${aiDiag.source || '-'} · ${aiDiag.model || '-'} · ${aiDiag.why || '-'} · tried ${aiDiag.tried.join('>') || '-'}${aiDiag.fallback ? ' (fallback)' : ''}`,
+      `    ${aiDiag.ms}ms · tokens ${aiDiag.tokens || '-'} · ${aiDiag.result || '-'} · ${aiDiag.reqId || '-'}`,
+      `control: ${hearInfo.control || '-'} · epoch ${hearInfo.epoch}`,
+    ].join('\n');
+  };
+  showDiag();
+  const dbtn = el('button', 'btn', box);
+  dbtn.textContent = '↻';
+  dbtn.addEventListener('click', showDiag);
 
   const mem = loadMemory();
   const memInfo = el('div', 'info', box);

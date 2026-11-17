@@ -32,7 +32,9 @@ import { voiceIdLine } from './assist/assistant';
 import { addNote, ask, askCloud, buildSystem, dropMixedSentences, initBrain, retryBrain, mixedLanguage, loadBrain, saveBrain, loadMemory, parseReply, remember, saveMemory, type Feeling } from './brain/brain';
 import { GESTURE_LABEL, gestureName, GESTURE_SEC } from './three/gestures';
 import { DIRECT_EVENTS, intentName, isLifeSlot, lifeChatRules, lifeEventText, lifeMenuNames, lifeRules, type LifeState, lifeTextVoiceOn, madeUp, PREFER, overheardText, trimTalk, addressedTo, parseLifeReply, retryDelay, type Intent as LifeIntentName, type LifeEvent, type LifeSlot } from './life/life';
-import { fetchTts, listModels, look } from './brain/brain';
+import { fetchTts, listModels, look, askClaude, claudeInfo } from './brain/brain';
+import { aiDiag, dropClaims, claimsDone, limitCandidate, loadRoute, newReqId, redactNames, route, type AiSource } from './brain/router';
+import { FinalGate, HeldFinal, hearInfo, hearTrace, lenTag, similarity } from './life/hearing';
 import { TREASURE_NAME, loadTreasures, saveTreasures, treasureCount, treasureList, type TreasureKind } from './life/rhythm';
 import { HABITS, addLog, awayText, bumpLike, lastLifeSeen, loadLikes, loadLog, markLifeSeen, rhythmText, saveLikes, saveLog, todayLog, topLikes } from './life/rhythm';
 import { monitorLog, monitorOn } from './life/monitor';
@@ -92,6 +94,24 @@ const talkRec = new Recognizer();
 let talkOn = false;
 /** 悅靈說話時先不聽 */
 let talkDeafUntil = 0;
+// ---- AI 3.0 語音修復（見 life/hearing.ts）----
+/** 同一句不送兩次；更長的修正版換掉還沒回答的那一句 */
+const hearGate = new FinalGate();
+/** 她說話時聽到的完成結果（說完再處理） */
+const lifeHeld = new HeldFinal();
+let lifeHeldTimer = 0;
+function lifeHeldLater(): void {
+  window.clearTimeout(lifeHeldTimer);
+  lifeHeldTimer = window.setTimeout(
+    () => {
+      if (!lifeSlot) return lifeHeld.clear();
+      if (performance.now() < talkDeafUntil) return lifeHeldLater();
+      const h = lifeHeld.take(performance.now());
+      if (h) void answerText(h.text, h.alts, 'held');
+    },
+    Math.max(80, talkDeafUntil - performance.now() + 80),
+  );
+}
 /** 被叫「安靜一點」之後，這段時間只用小聲的方式回應 */
 let quietUntil = 0;
 
@@ -121,10 +141,28 @@ async function micOn(): Promise<void> {
   const ctx = sound.context;
   if (!ctx || listener.on || talkOn) return;
   if (speechSupported()) {
+    // AI 3.0：每一步都記下來（開發者區看得到卡在哪；不存聲音、不存內容）
+    hearInfo.stt = 'SpeechRecognition' in window ? 'Web Speech' : 'Web Speech (webkit)';
+    hearInfo.lang = SPEECH_LANG[recLang];
+    talkRec.onStage = (s, d) => {
+      const now = performance.now();
+      if (s === 'listening' && !hearTrace.counts.permission) hearTrace.mark('permission', now);
+      hearTrace.mark(s === 'restart' ? 'restart' : s, now, d);
+      if (lifeSlot && s !== 'recognizing' && s !== 'listening' && s !== 'end') monitorLog('stt', { stage: s, detail: d ?? '' });
+    };
     talkOn = talkRec.start(
       SPEECH_LANG[recLang],
       (text, final, alts) => {
-        if (performance.now() < talkDeafUntil) return;
+        if (performance.now() < talkDeafUntil) {
+          // 生命模式：她說話時聽到的完成結果先留著，說完再判斷（以前整句直接丟掉，家人得重講）；
+          // 她自己的聲音會在 answerText 用比較寬的回音比對濾掉
+          if (lifeSlot && final && text.trim()) {
+            lifeHeld.hold(text, alts, performance.now());
+            hearTrace.mark('held', performance.now(), lenTag(text));
+            lifeHeldLater();
+          }
+          return;
+        }
         // 有人在說話：原本會飛過來歪頭聽（AI 生命模式由 AI 自己決定，不自動飛過來）
         if (!final) {
           if (!lifeSlot) ctrl.listen(true);
@@ -209,7 +247,8 @@ async function openSports(): Promise<void> {
 /** 最後一次有人跟悅靈說話的時間（剛聊完不主動閒聊） */
 let lastUserAt = -Infinity;
 
-async function answerText(text: string, alts: string[] = [text], fromMic = false): Promise<void> {
+async function answerText(text: string, alts: string[] = [text], mic: boolean | 'held' = false): Promise<void> {
+  const fromMic = !!mic;
   lastUserAt = performance.now();
   // AI 生命模式：不用規則（指令、認人問名字、關鍵字），全部交給 AI
   if (lifeSlot) {
@@ -217,11 +256,27 @@ async function answerText(text: string, alts: string[] = [text], fromMic = false
     liveWake();
     // 聽聲音認人（只在這台手機比對）：認得就叫名字，不認得就不稱呼（不再叫「主人」）
     if (fromMic) {
-      // 聽到的是她自己剛說的話（喇叭的聲音又被麥克風收到）：不理
-      const said = lifeSaid.filter((s) => performance.now() - s.at < 60_000).map((s) => s.text);
-      if (isEcho(text, said)) {
-        monitorLog('echo', { text });
+      const now = performance.now();
+      // 聽到的是她自己剛說的話（喇叭的聲音又被麥克風收到）：不理。
+      // AI 3.0：只比最近 30 秒說的話、用「相鄰兩個字」比對；她說話時聽到的（held）用比較寬的標準
+      const said = lifeSaid.filter((s) => now - s.at < 30_000).map((s) => s.text);
+      if (isEcho(text, said) || (mic === 'held' && said.some((s) => similarity(text, s) >= 0.3))) {
+        hearTrace.mark('echo', now, lenTag(text));
+        monitorLog('echo', { text, held: mic === 'held' });
         return;
+      }
+      // 同一句話不送兩次（中途結果先當成說完、之後又來了完成結果）
+      const v = hearGate.offer(text, now);
+      if (v === 'dup') {
+        hearTrace.mark('dup', now, lenTag(text));
+        monitorLog('stt', { stage: 'dup', text });
+        return;
+      }
+      if (v === 'extend') {
+        hearTrace.mark('extend', now, lenTag(text));
+        // 上一句還在等 AI 回答：那個回答作廢，改回答這個比較完整的版本
+        if (lifeBusy && lifeAskingChat) lifeChatStale = true;
+        monitorLog('stt', { stage: 'extend', text, replaced: lifeChatStale });
       }
       const family = people.map((p) => p.name);
       text = pickHeard([text, ...alts.filter((a) => a !== text)], family);
@@ -246,6 +301,7 @@ async function answerText(text: string, alts: string[] = [text], fromMic = false
     const voices = new Set(lifeVoicesHeard.filter((v) => performance.now() - v.at < 60_000).map((v) => v.name)).size;
     const toHer = !fromMic || addressedTo(text, pet.name, sinceSpoke, { others: people.map((p) => p.name), voices });
     monitorLog('heard', { text, typed: !fromMic, toHer, sinceSpokeSec: Math.round(sinceSpoke) });
+    hearTrace.mark('routed', performance.now(), `${fromMic ? (mic === 'held' ? 'held' : 'mic') : 'typed'}${toHer ? '' : ':overheard'}`);
     // 小助手：請她做事（現在幾點、天氣、計時、查資料、放音樂）。事情由助理功能真的去做（天氣數字來自氣象服務，不是 AI 編的），
     // 她用自己的聲音、排隊說出結果，不會搶走身體的控制
     if (toHer) {
@@ -803,6 +859,25 @@ window.setInterval(() => {
 // 控制器負責飛過去、做出來、留在畫面內。AI 連不上時悅靈安全地待著（不改用原生台詞），恢復後接著生活。
 // 主人說的話：雲端 AI（只有主人本人）→ 家裡電腦的 AI；自己決定要做什麼：只用家裡電腦的 AI（不花雲端額度）。
 let lifeBusy = false;
+/** 正在等的是不是「家人說的話」的回答（AI 3.0：被更完整的版本取代時作廢） */
+let lifeAskingChat = false;
+/** Claude 暫時不用（預算用完、限流、沒開）到這個時間 */
+let claudeTiredUntil = 0;
+/** 家裡電腦的 Claude 是不是打開了（10 分鐘問一次狀態；狀態不花錢） */
+let claudeReady = false;
+let claudeCheckedAt = -Infinity;
+async function refreshClaude(): Promise<void> {
+  const cfg = loadBrain();
+  if (!cfg.on || !cfg.url || performance.now() - claudeCheckedAt < 10 * 60_000) return;
+  claudeCheckedAt = performance.now();
+  const r = await claudeInfo(cfg);
+  claudeReady = typeof r === 'object' && r.ready;
+}
+window.setInterval(() => void refreshClaude(), 60_000);
+window.setTimeout(() => void refreshClaude(), 5000);
+let lifeChatStale = false;
+/** AI 在想的時候家人又說的話：保留成「說的話」（以前被降級成「發生的事」再問一次，兩個回答會重疊） */
+let lifePendingChat = '';
 /** 換模式時 +1：舊的 AI 回答回來時已經不是同一段生命模式，直接丟掉（不會搶控制權） */
 let lifeEpoch = 0;
 let lifeFails = 0;
@@ -934,7 +1009,18 @@ function lifeEvent(e: LifeEvent, d = ''): void {
   window.clearTimeout(lifeFlushTimer);
   lifeFlushTimer = window.setTimeout(lifeFlush, 1200);
 }
+/** 身體現在是不是被別的地方控制（例如 Minecraft 持有控制權）。FP 正式版還沒接 Hub，所以一律 false；整合線接上 Hub 的控制權後改這裡 */
+function bodyLockedByOther(): boolean {
+  return false;
+}
 function lifeFlush(): void {
+  // 家人說的話先回答（AI 3.0）
+  if (lifeSlot && lifePendingChat && !lifeBusy) {
+    const c = lifePendingChat;
+    lifePendingChat = '';
+    void lifeAsk(c, 'chat');
+    return;
+  }
   if (!lifeSlot || !lifePending.length || lifeBusy) return;
   const text = lifePending.join(' ');
   const direct = lifePendingDirect;
@@ -1132,6 +1218,7 @@ async function lifeLinesPump(): Promise<void> {
       const l = lifeLines.shift()!;
       // 換了模式、或等太久（20 秒）就不說了
       if (l.epoch !== lifeEpoch || !lifeSlot || performance.now() - l.at > 20_000) continue;
+      if (l.direct) hearTrace.mark('shown', performance.now(), lifeVoice() ? 'voice' : 'bubble');
       const en = l.lang === 'en_us';
       const read = Math.max(3.2, l.text.length * (en ? 0.07 : 0.23));
       if (lifeVoice()) {
@@ -1245,10 +1332,15 @@ function lifeDo(i: LifeIntentName): void {
 async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'): Promise<boolean> {
   if (!lifeSlot) return false;
   if (lifeBusy) {
-    // 正在想：主人說的話、做的事排隊，想完再處理；自己決定下一步就不用排
+    // 正在想：家人說的話保留成「說的話」（只留最新的一句），想完馬上回答
+    if (how === 'chat') {
+      lifePendingChat = text;
+      return false;
+    }
+    // 做的事排隊，想完再處理；自己決定下一步就不用排
     if (how !== 'decide' && !lifePending.includes(text)) {
       lifePending.push(text);
-      if (how === 'chat' || how === 'event') lifePendingDirect = true;
+      if (how === 'event') lifePendingDirect = true;
     }
     return false;
   }
@@ -1304,27 +1396,91 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
   // 直接跟她說的話：附一句提醒（不記進對話）。實驗發現她會學對話紀錄裡只有動作的回合，變成都不回話
   const askText = how === 'chat' ? `${text}\n${LIFE_CHAT_NUDGE[lang]}` : text;
   let raw: string | null = null;
-  // 主人說的話：雲端 AI（只有主人本人、有每日每月上限）→ 家裡電腦的 AI
-  if (how === 'chat' && (!isCloudTired() || Date.now() >= (cloudTired?.check ?? 0))) {
-    const c = await askCloud(cfg, system, brainMem, askText, lang);
-    if (c.ok) {
-      raw = c.text;
-      if (cloudTired) setCloudTired(null);
+  // AI 3.0：路由（規則，不問 AI）選一個主要來源，失敗才依序換下一個；一次只叫一個
+  lifeAskingChat = how === 'chat';
+  lifeChatStale = false;
+  const plan = route({
+    settings: loadRoute(),
+    how,
+    text,
+    lang,
+    online: navigator.onLine,
+    avail: {
+      local: true,
+      cloud: !isCloudTired() || Date.now() >= (cloudTired?.check ?? 0),
+      // 家裡電腦說 Claude 已經打開才試（還沒打開時跟以前完全一樣，不會多繞一圈）
+      claude: claudeReady && Date.now() >= claudeTiredUntil,
+    },
+  });
+  const reqId = newReqId();
+  hearInfo.control = bodyLockedByOther() ? 'other' : 'FP';
+  hearInfo.epoch = lifeEpoch;
+  const t0 = performance.now();
+  Object.assign(aiDiag, { reqId, how, why: plan.why, tried: [], source: '', model: '', fallback: false, ms: 0, tokens: '', result: '' });
+  let source: AiSource | '' = '';
+  for (const src of plan.order) {
+    if (raw) break;
+    aiDiag.tried.push(src);
+    if (src === 'claude') {
+      // Claude 只拿到最少的內容：不送家人的名字、記住的事（notes）、認出是誰
+      const names = people.map((p) => p.name);
+      const claudeSystem =
+        // 鏡頭看到的描述也不送（畫面只在家裡電腦處理）
+        lifeSystem(pet, { speaker: null, family: [], notes: [] }, lang) + (how === 'chat' ? lifeChatRules : lifeRules)({ ...st, vision: false, sight: '' }, lang);
+      const c = await askClaude(cfg, claudeSystem, brainMem, askText, lang, plan.depth, reqId, (x) => redactNames(x, names, lang));
+      if (c.ok) {
+        raw = c.text;
+        source = 'claude';
+        Object.assign(aiDiag, { model: c.model + (c.fake ? ' (fake)' : ''), tokens: c.tokens });
+      } else {
+        aiDiag.result = `claude:${c.why}`;
+        // 預算用完、被限流、沒開：這段時間不再試 Claude（直接用原本的 AI）
+        if (c.why === 'budget') claudeTiredUntil = Date.now() + 30 * 60_000;
+        else if (c.why === 'rate' || c.why === 'busy') claudeTiredUntil = Date.now() + (c.retryAfter ?? 30) * 1000;
+        else if (c.why === 'off' || c.why === 'nokey' || c.why === 'denied') claudeTiredUntil = Date.now() + 10 * 60_000;
+        monitorLog('claude', { why: c.why, reqId });
+      }
+    } else if (src === 'cloud') {
+      // 既有雲端 AI（只有主人本人、有每日每月上限）
+      const c = await askCloud(cfg, system, brainMem, askText, lang);
+      if (c.ok) {
+        raw = c.text;
+        source = 'cloud';
+        aiDiag.model = 'claude-haiku-5-5';
+        if (cloudTired) setCloudTired(null);
+      } else {
+        aiDiag.result = `cloud:${c.why}`;
+        if (c.why === 'budget') setCloudTired(c.scope ?? 'day');
+        cloudNotice(c.why);
+      }
     } else {
-      if (c.why === 'budget') setCloudTired(c.scope ?? 'day');
-      cloudNotice(c.why);
+      raw = local(await ask(cfg, useJson ? localSystem : system, brainMem, askText, 25000, lang, useJson ? schema : undefined));
+      if (raw) {
+        source = 'local';
+        aiDiag.model = cfg.model;
+      }
     }
   }
-  raw ??= local(await ask(cfg, useJson ? localSystem : system, brainMem, askText, 25000, lang, useJson ? schema : undefined));
+  Object.assign(aiDiag, { source, fallback: aiDiag.tried.length > 1, ms: Math.round(performance.now() - t0), result: raw ? 'ok' : aiDiag.result || 'fail' });
   lifeBusy = false;
+  lifeAskingChat = false;
+  // AI 3.0：這個回答已經被更完整的那句取代（家人說的話被辨識成兩段）：不用，馬上回答新的
+  if (how === 'chat' && lifeChatStale) {
+    lifeChatStale = false;
+    hearTrace.mark('stale', performance.now(), reqId);
+    monitorLog('stale', { reqId, source });
+    window.setTimeout(lifeFlush, 50);
+    return false;
+  }
   // 「…」先留著，等她開口時直接換成那句話（以前會先清成一個空白泡泡，再出現第二個泡泡才說話）；沒回答就收起來
   if (how === 'chat' && !raw) hud.hideBubble();
   // 這段時間換了模式或關掉了：舊的回答不用
   if (!lifeSlot || epoch !== lifeEpoch) return false;
   monitorLog('reply', { how, raw });
   // 有人告訴她名字（AI 寫了 [名字：…]）：把剛才聽到的聲音記成這個名字（只存在這台手機）
-  // 有人自我介紹：AI 的 [名字：…]，或「我是いつき」這種說法（實驗：小模型常忘了寫名字欄位）
-  const named = (raw ? nameTag(raw) : null) ?? (how === 'chat' ? introName(text.replace(/^[^：:]{1,12}[：:]/, '')) : null);
+  // 有人自我介紹：AI 的 [名字：…]，或「我是〇〇」這種說法（實驗：小模型常忘了寫名字欄位）
+  // Claude 的回答不能改「認人」（名字只由本機 AI 或家人自己的自我介紹決定）
+  const named = (raw && source !== 'claude' ? nameTag(raw) : null) ?? (how === 'chat' ? introName(text.replace(/^[^：:]{1,12}[：:]/, '')) : null);
   if (named && lastVoice && performance.now() - lastVoice.at < 90_000 && voiceIdOn()) {
     addPerson(people, named, lastVoice.feat);
     savePeople(people);
@@ -1337,9 +1493,18 @@ async function lifeAsk(text: string, how: 'chat' | 'event' | 'notice' | 'decide'
     return false;
   }
   lifeOk();
+  if (how === 'chat') hearTrace.mark('accepted', performance.now(), `${source}:${aiDiag.ms}ms`);
   // 家人自己說的英文字（bug、Minecraft…）回答裡要保留
   const keep = text.match(/[A-Za-z][A-Za-z'’-]{1,30}/g) ?? [];
   let r = parseLifeReply(raw, lang, keep);
+  // AI 3.0：Claude 的回答只是候選：不能寫記憶；身體被別的地方控制時不帶動作；不能說「已經做好了」
+  if (source === 'claude') {
+    r = limitCandidate(r, source, bodyLockedByOther());
+    if (r.text && claimsDone(r.text, lang)) {
+      monitorLog('claim', { reqId });
+      r = { ...r, text: dropClaims(r.text, lang) };
+    }
+  }
   // 用了別的語言（例如設定中文卻回日文）：再請家裡電腦的 AI 用設定的語言回答一次；還是不對就只留對的句子
   if (r.text && mixedLanguage(r.text, lang)) {
     lifeBusy = true;

@@ -473,3 +473,86 @@ export async function cloudInfo(cfg: BrainConfig): Promise<CloudInfo | 'denied' 
     return 'net';
   }
 }
+
+// ---------- AI 3.0：第三個來源 Claude（家裡電腦代送；金鑰只在電腦上，手機永遠拿不到） ----------
+export type ClaudeResult =
+  | { ok: true; text: string; reqId: string; model: string; usd: number; tokens: string; ms: number; fake: boolean }
+  | {
+      ok: false;
+      why: 'off' | 'budget' | 'nokey' | 'denied' | 'refusal' | 'busy' | 'rate' | 'timeout' | 'net';
+      scope?: 'day' | 'month';
+      /** 429：幾秒後再試 */
+      retryAfter?: number;
+      reqId: string;
+    };
+
+/**
+ * 問 Claude（只送最少的內容）：系統說明由呼叫的地方先拿掉家人資訊；對話只送最近 6 句，名字換成「家人」。
+ * 回答只是候選，呼叫的地方照舊用白名單解析。
+ */
+export async function askClaude(
+  cfg: BrainConfig,
+  system: string,
+  mem: BrainMemory,
+  text: string,
+  lang: Lang,
+  depth: 'sonnet' | 'opus' | 'fable',
+  reqId: string,
+  redact: (s: string) => string = (s) => s,
+  timeoutMs = 45000,
+): Promise<ClaudeResult> {
+  if (!cfg.on || !cfg.url || !safeBrainUrl(cfg.url)) return { ok: false, why: 'net', reqId };
+  const turns = recentTurns(mem, Date.now(), lang).slice(-6);
+  const messages = [...turns.map((t) => ({ role: t.who === 'user' ? 'user' : 'assistant', content: redact(t.text) })), { role: 'user', content: redact(text) }];
+  try {
+    const r = await fetch(`${base(cfg.url)}/api/claude/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders(cfg) },
+      body: JSON.stringify({ system: redact(system), messages, langRule: LANG_RULE[lang], depth, reqId }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    // 轉接程式還沒有這個功能（正式的還沒更新）＝跟沒開一樣
+    if (r.status === 404) return { ok: false, why: 'off', reqId };
+    const j = (await r.json().catch(() => ({}))) as {
+      text?: string; error?: string; scope?: string; retryAfter?: number; reqId?: string; model?: string; usd?: number; tokens?: { in: number; out: number }; ms?: number; fake?: boolean;
+    };
+    // 不是這一次的回答（舊的）就不用
+    if (j.reqId && j.reqId !== reqId) return { ok: false, why: 'net', reqId };
+    if (r.status === 402) return { ok: false, why: 'budget', scope: j.scope === 'month' ? 'month' : 'day', reqId };
+    if (r.status === 403) return { ok: false, why: 'denied', reqId };
+    if (r.status === 422) return { ok: false, why: 'refusal', reqId };
+    if (r.status === 429) return { ok: false, why: j.error === 'busy' ? 'busy' : 'rate', retryAfter: j.retryAfter ?? 30, reqId };
+    if (r.status === 503) return { ok: false, why: j.error === 'off' ? 'off' : 'nokey', reqId };
+    if (r.status === 504) return { ok: false, why: 'timeout', reqId };
+    if (!r.ok || !j.text) return { ok: false, why: 'net', reqId };
+    return { ok: true, text: j.text, reqId, model: j.model ?? '', usd: j.usd ?? 0, tokens: j.tokens ? `${j.tokens.in}/${j.tokens.out}` : '', ms: j.ms ?? 0, fake: !!j.fake };
+  } catch (e) {
+    return { ok: false, why: e instanceof DOMException && e.name === 'TimeoutError' ? 'timeout' : 'net', reqId };
+  }
+}
+
+export interface ClaudeInfo {
+  enabled: boolean;
+  fake: boolean;
+  hasKey: boolean;
+  ready: boolean;
+  models: Record<string, string>;
+  dayUsd: number;
+  monthUsd: number;
+  daily: number;
+  monthly: number;
+  busy: boolean;
+}
+/** Claude 的狀態（開發者區看的；不含金鑰）；轉接程式還沒有這個功能時回傳 'old' */
+export async function claudeInfo(cfg: BrainConfig): Promise<ClaudeInfo | 'denied' | 'net' | 'old'> {
+  if (!cfg.url || !safeBrainUrl(cfg.url)) return 'net';
+  try {
+    const r = await fetch(`${base(cfg.url)}/api/claude/status`, { headers: authHeaders(cfg), signal: AbortSignal.timeout(8000) });
+    if (r.status === 404) return 'old';
+    if (r.status === 403) return 'denied';
+    if (!r.ok) return 'net';
+    return (await r.json()) as ClaudeInfo;
+  } catch {
+    return 'net';
+  }
+}

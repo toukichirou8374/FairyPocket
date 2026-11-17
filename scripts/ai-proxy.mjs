@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { cloudChat, cloudStatus, isOwner } from './cloud-ai.mjs';
+import { claude } from './claude-ai.mjs';
 import { tts } from './tts-azure.mjs';
 import { writeLifeLog } from './life-log.mjs';
 
@@ -25,9 +26,10 @@ const TOKEN_FILE = path.join(ROOT, 'private', 'ai-token.txt');
 const LISTEN = { host: '127.0.0.1', port: 11435 };
 const OLLAMA = { host: '127.0.0.1', port: 11434 };
 const ORIGINS = new Set(['https://toukichirou8374.github.io', 'http://localhost:4173', 'http://localhost:5173']);
-const ROUTES = new Set(['GET /api/tags', 'POST /api/chat', 'POST /api/cloud/chat', 'GET /api/cloud/status', 'POST /api/tts', 'POST /api/lifelog']);
+const ROUTES = new Set(['GET /api/tags', 'POST /api/chat', 'POST /api/cloud/chat', 'GET /api/cloud/status', 'POST /api/tts', 'POST /api/lifelog', 'POST /api/claude/chat', 'GET /api/claude/status']);
 /** 雲端 AI（要花錢）：只有電腦主人本人的 Tailscale 帳號能用 */
-const CLOUD = new Set(['POST /api/cloud/chat', 'GET /api/cloud/status']);
+// AI 3.0：第三個來源 Claude（Sonnet／Opus／Fable，見 claude-ai.mjs；預設關閉）一樣只限主人本人
+const CLOUD = new Set(['POST /api/cloud/chat', 'GET /api/cloud/status', 'POST /api/claude/chat', 'GET /api/claude/status']);
 const MAX_BODY = 64 * 1024;
 const PER_MINUTE = 40;
 
@@ -152,6 +154,7 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify(obj));
     };
     if (route === 'GET /api/cloud/status') return void json(200, cloudStatus());
+    if (route === 'GET /api/claude/status') return void json(200, claude().status());
     let body = '';
     let size = 0;
     req.on('data', (c) => {
@@ -170,7 +173,7 @@ const server = http.createServer((req, res) => {
       } catch {
         return json(400, { error: 'bad_json' });
       }
-      const [code, obj] = await cloudChat(parsed);
+      const [code, obj] = route === 'POST /api/claude/chat' ? await claude().chat(parsed) : await cloudChat(parsed);
       json(code, obj);
     });
     return;

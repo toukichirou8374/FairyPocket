@@ -9,6 +9,7 @@ import type { Lang } from '../i18n';
 import type { Personality, PetState } from '../game/state';
 import { GESTURE_MENU } from '../three/gestures';
 import { LANG_RULE } from '../brain/brain';
+import { echoOf } from './hearing';
 
 /** 個性：會怎麼過生活（決定做什麼），不是口頭禪 */
 const NATURE: Record<Personality, Record<Lang, string>> = {
@@ -133,25 +134,9 @@ export function pickHeard(alts: string[], family: string[]): string {
 
 /**
  * 麥克風聽到的是不是她自己剛說的話（喇叭的聲音又被麥克風收到）。
- * 去掉標點和空白後，一句包含另一句、或有六成以上的字一樣，就算是自己的聲音。
+ * AI 3.0：改用「相鄰兩個字」比對（hearing.ts 的 echoOf）。舊的「六成的字一樣」只看單字，
+ * 日文假名跟她說過的長句幾乎都有重疊，家人說的話常被當成回音丟掉（2026-11-15 紀錄）。
  */
 export function isEcho(heard: string, said: readonly string[]): boolean {
-  const norm = (s: string) => s.toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '');
-  const h = norm(heard);
-  if (h.length < 2) return false;
-  return said.some((x) => {
-    const s = norm(x);
-    if (s.length < 2) return false;
-    if (s.includes(h) || h.includes(s)) return true;
-    const pool = [...s];
-    let same = 0;
-    for (const c of h) {
-      const i = pool.indexOf(c);
-      if (i >= 0) {
-        same++;
-        pool.splice(i, 1);
-      }
-    }
-    return same / Math.max(h.length, 1) >= 0.6 && h.length >= 3;
-  });
+  return echoOf(heard, said);
 }
