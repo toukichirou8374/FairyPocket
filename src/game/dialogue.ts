@@ -18,7 +18,7 @@ type Table = Partial<Record<LineKind, string[]>>;
 
 const COMMON: Record<Lang, Record<LineKind, string[]>> = {
   zh_tw: {
-    greet: ['你好呀！我是{n}～', '今天也請多指教！', "見到你好開心！", "今天也要一起玩喔！"],
+    greet: ['你好呀！我是{n}～', '今天也請多指教！', "見到你好開心！", "今天也要一起玩喔！", '嗨！我今天也好想你', '你來了！我們來玩什麼呢？'],
     welcomeBack: ['你回來了！我一直在等你～', '好想你喔！', '歡迎回來！', "你回來啦！我幫你留了位子喔", "我數了好多好多，你就回來了！"],
     idle: ['啦啦啦～♪', '今天天氣真好', '你在做什麼呀？', '我聽見音樂的聲音了！', '要一起玩嗎？'],
     hungry: ['肚子咕嚕咕嚕叫了…', '有沒有好吃的呀？', '想吃麵包…', "好像該吃點心了…", "肚子空空的…"],
@@ -60,12 +60,12 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     bath: ['哇！好涼喔～', '洗得香香的！', '甩甩甩～嘿嘿，濺到你了嗎？', '泡泡好好玩！', "水花噴噴，好像下小雨！", "洗完澡，全身軟綿綿的"],
     firework: ['哇～好漂亮！', '再放一個！再放一個！', '天空開花了！', "好大的煙火喔！", "亮晶晶的，好像星星！"],
     waveBack: ['嗨嗨～我看到你了！', '揮揮手～你好呀！', '你在跟我打招呼嗎？我也揮揮！', "我也揮揮小翅膀！", "看到你揮手，我好開心！"],
-    heard: ['嗯嗯！我聽到了～', '♪～你說的我都懂喔！', '嘿嘿，再多說一點！', '{n}聽得好開心！'],
+    heard: ['嗯嗯！我聽到了～', '♪～你說的我都懂喔！', '嘿嘿，再多說一點！', '{n}聽得好開心！', '我有在聽喔，繼續說', '你的聲音好好聽'],
     cakeBite: ['啊嗚～蛋糕好甜！', '再吃一片就好…嘿嘿', '蛋糕軟綿綿的～', '還剩 {d} 片！'],
     cakeDone: ['蛋糕全部吃完了！好幸福～', '最後一片也好好吃！謝謝你的蛋糕！', "肚子裝滿甜甜的幸福了！", "吃完蛋糕，我要跳個舞！", "下次也一起吃蛋糕喔！"],
   },
   ja_jp: {
-    greet: ['こんにちは！{n}だよ～', '今日もよろしくね！', "あえてうれしいな！", "今日もいっしょに遊ぼうね！"],
+    greet: ['こんにちは！{n}だよ～', '今日もよろしくね！', "あえてうれしいな！", "今日もいっしょに遊ぼうね！", 'やっほー！きょうもあいたかったよ', 'きたね！なにしてあそぶ？'],
     welcomeBack: ['おかえり！ずっと待ってたよ～', '会いたかった！', 'おかえりなさい！', "おかえり！せきをとっておいたよ", "たくさんかぞえてたら、かえってきた！"],
     idle: ['ららら～♪', 'いいお天気だね', 'なにしてるの？', '音楽が聞こえる！', 'いっしょに遊ぶ？'],
     hungry: ['おなかがぐうぐう鳴ってる…', 'なにかおいしいものある？', 'パンが食べたいな…', "そろそろおやつの時間かな…", "おなかがぺこぺこ…"],
@@ -107,12 +107,12 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     bath: ['わぁ！つめたい～', 'いいにおいになった！', 'ぶるぶる～えへへ、かかった？', 'あわあわ楽しい！', "みずしぶき、こさめみたい！", "おふろのあと、からだがふわふわ"],
     firework: ['わぁ～きれい！', 'もう一回！もう一回！', '空に花がさいた！', "おっきな花火だね！", "キラキラ、お星さまみたい！"],
     waveBack: ['やっほ～見えてるよ！', 'ふりふり～こんにちは！', 'あいさつしてくれたの？わたしもふりふり！', "わたしもちいさなはねでふりふり！", "てをふってくれて、うれしい！"],
-    heard: ['うんうん！聞こえたよ～', '♪～ちゃんとわかってるよ！', 'えへへ、もっと話して！', '{n}、聞けてうれしい！'],
+    heard: ['うんうん！聞こえたよ～', '♪～ちゃんとわかってるよ！', 'えへへ、もっと話して！', '{n}、聞けてうれしい！', 'ちゃんときいてるよ、つづけて', 'あなたのこえ、すてきだね'],
     cakeBite: ['あーん～ケーキあまい！', 'もうひと切れだけ…えへへ', 'ケーキふわふわ～', 'あと {d} 切れ！'],
     cakeDone: ['ケーキ全部食べちゃった！しあわせ～', '最後のひと切れもおいしい！ケーキありがとう！', "おなかがあまいしあわせでいっぱい！", "ケーキのあとは、おどっちゃう！", "またいっしょにケーキたべようね！"],
   },
   en_us: {
-    greet: ["Hi there! I'm {n}~", 'Nice to see you today!', "I'm so glad to see you!", "Let's play together today!"],
+    greet: ["Hi there! I'm {n}~", 'Nice to see you today!', "I'm so glad to see you!", "Let's play together today!", 'Hi! I missed you today too', "You're here! What shall we play?"],
     welcomeBack: ["You're back! I was waiting~", 'I missed you!', 'Welcome back!', "Welcome back! I saved you a spot", "I counted and counted, and here you are!"],
     idle: ['La la la~♪', 'What a nice day', 'What are you doing?', 'I can hear music!', 'Wanna play?'],
     hungry: ['My tummy is rumbling…', 'Got anything yummy?', 'I want some bread…', "Is it snack time yet…", "My tummy feels empty…"],
@@ -154,7 +154,7 @@ const COMMON: Record<Lang, Record<LineKind, string[]>> = {
     bath: ['Whoa! So cool~', 'All clean and fresh!', 'Shake shake~ hehe, did I splash you?', 'Bubbles are fun!', "Splash! It looks like tiny rain!", "After my bath, I feel so fluffy"],
     firework: ['Wow~ so pretty!', 'Another one! Another one!', 'The sky is blooming!', "What a big firework!", "So sparkly, like stars!"],
     waveBack: ['Hi hi~ I can see you!', 'Wave wave~ hello!', 'Are you saying hi? I wave back!', "I wave my little wings too!", "Your wave makes me so happy!"],
-    heard: ['Mm-hm! I heard you~', '♪~ I understand everything you say!', 'Hehe, tell me more!', '{n} loves listening to you!'],
+    heard: ['Mm-hm! I heard you~', '♪~ I understand everything you say!', 'Hehe, tell me more!', '{n} loves listening to you!', "I'm listening, keep going", 'I love your voice'],
     cakeBite: ['Nom~ the cake is so sweet!', 'Just one more slice… hehe', 'So soft and fluffy~', '{d} slices left!'],
     cakeDone: ['I ate the whole cake! So happy~', 'The last slice was yummy too! Thanks for the cake!', "My tummy is full of sweet happiness!", "Cake's gone! Time for a happy dance!", "Let's share cake again next time!"],
   },
