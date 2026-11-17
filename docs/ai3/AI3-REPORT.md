@@ -142,3 +142,4 @@
 - 合併：`feat/fp-ai3` 先重新接到 main 最新的 84fa1df（字型重新產生），版本改成 **v0.59.0**，main 快轉後推送。正式 main 那兩處**未提交**的 Retry-After 修補先暫時拿掉，快轉後再原樣放回，**仍然沒有提交、沒有推送**。
 - 第一次推送 6ba95fa 時 CI 失敗：CI 的 `npm test` 會把後端的 `node --test` 檔也當 vitest 跑。失敗的那次沒有部署出去。檔名改成 `scripts/claude-ai-test.mjs`（跟 `brain-test.mjs` 一樣）後推送 c103a25，CI 成功，正式網站已確認是 v0.59.0。
 - 轉接程式 11435：新檔案已經在 main（含 Retry-After）。程式在 S4U 工作排程下執行，Claude 沒有權限停止它，需要製作人按兩下 `private/backups/relay-ai3-20261117/RESTART-RELAY.cmd`（UAC 按「是」）。啟動失敗會自動換回舊檔再啟動；紀錄寫在同一個資料夾的 `result.log`。
+- **轉接程式已重啟（2026-11-17 21:02，製作人執行）**：`result.log` 顯示成功（舊 pid 4412 → 新 pid 27212）。用手機的同一條路（Tailscale＋權杖）驗證：`/api/claude/status` 回 200、ready；`/api/claude/chat` 送一句中文，Sonnet 1.6 秒回了正確的繁體中文（US$0.001）；回應標頭有 `Access-Control-Expose-Headers: Retry-After`（修補還在）；既有雲端 Haiku 狀態也正常。（用 Git Bash 的 curl 直接在指令列打中文會變亂碼，那是測試工具的編碼問題，不是轉接程式；改用 node 送就正常。）
