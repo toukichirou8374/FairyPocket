@@ -1,5 +1,5 @@
 // AI 3.0：Claude 來源的後端測試（不連網、不花錢：全部用假的 client）
-// 執行：node --test scripts/claude-ai.test.mjs
+// 執行：node --test scripts/claude-ai-test.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';

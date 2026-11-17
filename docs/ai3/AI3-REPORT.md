@@ -114,7 +114,7 @@
 ## 14. 測試結果（2026-11-17，本機、隔離）
 | 項目 | 結果 |
 |---|---|
-| `node --test scripts/claude-ai.test.mjs`（假 client：關閉、假回應、沒金鑰、Sonnet／Opus／Fable 參數、Fable 由 Opus 接手記帳、拒答、每日／每月預算、最壞估價、同時只一個、429／金鑰錯誤／逾時、最少內容、共用金鑰、模型編號） | 15／15 通過（新增：中日文 token 估價不低估） |
+| `node --test scripts/claude-ai-test.mjs`（假 client：關閉、假回應、沒金鑰、Sonnet／Opus／Fable 參數、Fable 由 Opus 接手記帳、拒答、每日／每月預算、最壞估價、同時只一個、429／金鑰錯誤／逾時、最少內容、共用金鑰、模型編號） | 15／15 通過（新增：中日文 token 估價不低估） |
 | `src/brain/router.test.ts`（自動、手動、Claude 未開、事件不花錢、預算冷卻、離線、深度與 Fable、複雜度三語、名字遮蔽、候選限制、身體鎖定、「已經做好了」） | 15／15 通過（新增：Claude 的意圖只看標籤、預設 Claude 優先） |
 | `src/speech.test.ts`（三語言、只有中途結果、NoMatch、沒權限、暫時占用、重新開始退避、stalled、停掉時的中途結果、快速開關、停掉後計時取消） | 13／13 通過 |
 | `src/life/hearing.test.ts`（11-15／11-11 實際例子、真回音、原本的回音測試、中英文、重複／修正／新句、留著的話、階段紀錄） | 11／11 通過 |
