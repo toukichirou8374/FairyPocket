@@ -257,3 +257,18 @@ describe('AI 生命模式：第二輪回報（說要去做卻沒做、心情、�
     expect(maxSpeed).toBeLessThan(1.2);
   });
 });
+
+describe('從句子猜意圖：只有她說自己要做才算（2026-11-17 真實 API 實測的句子）', () => {
+  it('只是提到活動名稱、或是問句：不猜', () => {
+    expect(parseLifeReply("Good morning! I've been floating around since I woke up. Did you sleep okay? [action: wave right]", 'en_us').intent).toBeNull();
+    expect(parseLifeReply('我最喜歡看星星一閃一閃的樣子，好像在跳舞耶。', 'zh_tw').intent).toBeNull();
+    expect(parseLifeReply('Ooh, 7 times 8 is 56! It goes "5, 6, 7, 8," like a little dance count.', 'en_us').intent).toBeNull();
+    expect(parseLifeReply('要不要一起跳舞？', 'zh_tw').intent).toBeNull();
+  });
+  it('她說自己要做：照樣認得（gemma 常忘記寫標籤）', () => {
+    expect(parseLifeReply('好睏喔，我想睡覺了。', 'zh_tw').intent).toBe('sleep');
+    expect(parseLifeReply("Let's dance!", 'en_us').intent).toBe('dance');
+    expect(parseLifeReply('いっしょにおどろう！', 'ja_jp').intent).toBe('dance');
+    expect(parseLifeReply('ちょっとやすもうかな。', 'ja_jp').intent).toBe('rest');
+  });
+});

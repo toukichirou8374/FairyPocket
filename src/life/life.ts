@@ -126,18 +126,34 @@ export function parseLifeReply(raw: string, lang: Lang, keep: string[] = []): Li
 }
 
 const NEGATION = /不|沒|别|別|ない|ません|\bnot\b|n't|\bno\b/i;
-/** 句子裡提到的意圖（最長的名稱優先） */
+/**
+ * 她自己說「要做」的說法（2026-11-17 實測後加上）：以前只要句子裡提到活動名稱就猜成意圖，
+ * 結果「Did you sleep okay?」→睡覺、「好像在跳舞」→跳舞。現在要同一句裡有「我要／我想／一起／來…」
+ * 「〜しよう／〜たい」「I'll／let's…」這種自己要做的說法才算；問句不算。
+ */
+const WANT: Record<Lang, RegExp> = {
+  zh_tw: /我(?:要|想|來|去|先|也要|也想|們來|們去)|一起|來去/,
+  ja_jp: /(?:たい|よう|ろう|おう|こう|もう|しよ|ちゃお)[！!。ねよかなっ〜ー…\s]*$|しにいく|しに行く/,
+  en_us: /\b(?:i'?ll|i will|i want to|i wanna|i'm going to|i am going to|i'm gonna|let's|let me)\b/i,
+};
+/** 句子裡她說自己要做的意圖（最長的名稱優先） */
 export function intentInText(text: string, lang: Lang): Intent | null {
-  if (!text || NEGATION.test(text)) return null;
-  const t = text.toLowerCase();
+  if (!text) return null;
   let best: Intent | null = null;
   let len = 0;
-  INTENT_MENU[lang].forEach((name, i) => {
-    if (name.length > len && name.length >= 2 && t.includes(name.toLowerCase())) {
-      best = INTENTS[i];
-      len = name.length;
-    }
-  });
+  for (const raw of text.split(/(?<=[。！!？?…\n]|\.\s)/)) {
+    const s = raw.trim();
+    if (!s || /[？?]$/.test(s) || NEGATION.test(s) || !WANT[lang].test(s)) continue;
+    const t = s.toLowerCase();
+    INTENT_MENU[lang].forEach((name, i) => {
+      // 日文動詞會變形（おどる→おどろう、やすむ→やすもう）：也比對去掉最後一個字的詞幹（至少 2 個字）
+      const stem = lang === 'ja_jp' && /[うくぐすつぬぶむる]$/.test(name) && name.length >= 3 ? name.slice(0, -1) : '';
+      if (name.length > len && name.length >= 2 && (t.includes(name.toLowerCase()) || (stem && t.includes(stem)))) {
+        best = INTENTS[i];
+        len = name.length;
+      }
+    });
+  }
   return best;
 }
 

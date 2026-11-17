@@ -89,7 +89,7 @@ describe('Claude 的意圖只看標籤（2026-11-17 實測）', () => {
     expect(explicitIntent('いいよ！ [意図：おどる]')).toBe(true);
     expect(explicitIntent('Sure! [intent: dance]')).toBe(true);
     expect(explicitIntent('Good morning! Did you sleep okay? [action: wave right]')).toBe(false);
-    expect(explicitIntent('我最喜歡看燭光一閃一閃的樣子，好像在跳舞耶。')).toBe(false);
+    expect(explicitIntent('我最喜歡看星星一閃一閃的樣子，好像在跳舞耶。')).toBe(false);
   });
 });
 
